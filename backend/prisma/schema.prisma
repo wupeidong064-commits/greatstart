@@ -1,0 +1,319 @@
+// Prisma Schema - 智能课务系统数据库模型
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+// 机构表
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique // 机构代码
+  address     String?
+  phone       String?
+  email       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campuses    Campus[]
+  users       User[]
+  students    Student[]
+  classes     Class[]
+  courses     Course[]
+  enrollments Enrollment[]
+  payments    Payment[]
+  schedules   Schedule[]
+  attendances Attendance[]
+  leads       Lead[]
+
+  @@index([code])
+  @@map("organizations")
+}
+
+// 校区表
+model Campus {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  code           String   // 校区代码（在同一机构内唯一）
+  address        String?
+  phone          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          User[]
+  students       Student[]
+  classes        Class[]
+  schedules      Schedule[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("campuses")
+}
+
+// 用户表（包含所有角色）
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  password       String
+  name           String
+  phone          String?
+  role           String   // admin, manager, teacher, staff, parent
+  organizationId String?
+  campusId       String?
+  isActive       Boolean  @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  campus         Campus?       @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  taughtClasses  Class[]       @relation("ClassTeacher")
+  schedules      Schedule[]
+  attendances    Attendance[]
+  enrollments    Enrollment[]
+  payments       Payment[]
+
+  @@index([email])
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([role])
+  @@map("users")
+}
+
+// 学员表
+model Student {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String?
+  name           String
+  gender         String?  // M, F
+  birthDate      DateTime?
+  phone          String?
+  parentName     String?  // 家长姓名
+  parentPhone    String?  // 家长电话
+  parentEmail    String?  // 家长邮箱
+  address        String?
+  emergencyContact String? // 紧急联系人
+  emergencyPhone  String?  // 紧急联系电话
+  notes          String?  // 备注
+  status         String   @default("active") // active, inactive, graduated
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campus         Campus?      @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  enrollments    Enrollment[]
+  attendances    Attendance[]
+  payments       Payment[]
+
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([name])
+  @@index([status])
+  @@map("students")
+}
+
+// 班级表
+model Class {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String?
+  name           String
+  code           String   // 班级代码
+  courseType     String   // 课程类型
+  level          String?  // 班级水平：第一阶段-第七阶段
+  capacity       Int      @default(20) // 容量
+  teacherId      String?  // 教练ID
+  status         String   @default("active") // active, inactive, completed
+  startDate      DateTime?
+  endDate        DateTime?
+  description    String?
+  scheduleRule   Json?    // 排课规则：{recurrenceType, startDate, endDate, weekDays, startTime, endTime, location}
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campus         Campus?      @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  teacher        User?        @relation("ClassTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
+  enrollments    Enrollment[]
+  schedules      Schedule[]
+  attendances    Attendance[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([teacherId])
+  @@index([status])
+  @@map("classes")
+}
+
+// 课程表（课程模板）
+model Course {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  code           String   // 课程代码
+  description    String?
+  duration       Int      @default(60) // 时长（分钟）
+  price          Decimal? @default(0) // 价格
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  schedules      Schedule[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("courses")
+}
+
+// 排课表
+model Schedule {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String?
+  classId        String
+  courseId       String?
+  teacherId      String?
+  startTime      DateTime
+  endTime        DateTime
+  classroom      String?  // 教室
+  isRecurring    Boolean  @default(false) // 是否重复
+  recurrenceRule String?  // 重复规则（如：每周一、三、五）
+  status         String   @default("scheduled") // scheduled, completed, cancelled, rescheduled
+  originalScheduleId String? // 如果是调课，记录原排课ID
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campus         Campus?      @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  class          Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  course         Course?       @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  teacher        User?         @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  attendances    Attendance[]
+
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([classId])
+  @@index([startTime])
+  @@index([status])
+  @@map("schedules")
+}
+
+// 学员报名表
+model Enrollment {
+  id             String   @id @default(uuid())
+  organizationId String
+  studentId      String
+  classId        String
+  enrolledBy     String?  // 报名操作人ID
+  enrolledAt     DateTime @default(now())
+  status         String   @default("active") // active, completed, cancelled, transferred
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student        Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class          Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  enrolledByUser User?         @relation(fields: [enrolledBy], references: [id], onDelete: SetNull)
+  payments       Payment[]
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([classId])
+  @@index([status])
+  @@map("enrollments")
+}
+
+// 出勤记录表
+model Attendance {
+  id             String   @id @default(uuid())
+  organizationId String
+  studentId      String
+  scheduleId     String
+  classId        String
+  checkedInBy    String?  // 签到操作人ID
+  status         String   // present, absent, late, leave, makeUp
+  checkInTime    DateTime?
+  checkOutTime   DateTime?
+  notes          String?  // 备注（如请假原因、补签原因等）
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student        Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schedule       Schedule      @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  class          Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  checkedInByUser User?        @relation(fields: [checkedInBy], references: [id], onDelete: SetNull)
+
+  @@unique([studentId, scheduleId])
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([scheduleId])
+  @@index([classId])
+  @@index([status])
+  @@index([checkInTime])
+  @@map("attendances")
+}
+
+// 缴费记录表
+model Payment {
+  id             String   @id @default(uuid())
+  organizationId String
+  enrollmentId   String
+  studentId      String
+  amount         Decimal
+  paymentType    String   // tuition, material, other
+  paymentMethod  String   // cash, card, transfer, alipay, wechat
+  paidBy         String?  // 缴费操作人ID
+  paidAt         DateTime @default(now())
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enrollment     Enrollment   @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  paidByUser     User?        @relation(fields: [paidBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([enrollmentId])
+  @@index([studentId])
+  @@index([paidAt])
+  @@map("payments")
+}
+
+// 营销线索表（鱼池）
+model Lead {
+  id             String    @id @default(uuid())
+  organizationId String
+  customerName   String    // 客户姓名
+  age            Int?      // 年龄
+  contact        String    // 联系方式（手机号）
+  notes          String?   // 备注
+  lastContactAt  DateTime? // 最近联系时间
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([customerName])
+  @@index([contact])
+  @@index([createdAt])
+  @@map("leads")
+}
+
