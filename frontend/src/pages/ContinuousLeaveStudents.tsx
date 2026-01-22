@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Card, Tag, message, DatePicker, Space, Button, Progress, Select, Switch } from 'antd';
-import { UserOutlined, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { UserOutlined, SearchOutlined, ReloadOutlined, WarningOutlined, DownloadOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import dayjs from 'dayjs';
 
@@ -79,6 +79,65 @@ const ContinuousLeaveStudents = () => {
   const getDateRangeText = () => {
     if (!dateRange || !dateRange[0] || !dateRange[1]) return '全部时间';
     return `${dateRange[0].format('YYYY-MM-DD')} 至 ${dateRange[1].format('YYYY-MM-DD')}`;
+  };
+
+  // 导出低出勤学员数据
+  const handleExport = () => {
+    try {
+      message.loading('正在导出数据...', 0);
+      
+      if (students.length === 0) {
+        message.destroy();
+        message.warning('没有数据可导出');
+        return;
+      }
+
+      // 构建 CSV 内容
+      const headers = ['学员姓名', '所属班级', '班级代码', '负责教练', '应出勤(次)', '实际出勤(次)', '缺勤次数', '连续缺勤(次)', '出勤率(%)', '联系电话'];
+      const csvContent = [
+        headers.join(','),
+        ...students.map((student: any) => {
+          return [
+            `"${student.studentName || '-'}"`,
+            `"${student.className || '-'}"`,
+            `"${student.classCode || '-'}"`,
+            `"${student.teacher?.name || '-'}"`,
+            student.scheduleCount || 0,
+            student.presentCount || 0,
+            student.absentCount || 0,
+            student.continuousAbsentCount || 0,
+            student.attendanceRate || 0,
+            `"${student.phone || '-'}"`,
+          ].join(',');
+        })
+      ].join('\n');
+
+      // 添加 BOM 以支持中文
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      const dateStr = dateRange && dateRange[0] && dateRange[1]
+        ? `${dateRange[0].format('YYYYMMDD')}-${dateRange[1].format('YYYYMMDD')}`
+        : dayjs().format('YYYYMMDD');
+      const filterSuffix = continuousAbsentOnly ? '_连续请假' : '';
+      const teacherSuffix = selectedTeacher ? `_${teachers.find(t => t.id === selectedTeacher)?.name || ''}` : '';
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `低出勤学员_${dateStr}${teacherSuffix}${filterSuffix}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      message.destroy();
+      message.success(`成功导出 ${students.length} 位学员的数据`);
+    } catch (error: any) {
+      console.error('导出失败:', error);
+      message.destroy();
+      message.error('导出失败: ' + (error.message || '未知错误'));
+    }
   };
 
   const columns = [
@@ -251,6 +310,15 @@ const ContinuousLeaveStudents = () => {
             </Button>
             <Button icon={<ReloadOutlined />} onClick={handleReset}>
               重置
+            </Button>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={handleExport}
+              disabled={students.length === 0}
+              style={{ background: '#52c41a', borderColor: '#52c41a' }}
+            >
+              导出数据
             </Button>
           </Space>
         </div>

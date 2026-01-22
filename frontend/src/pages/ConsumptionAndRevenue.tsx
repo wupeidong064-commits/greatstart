@@ -1,4 +1,4 @@
-import { Card, Row, Col, Statistic, Table, message, DatePicker, Space, Tag, Switch, Progress } from 'antd';
+import { Card, Row, Col, Statistic, Table, message, DatePicker, Space, Tag, Switch, Progress, Button } from 'antd';
 import { useState, useEffect } from 'react';
 import { 
   UserOutlined, 
@@ -16,6 +16,7 @@ import {
   FilterOutlined,
   FallOutlined,
   RiseOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import dayjs from 'dayjs';
@@ -30,8 +31,8 @@ const ConsumptionAndRevenue = () => {
     dayjs().endOf('month'),
   ]);
   const [statistics, setStatistics] = useState({
-    totalAttendance: 0,       // 整体出勤人数（去重）
-    totalAttendanceCount: 0,  // 出勤人次（不去重）
+    totalAttendance: 0,       // 实际划课数（出勤人次）
+    totalAttendanceCount: 0,  // 应划课数（理想出勤人次）
     baseCount: 0,             // 基本盘人数
     rosterCount: 0,           // 花名册人数
     newRecruits: 0,           // 新增人数
@@ -116,6 +117,70 @@ const ConsumptionAndRevenue = () => {
     }
   };
 
+  // 导出班级学员变化数据
+  const handleExportClassChanges = () => {
+    try {
+      message.loading('正在导出数据...', 0);
+      
+      // 获取要导出的数据（根据筛选条件）
+      const dataToExport = filteredClassChanges;
+      
+      if (dataToExport.length === 0) {
+        message.destroy();
+        message.warning('没有数据可导出');
+        return;
+      }
+
+      // 构建 CSV 内容
+      const headers = ['班级名称', '班级代码', '负责教练', '班级类型', '当前人数', '班级容量', '满班率(%)', '上期人数', '新增', '流失', '变化', '变化率(%)'];
+      const csvContent = [
+        headers.join(','),
+        ...dataToExport.map((record: any) => {
+          const type = record.level || record.courseType || '普通';
+          return [
+            `"${record.name || '-'}"`,
+            `"${record.code || '-'}"`,
+            `"${record.teacherName || '未分配'}"`,
+            `"${type}"`,
+            record.currentStudents || 0,
+            record.maxStudents || 0,
+            record.fullnessRate || 0,
+            record.previousStudents || 0,
+            record.newAdded || 0,
+            record.lost || 0,
+            record.change || 0,
+            record.changeRate || 0,
+          ].join(',');
+        })
+      ].join('\n');
+
+      // 添加 BOM 以支持中文
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      const dateStr = dateRange && dateRange[0] && dateRange[1]
+        ? `${dateRange[0].format('YYYYMMDD')}-${dateRange[1].format('YYYYMMDD')}`
+        : dayjs().format('YYYYMMDD');
+      const filterSuffix = showDecreasedOnly ? '_人数减少' : '';
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `班级学员变化_${dateStr}${filterSuffix}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      message.destroy();
+      message.success(`成功导出 ${dataToExport.length} 个班级的数据`);
+    } catch (error: any) {
+      console.error('导出失败:', error);
+      message.destroy();
+      message.error('导出失败: ' + (error.message || '未知错误'));
+    }
+  };
+
   // 过滤显示的班级数据
   const filteredClassChanges = showDecreasedOnly 
     ? classChanges.filter(c => c.change < 0)
@@ -182,11 +247,22 @@ const ConsumptionAndRevenue = () => {
         <Col span={6}>
           <Card loading={loading} hoverable>
             <Statistic
-              title="整体出勤人次"
-              value={statistics.totalAttendanceCount}
+              title="实际划课数"
+              value={statistics.totalAttendance}
               prefix={<CheckCircleOutlined style={{ color: '#1890ff' }} />}
               suffix="人次"
               valueStyle={{ color: '#1890ff' }}
+            />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card loading={loading} hoverable>
+            <Statistic
+              title="应划课数"
+              value={statistics.totalAttendanceCount}
+              prefix={<CalendarOutlined style={{ color: '#722ed1' }} />}
+              suffix="人次"
+              valueStyle={{ color: '#722ed1' }}
             />
           </Card>
         </Col>
@@ -201,17 +277,6 @@ const ConsumptionAndRevenue = () => {
                 color: statistics.attendanceRate >= 80 ? '#52c41a' : 
                        statistics.attendanceRate >= 60 ? '#faad14' : '#ff4d4f' 
               }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card loading={loading} hoverable>
-            <Statistic
-              title="出勤学员数"
-              value={statistics.totalAttendance}
-              prefix={<UserOutlined style={{ color: '#722ed1' }} />}
-              suffix="人"
-              valueStyle={{ color: '#722ed1' }}
             />
           </Card>
         </Col>
@@ -323,7 +388,14 @@ const ConsumptionAndRevenue = () => {
               render: (val: number) => <strong style={{ color: '#3f8600' }}>{val} 人</strong>,
             },
             {
-              title: '出勤人次',
+              title: '实际划课数',
+              dataIndex: 'totalAttendance',
+              key: 'totalAttendance',
+              align: 'center',
+              render: (val: number) => `${val} 人次`,
+            },
+            {
+              title: '应划课数',
               dataIndex: 'totalAttendanceCount',
               key: 'totalAttendanceCount',
               align: 'center',
@@ -373,9 +445,9 @@ const ConsumptionAndRevenue = () => {
       <Card 
         title={
           <span>
-            基本盘变化
+            基本盘变化分析
             <span style={{ fontSize: 12, color: '#999', marginLeft: 16, fontWeight: 'normal' }}>
-              基本盘 = 花名册 + 新增 + 召回 - 不续费 - 流失（停卡）
+              本期变化 = 新增 + 召回 - 不续费 - 流失（停卡）
             </span>
           </span>
         } 
@@ -385,11 +457,19 @@ const ConsumptionAndRevenue = () => {
           loading={loading}
           columns={[
             {
-              title: '花名册人数',
-              dataIndex: 'rosterCount',
-              key: 'rosterCount',
+              title: '当前基本盘',
+              dataIndex: 'baseCount',
+              key: 'baseCount',
               align: 'center',
-              render: (val: number) => <span style={{ color: '#1890ff', fontWeight: 'bold' }}>{val} 人</span>,
+              render: (val: number) => (
+                <span style={{ 
+                  color: '#1890ff', 
+                  fontWeight: 'bold',
+                  fontSize: 16
+                }}>
+                  {val} 人
+                </span>
+              ),
             },
             {
               title: (
@@ -436,21 +516,21 @@ const ConsumptionAndRevenue = () => {
               render: (val: number) => <span style={{ color: '#ff4d4f' }}>-{val} 人</span>,
             },
             {
-              title: '= 基本盘人数',
-              dataIndex: 'baseCount',
-              key: 'baseCount',
+              title: '= 本期净变化',
+              key: 'netChange',
               align: 'center',
-              render: (val: number) => (
-                <span style={{ 
-                  color: '#fff', 
-                  background: '#52c41a', 
-                  padding: '4px 12px', 
-                  borderRadius: 4,
-                  fontWeight: 'bold'
-                }}>
-                  {val} 人
-                </span>
-              ),
+              render: (_: any, record: any) => {
+                const change = (record.newRecruits || 0) + (record.recalled || 0) - (record.nonRenewals || 0) - (record.deletedRoster || 0);
+                return (
+                  <span style={{ 
+                    color: change >= 0 ? '#52c41a' : '#ff4d4f', 
+                    fontWeight: 'bold',
+                    fontSize: 15
+                  }}>
+                    {change >= 0 ? '+' : ''}{change} 人
+                  </span>
+                );
+              },
             },
           ]}
           dataSource={[statistics]}
@@ -471,6 +551,14 @@ const ConsumptionAndRevenue = () => {
               </span>
             </span>
             <Space>
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={handleExportClassChanges}
+                disabled={filteredClassChanges.length === 0}
+              >
+                导出表格
+              </Button>
               <span style={{ fontSize: 14, fontWeight: 'normal', color: '#666' }}>
                 仅显示人数减少班级
               </span>

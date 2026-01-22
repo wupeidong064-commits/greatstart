@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Table, Card, Tag, Statistic, Row, Col, message, Progress, Space, Alert } from 'antd';
-import { UserOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { Table, Card, Tag, Statistic, Row, Col, message, Progress, Space, Alert, Button } from 'antd';
+import { UserOutlined, CheckCircleOutlined, WarningOutlined, DownloadOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import dayjs from 'dayjs';
 
@@ -39,6 +39,63 @@ const HoneymoonAttendance = () => {
     if (rate >= 80) return 'green';
     if (rate >= 60) return 'orange';
     return 'red';
+  };
+
+  // 导出蜜月期客户数据
+  const handleExport = () => {
+    try {
+      message.loading('正在导出数据...', 0);
+      
+      if (students.length === 0) {
+        message.destroy();
+        message.warning('没有数据可导出');
+        return;
+      }
+
+      // 构建 CSV 内容
+      const headers = ['学员姓名', '所属班级', '班级代码', '负责教练', '报名日期', '已过天数', '剩余天数', '应出勤(次)', '实际出勤(次)', '缺勤次数', '出勤率(%)', '联系电话'];
+      const csvContent = [
+        headers.join(','),
+        ...students.map((student: any) => {
+          return [
+            `"${student.studentName || '-'}"`,
+            `"${student.className || '-'}"`,
+            `"${student.classCode || '-'}"`,
+            `"${student.teacher?.name || '-'}"`,
+            student.enrollmentDate ? dayjs(student.enrollmentDate).format('YYYY-MM-DD') : '-',
+            student.daysPassed || 0,
+            student.daysRemaining || 0,
+            student.expectedAttendance || 0,
+            student.actualAttendance || 0,
+            student.absentCount || 0,
+            student.attendanceRate || 0,
+            `"${student.phone || '-'}"`,
+          ].join(',');
+        })
+      ].join('\n');
+
+      // 添加 BOM 以支持中文
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      const dateStr = dayjs().format('YYYYMMDD');
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `蜜月期客户出勤_${dateStr}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      message.destroy();
+      message.success(`成功导出 ${students.length} 位学员的数据`);
+    } catch (error: any) {
+      console.error('导出失败:', error);
+      message.destroy();
+      message.error('导出失败: ' + (error.message || '未知错误'));
+    }
   };
 
   const columns = [
@@ -136,7 +193,18 @@ const HoneymoonAttendance = () => {
   return (
     <div>
       <Card>
-        <h1 style={{ marginBottom: 24 }}>蜜月期客户出勤</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <h1 style={{ margin: 0 }}>蜜月期客户出勤</h1>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleExport}
+            disabled={students.length === 0}
+            size="large"
+          >
+            导出数据
+          </Button>
+        </div>
         
         {/* 说明提示 */}
         <Alert

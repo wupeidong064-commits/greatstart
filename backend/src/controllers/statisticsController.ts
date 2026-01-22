@@ -888,12 +888,7 @@ export const statisticsController = {
       const filteredLowAttendanceClasses = lowAttendanceClasses.filter((c) => c !== null);
 
       // 3. 人数减少的班级（与上周相比，学员人数减少的班级）
-      const weekDuration = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-      const lastWeekStart = new Date(start);
-      lastWeekStart.setDate(lastWeekStart.getDate() - weekDuration);
-      const lastWeekEnd = new Date(start);
-      lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
-      lastWeekEnd.setHours(23, 59, 59, 999);
+      // 重用之前计算的 weekDuration, lastWeekStart, lastWeekEnd
 
       // 获取上周各班级的学员数
       const lastWeekEnrollments = await prisma.enrollment.findMany({

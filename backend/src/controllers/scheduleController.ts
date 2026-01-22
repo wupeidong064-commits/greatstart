@@ -341,6 +341,7 @@ export const scheduleController = {
         startTime,
         endTime,
         location,
+        cancelExisting = true, // 默认取消之前的排课
       } = req.body;
 
       const organizationId = req.body.organizationId;
@@ -361,6 +362,25 @@ export const scheduleController = {
         if (!teacher || teacher.organizationId !== organizationId) {
           return next(new ApiError('教练不存在或不属于该机构', 400, 'TEACHER_NOT_FOUND'));
         }
+      }
+
+      // 如果需要取消之前的排课，将该班级未来的排课状态改为cancelled
+      let cancelledCount = 0;
+      if (cancelExisting) {
+        const result = await prisma.schedule.updateMany({
+          where: {
+            classId,
+            status: 'scheduled',
+            startTime: {
+              gte: new Date(), // 只取消未来的排课
+            },
+          },
+          data: {
+            status: 'cancelled',
+            notes: '已被新排课规则替代',
+          },
+        });
+        cancelledCount = result.count;
       }
 
       const schedules: any[] = [];
@@ -413,7 +433,40 @@ export const scheduleController = {
         data: schedules,
       });
 
-      sendSuccess(res, { count: result.count, schedules: schedules.length }, `成功创建 ${result.count} 条排课记录`, 201);
+      // 准备排课规则数据
+      const scheduleRuleData = {
+        recurrenceType,
+        startDate,
+        endDate,
+        weekDays,
+        startTime,
+        endTime,
+        location,
+      };
+
+      // 尝试更新班级的排课规则（如果字段不存在则跳过）
+      try {
+        await prisma.class.update({
+          where: { id: classId },
+          data: {
+            scheduleRule: scheduleRuleData as any,
+          },
+        });
+      } catch (updateError) {
+        console.warn('更新排课规则失败（可能字段不存在）:', updateError);
+        // 继续执行，不影响排课创建
+      }
+
+      sendSuccess(
+        res, 
+        { 
+          count: result.count, 
+          cancelledCount,
+          scheduleRule: scheduleRuleData,
+        }, 
+        `成功创建 ${result.count} 条排课记录${cancelledCount > 0 ? `，取消了 ${cancelledCount} 条旧排课` : ''}`, 
+        201
+      );
     } catch (error) {
       next(error);
     }

@@ -59,6 +59,9 @@ const RenewalStudents = () => {
   useEffect(() => {
     fetchTeacherList();
     fetchClassList();
+    // 初始化时同时获取两个标签的数据，确保数量正确显示
+    fetchRenewalStudents();
+    fetchNoRenewalStudents();
   }, []);
 
   useEffect(() => {
@@ -381,6 +384,18 @@ const RenewalStudents = () => {
       width: 100,
     },
     {
+      title: '类型',
+      dataIndex: 'status',
+      key: 'type',
+      width: 90,
+      render: (_: any, record: any) => {
+        if (record.status === 'graduated') {
+          return <Tag color="blue">已毕业</Tag>;
+        }
+        return <Tag color="orange">不续费</Tag>;
+      },
+    },
+    {
       title: '电话',
       dataIndex: 'parentPhone',
       key: 'parentPhone',
@@ -395,32 +410,44 @@ const RenewalStudents = () => {
       render: (remaining: number) => <Tag color="default">{remaining || 0} 节</Tag>,
     },
     {
-      title: '不续费原因',
+      title: '原因/备注',
       dataIndex: 'noRenewalReason',
       key: 'noRenewalReason',
       width: 200,
-      render: (reason: string) => reason || '-',
+      render: (_: any, record: any) => {
+        if (record.status === 'graduated') {
+          return <span style={{ color: '#1890ff' }}>学员已毕业</span>;
+        }
+        return record.noRenewalReason || '-';
+      },
     },
     {
       title: '标记时间',
       dataIndex: 'noRenewalDate',
       key: 'noRenewalDate',
       width: 120,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
+      render: (date: string, record: any) => {
+        const displayDate = date || record.updatedAt;
+        return displayDate ? dayjs(displayDate).format('YYYY-MM-DD') : '-';
+      },
     },
     {
       title: '操作',
       key: 'action',
       width: 100,
       render: (_: any, record: any) => (
-        <Popconfirm
-          title="确定要恢复为待续费吗？"
-          onConfirm={() => handleRestoreRenewal(record)}
-        >
-          <Button type="link" size="small">
-            恢复
-          </Button>
-        </Popconfirm>
+        record.status !== 'graduated' ? (
+          <Popconfirm
+            title="确定要恢复为待续费吗？"
+            onConfirm={() => handleRestoreRenewal(record)}
+          >
+            <Button type="link" size="small">
+              恢复
+            </Button>
+          </Popconfirm>
+        ) : (
+          <span style={{ color: '#999' }}>-</span>
+        )
       ),
     },
   ];

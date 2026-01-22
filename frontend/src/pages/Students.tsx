@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
@@ -138,6 +138,9 @@ const Students = () => {
     fetchClasses(); // 获取班级列表用于选择
     setModalVisible(true);
   };
+
+  // 注意：新增学员功能在此页面，但真正的"新增学员"统计应从成单信息表中获取
+  // 成单信息表的记录会自动创建学员，并标记 courseType != '续费'
 
   const handleEdit = (record: any) => {
     setEditingStudent(record);
@@ -325,37 +328,93 @@ const Students = () => {
     }
   };
 
-  const handleDeductLessons = (student: any) => {
+  const handleDeductLessons = async (student: any) => {
     const remaining = student?.remainingLessons || 0;
     if (remaining <= 0) {
       message.warning('该学员剩余课时不足，无法划课');
       return;
     }
-    setDeductLessonStudent(student);
+    
+    // 获取学员的班级信息
+    try {
+      const studentDetail = await memfireDB.students.getById(student.id);
+      const activeEnrollments = studentDetail.enrollments?.filter((e: any) => e.status === 'active') || [];
+      
+      if (activeEnrollments.length === 0) {
+        message.warning('该学员未报名任何班级，无法划课');
+        return;
+      }
+      
+      setDeductLessonStudent({ ...student, enrollments: activeEnrollments });
     deductLessonForm.resetFields();
-    deductLessonForm.setFieldsValue({ lessons: 1 });
+      deductLessonForm.setFieldsValue({ 
+        lessons: 1,
+        attendanceStatus: 'present',
+        date: dayjs(),
+      });
     setDeductLessonModalVisible(true);
+    } catch (error: any) {
+      console.error('获取学员信息失败:', error);
+      message.error('获取学员信息失败');
+    }
   };
 
   const handleLessonSubmit = async (values: any) => {
     if (!deductLessonStudent) return;
     try {
+      const { user } = useAuthStore.getState();
       const deduction = values.lessons || 0;
       const currentRemaining = deductLessonStudent.remainingLessons || 0;
       const actualDeduct = Math.min(deduction, currentRemaining);
       const newRemaining = Math.max(currentRemaining - deduction, 0);
+      
+      // 获取或创建排课记录
+      const classId = values.classId;
+      const attendanceDate = values.date.format('YYYY-MM-DD');
+      const attendanceStatus = values.attendanceStatus;
+      
+      // 查找当天该班级的排课
+      let schedule = await memfireDB.schedules.findByClassAndDate(classId, attendanceDate);
+      
+      // 如果没有排课记录，创建一个临时排课（用于手动划课）
+      if (!schedule) {
+        const classInfo = deductLessonStudent.enrollments?.find((e: any) => e.classId === classId)?.class;
+        schedule = await memfireDB.schedules.create({
+          organizationId: user?.organizationId || classInfo?.organizationId,
+          classId,
+          startTime: `${attendanceDate}T00:00:00+08:00`,
+          endTime: `${attendanceDate}T23:59:59+08:00`,
+          status: 'completed',
+          isRecurring: false,
+          classroom: '手动划课',
+        });
+      }
+      
+      // 创建考勤记录
+      await memfireDB.attendances.create({
+        organizationId: user?.organizationId,
+        classId,
+        scheduleId: schedule.id,
+        studentId: deductLessonStudent.id,
+        status: attendanceStatus,
+        notes: values.notes || '手动划课',
+      });
+      
+      // 扣减课时
       await memfireDB.students.update(deductLessonStudent.id, {
         remainingLessons: newRemaining,
       });
+      
+      // 记录课时日志
       await memfireDB.lessonLogs.create({
         studentId: deductLessonStudent.id,
         studentName: deductLessonStudent.name,
         type: 'deduct',
         lessons: actualDeduct,
-        notes: '划课扣减',
+        notes: `${attendanceStatus === 'present' ? '出勤' : attendanceStatus === 'absent' ? '缺勤' : '请假'} - ${values.notes || ''}`,
       });
 
-      message.success(`${deductLessonStudent.name} 划课 ${actualDeduct} 节，剩余 ${newRemaining} 节`);
+      message.success(`${deductLessonStudent.name} 划课成功：${actualDeduct} 节，剩余 ${newRemaining} 节`);
       setDeductLessonModalVisible(false);
       setDeductLessonStudent(null);
       fetchStudents();
@@ -406,32 +465,105 @@ const Students = () => {
   const fetchLessonLogs = async (page = 1, pageSize = logPagination.pageSize) => {
     setLogLoading(true);
     try {
-      const params: any = {
-        page,
-        pageSize,
-      };
-
-      if (logDateRange?.[0]) {
-        params.startDate = logDateRange[0].format('YYYY-MM-DD');
-      }
-      if (logDateRange?.[1]) {
-        params.endDate = logDateRange[1].format('YYYY-MM-DD');
-      }
-      if (logFilters.type) {
-        params.type = logFilters.type;
+      const userOrgId = user?.organizationId;
+      if (!userOrgId) {
+        message.error('无法获取机构ID');
+        return;
       }
 
-      const result = await memfireDB.lessonLogs.list(params);
-      setLessonLogs(result.data || []);
+      // 构建日期范围
+      const startDate = logDateRange?.[0]?.format('YYYY-MM-DD') || '2020-01-01';
+      const endDate = logDateRange?.[1]?.format('YYYY-MM-DD') || dayjs().add(1, 'year').format('YYYY-MM-DD');
+
+      console.log('📋 查询参数:', { page, pageSize, startDate, endDate, logFilters });
+
+      // 1. 查询考勤记录（划课记录）
+      const attendanceRecords: any[] = [];
+      if (!logFilters.type || logFilters.type === 'deduct') {
+        try {
+          console.log('🔍 开始查询考勤记录:', { startDate, endDate, userOrgId });
+          const attendancesResult = await memfireDB.attendances.getByDateRange(startDate, endDate, userOrgId);
+          console.log('✅ 查询到考勤记录:', attendancesResult.length);
+          
+          attendancesResult.forEach((att: any) => {
+            attendanceRecords.push({
+              id: `att-${att.id}`,
+              studentId: att.studentId,
+              studentName: att.studentName || '-',
+              type: 'deduct',
+              lessons: 1,
+              operatorName: att.operatorName || '系统',
+              notes: `${att.className || '未知班级'} - ${att.status === 'present' ? '出勤' : '缺勤'}`,
+              createdAt: att.attendanceDate || att.createdAt,
+              className: att.className,
+              scheduleTime: att.scheduleTime,
+              status: att.status,
+            });
+          });
+        } catch (err) {
+          console.error('❌ 查询考勤记录失败:', err);
+          // 继续执行，只是不显示考勤记录
+        }
+      }
+
+      // 2. 查询增课记录
+      const addRecords: any[] = [];
+      // 只有在未选择类型或明确选择"增课"时才查询 lessonLogs
+      if (!logFilters.type || logFilters.type === 'add') {
+        try {
+          console.log('🔍 开始查询增课记录');
+          const params: any = { 
+            page: 1, 
+            pageSize: 1000,
+            type: 'add'  // 始终只查询增课记录
+          };
+          if (logDateRange?.[0]) {
+            params.startDate = startDate;
+          }
+          if (logDateRange?.[1]) {
+            params.endDate = endDate;
+          }
+          const lessonLogsResult = await memfireDB.lessonLogs.list(params);
+          addRecords.push(...(lessonLogsResult.data || []));
+          console.log('✅ 查询到增课记录:', addRecords.length);
+        } catch (err) {
+          console.error('❌ 查询增课记录失败:', err);
+          // 继续执行，只是不显示增课记录
+        }
+      }
+
+      // 3. 合并并排序
+      const allRecords = [...attendanceRecords, ...addRecords].sort((a, b) => {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      console.log('📊 合并后总记录数:', allRecords.length);
+
+      // 4. 分页
+      const total = allRecords.length;
+      const startIndex = (page - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const paginatedData = allRecords.slice(startIndex, endIndex);
+
+      console.log('📄 分页信息:', { 
+        total, 
+        page, 
+        pageSize, 
+        startIndex, 
+        endIndex, 
+        paginatedDataLength: paginatedData.length 
+      });
+
+      setLessonLogs(paginatedData);
       setLogPagination(prev => ({
         ...prev,
-        total: result.pagination?.total || 0,
+        total,
         current: page,
         pageSize,
       }));
     } catch (error: any) {
-      console.error('获取增课日志失败:', error);
-      message.error(error.message || '获取增课日志失败');
+      console.error('获取划课记录失败:', error);
+      message.error(error.message || '获取划课记录失败');
     } finally {
       setLogLoading(false);
     }
@@ -455,10 +587,208 @@ const Students = () => {
     fetchLessonLogs(1, logPagination.pageSize);
   };
 
+  const handleExportLogs = async () => {
+    try {
+      message.loading('正在导出数据...', 0);
+      
+      const userOrgId = user?.organizationId;
+      if (!userOrgId) {
+        message.destroy();
+        message.error('无法获取机构ID');
+        return;
+      }
+
+      // 构建日期范围
+      const startDate = logDateRange?.[0]?.format('YYYY-MM-DD') || '2020-01-01';
+      const endDate = logDateRange?.[1]?.format('YYYY-MM-DD') || dayjs().add(1, 'year').format('YYYY-MM-DD');
+
+      // 1. 查询所有考勤记录（不分页）
+      const allAttendanceRecords: any[] = [];
+      if (!logFilters.type || logFilters.type === 'deduct') {
+        try {
+          const attendancesResult = await memfireDB.attendances.getByDateRange(startDate, endDate, userOrgId);
+          attendancesResult.forEach((att: any) => {
+            allAttendanceRecords.push({
+              id: `att-${att.id}`,
+              studentId: att.studentId,
+              studentName: att.studentName || '-',
+              type: 'deduct',
+              lessons: 1,
+              operatorName: att.operatorName || '系统',
+              notes: `${att.className || '未知班级'} - ${att.status === 'present' ? '出勤' : '缺勤'}`,
+              createdAt: att.attendanceDate || att.createdAt,
+              className: att.className,
+              scheduleTime: att.scheduleTime,
+              status: att.status,
+            });
+          });
+        } catch (err) {
+          console.error('❌ 导出时查询考勤记录失败:', err);
+        }
+      }
+
+      // 2. 查询所有增课记录（不分页）
+      const allAddRecords: any[] = [];
+      // 只有在未选择类型或明确选择"增课"时才查询 lessonLogs
+      if (!logFilters.type || logFilters.type === 'add') {
+        try {
+          const params: any = { 
+            page: 1, 
+            pageSize: 10000,
+            type: 'add'  // 始终只查询增课记录
+          };
+          if (logDateRange?.[0]) {
+            params.startDate = startDate;
+          }
+          if (logDateRange?.[1]) {
+            params.endDate = endDate;
+          }
+          const lessonLogsResult = await memfireDB.lessonLogs.list(params);
+          allAddRecords.push(...(lessonLogsResult.data || []));
+        } catch (err) {
+          console.error('❌ 导出时查询增课记录失败:', err);
+        }
+      }
+
+      // 3. 合并并排序
+      const allRecords = [...allAttendanceRecords, ...allAddRecords].sort((a, b) => {
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      if (allRecords.length === 0) {
+        message.destroy();
+        message.warning('没有数据可导出');
+        return;
+      }
+
+      // 4. 构建 CSV 内容
+      const headers = ['学员', '类型', '班级', '状态', '节数', '操作者', '备注', '时间'];
+      const csvContent = [
+        headers.join(','),
+        ...allRecords.map(log => {
+          const type = log.type === 'add' ? '增课' : '划课';
+          const className = log.type === 'deduct' && log.className ? log.className : (log.notes || '-');
+          const status = log.type === 'add' ? '-' : (log.status === 'present' ? '出勤' : '缺勤');
+          const notes = log.type === 'deduct' ? '-' : (log.notes || '-');
+          const time = log.createdAt ? dayjs(log.createdAt).format('YYYY-MM-DD HH:mm') : '-';
+          
+          return [
+            log.studentName || '-',
+            type,
+            className,
+            status,
+            `${log.lessons || 0}节`,
+            log.operatorName || '-',
+            notes,
+            time
+          ].map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',');
+        })
+      ].join('\n');
+
+      // 5. 添加 BOM 以支持中文
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `划课记录_${dayjs().format('YYYY-MM-DD_HHmmss')}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      message.destroy();
+      message.success(`成功导出 ${allRecords.length} 条记录`);
+    } catch (error: any) {
+      console.error('导出失败:', error);
+      message.destroy();
+      message.error('导出失败: ' + (error.message || '未知错误'));
+    }
+  };
+
   const handleLogTableChange = (page: number, pageSize?: number) => {
     const size = pageSize || logPagination.pageSize;
     setLogPagination(prev => ({ ...prev, current: page, pageSize: size }));
     fetchLessonLogs(page, size);
+  };
+
+  // 导出全部学员数据
+  const handleExportAllStudents = async () => {
+    try {
+      message.loading('正在导出全部学员数据...', 0);
+      
+      // 获取所有学员数据（包含班级和教练信息）
+      const response = await memfireDB.students.list({
+        page: 1,
+        pageSize: 10000, // 获取大量数据
+      });
+      
+      const allStudents = response.data || [];
+      
+      if (allStudents.length === 0) {
+        message.destroy();
+        message.warning('没有学员数据可导出');
+        return;
+      }
+
+      // 构建 CSV 内容
+      const headers = ['姓名', '性别', '电话', '家长电话', '剩余课时', '累计课时', '所属班级', '负责教练', '状态', '备注'];
+      const csvContent = [
+        headers.join(','),
+        ...allStudents.map((student: any) => {
+          // 获取活跃的班级和教练信息
+          const activeEnrollments = student.enrollments?.filter((e: any) => e.status === 'active') || [];
+          const classNames = activeEnrollments
+            .map((e: any) => e.class?.name || e.class?.code || '')
+            .filter((name: string) => name)
+            .join('、') || '-';
+          
+          const teacherNames = activeEnrollments
+            .map((e: any) => e.class?.teacher?.name || '')
+            .filter((name: string) => name)
+            .join('、') || '-';
+          
+          const gender = student.gender === 'M' ? '男' : student.gender === 'F' ? '女' : '-';
+          const status = student.status === 'active' ? '活跃' : student.status === 'inactive' ? '非活跃' : student.status === 'graduated' ? '已毕业' : '-';
+          
+          return [
+            `"${student.name || '-'}"`,
+            gender,
+            `"${student.phone || '-'}"`,
+            `"${student.parentPhone || '-'}"`,
+            student.remainingLessons || 0,
+            student.totalLessonsPurchased || 0,
+            `"${classNames}"`,
+            `"${teacherNames}"`,
+            status,
+            `"${student.notes || '-'}"`,
+          ].join(',');
+        })
+      ].join('\n');
+
+      // 添加 BOM 以支持中文
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      
+      const dateStr = dayjs().format('YYYYMMDD_HHmmss');
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `全部学员_${dateStr}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      message.destroy();
+      message.success(`成功导出 ${allStudents.length} 位学员的数据`);
+    } catch (error: any) {
+      console.error('导出失败:', error);
+      message.destroy();
+      message.error('导出失败: ' + (error.message || '未知错误'));
+    }
   };
 
   const columns = [
@@ -577,13 +907,13 @@ const Students = () => {
       title: '学员',
       dataIndex: 'studentName',
       key: 'studentName',
-      width: 150,
+      width: 120,
     },
     {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      width: 90,
+      width: 80,
       render: (type: string) => (
         <Tag color={type === 'add' ? 'green' : 'volcano'}>
           {type === 'add' ? '增课' : '划课'}
@@ -591,32 +921,61 @@ const Students = () => {
       ),
     },
     {
+      title: '班级',
+      dataIndex: 'className',
+      key: 'className',
+      width: 130,
+      render: (text: string, record: any) => {
+        if (record.type === 'deduct' && text) {
+          return text;
+        }
+        return record.notes || '-';
+      },
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 80,
+      render: (status: string, record: any) => {
+        if (record.type === 'add') return '-';
+        return status === 'present' ? (
+          <Tag color="success">出勤</Tag>
+        ) : (
+          <Tag color="default">缺勤</Tag>
+        );
+      },
+    },
+    {
       title: '节数',
       dataIndex: 'lessons',
       key: 'lessons',
-      width: 90,
+      width: 70,
       render: (lessons: number) => `${lessons || 0} 节`,
     },
     {
       title: '操作者',
       dataIndex: 'operatorName',
       key: 'operatorName',
-      width: 120,
+      width: 110,
       render: (text: string) => text || '-',
     },
     {
       title: '备注',
       dataIndex: 'notes',
       key: 'notes',
-      width: 200,
+      width: 180,
       ellipsis: true,
-      render: (notes: string) => notes || '-',
+      render: (notes: string, record: any) => {
+        if (record.type === 'deduct') return '-';
+        return notes || '-';
+      },
     },
     {
       title: '时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 160,
+      width: 150,
       render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD HH:mm') : '-',
     },
   ];
@@ -626,8 +985,16 @@ const Students = () => {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h1>学员管理</h1>
         <Space>
+          <Button 
+            type="default" 
+            icon={<DownloadOutlined />} 
+            onClick={handleExportAllStudents}
+            style={{ color: '#52c41a', borderColor: '#52c41a' }}
+          >
+            导出全部学员
+          </Button>
           <Button type="default" icon={<PlusCircleOutlined />} onClick={handleOpenLogModal}>
-            增课记录
+            划课记录
           </Button>
           <Button type="primary" icon={<SwapOutlined />} onClick={handleTransfer}>
             调班
@@ -682,11 +1049,11 @@ const Students = () => {
         }}
       />
       <Modal
-        title="增课记录"
+        title="划课记录"
         open={logModalVisible}
         onCancel={() => setLogModalVisible(false)}
         footer={null}
-        width={900}
+        width={1100}
       >
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
           <RangePicker
@@ -714,6 +1081,13 @@ const Students = () => {
           >
             重置筛选
           </Button>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={handleExportLogs}
+          >
+            导出Excel
+          </Button>
         </div>
         <Table
           columns={logColumns}
@@ -727,7 +1101,7 @@ const Students = () => {
             showSizeChanger: true,
             onChange: handleLogTableChange,
           }}
-          scroll={{ x: 900 }}
+          scroll={{ x: 1000 }}
         />
       </Modal>
       <Modal
@@ -738,12 +1112,53 @@ const Students = () => {
           setDeductLessonStudent(null);
         }}
         onOk={() => deductLessonForm.submit()}
-        width={420}
+        width={520}
       >
         <Form form={deductLessonForm} onFinish={handleLessonSubmit} layout="vertical">
-          <div style={{ marginBottom: 12, fontSize: 14 }}>
-            当前剩余课时：<strong>{deductLessonStudent?.remainingLessons ?? 0} 节</strong>
+          <div style={{ marginBottom: 16, padding: 12, background: '#f0f5ff', borderRadius: 8 }}>
+            <div style={{ fontSize: 14 }}>
+              当前剩余课时：<strong style={{ color: '#1890ff', fontSize: 16 }}>{deductLessonStudent?.remainingLessons ?? 0} 节</strong>
           </div>
+          </div>
+          
+          <Form.Item
+            name="classId"
+            label="选择班级"
+            rules={[{ required: true, message: '请选择班级' }]}
+          >
+            <Select placeholder="请选择上课班级">
+              {(deductLessonStudent?.enrollments || []).map((enrollment: any) => (
+                <Select.Option key={enrollment.classId} value={enrollment.classId}>
+                  {enrollment.class?.name} ({enrollment.class?.code})
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            name="date"
+            label="上课日期"
+            rules={[{ required: true, message: '请选择上课日期' }]}
+          >
+            <DatePicker 
+              style={{ width: '100%' }} 
+              format="YYYY-MM-DD"
+              disabledDate={(current) => current && current > dayjs().endOf('day')}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="attendanceStatus"
+            label="出勤状态"
+            rules={[{ required: true, message: '请选择出勤状态' }]}
+          >
+            <Select placeholder="请选择出勤状态">
+              <Select.Option value="present">✅ 出勤</Select.Option>
+              <Select.Option value="absent">❌ 缺勤</Select.Option>
+              <Select.Option value="leave">🏥 请假</Select.Option>
+            </Select>
+          </Form.Item>
+          
           <Form.Item
             name="lessons"
             label="划课节数"
@@ -755,6 +1170,10 @@ const Students = () => {
               style={{ width: '100%' }}
               placeholder="请输入本次划课节数"
             />
+          </Form.Item>
+
+          <Form.Item name="notes" label="备注">
+            <Input.TextArea rows={2} placeholder="选填，如：补课、调课等" />
           </Form.Item>
         </Form>
       </Modal>

@@ -128,7 +128,20 @@ export const studentsDB = {
 
     const { data, error } = await memfire
       .from('students')
-      .select('*')
+      .select(`
+        *,
+        enrollments:enrollments(
+          id,
+          classId,
+          status,
+          class:classes(
+            id,
+            name,
+            code,
+            organizationId
+          )
+        )
+      `)
       .eq('id', id)
       .single();
 
@@ -160,14 +173,27 @@ export const studentsDB = {
   async update(id: string, updates: any) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    // 自动更新 updatedAt 字段
+    const updateData = {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    console.log('🔄 更新学员:', { id, updates: updateData });
+
     const { data, error } = await memfire
       .from('students')
-      .update(updates)
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('❌ 更新学员失败:', error);
+      throw error;
+    }
+    
+    console.log('✅ 学员更新成功');
     return data;
   },
 
@@ -341,7 +367,7 @@ export const studentsDB = {
   },
 
   /**
-   * 获取不续费学员列表
+   * 获取不续费学员列表（包括已毕业学员）
    */
   async listNoRenewal(params?: {
     page?: number;
@@ -366,8 +392,8 @@ export const studentsDB = {
           )
         )
       `, { count: 'exact' })
-      .eq('renewalStatus', 'no_renewal')
-      .order('noRenewalDate', { ascending: false });
+      .or(`renewalStatus.eq.no_renewal,status.eq.graduated`)  // 包括不续费和已毕业
+      .order('updatedAt', { ascending: false });
 
     // 搜索
     if (search) {
@@ -529,6 +555,9 @@ export const classesDB = {
         currentStudents,
         availableSlots,
         fillRate,
+        _count: {
+          enrollments: currentStudents, // 添加 _count 字段以匹配表格显示逻辑
+        },
         enrollments: undefined, // 移除 enrollments 字段，减少数据量
       };
     });
@@ -651,7 +680,8 @@ export const classesDB = {
           phone,
           parentName,
           parentPhone,
-          status
+          status,
+          remainingLessons
         )
       `)
       .eq('classId', classId)
@@ -669,6 +699,7 @@ export const classesDB = {
       parentName: enrollment.student.parentName,
       parentPhone: enrollment.student.parentPhone,
       status: enrollment.student.status,
+      remainingLessons: enrollment.student.remainingLessons || 0,
       enrollmentDate: enrollment.createdAt,
     }));
   },
@@ -791,6 +822,11 @@ export const schedulesDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    // 验证参数
+    if (data.recurrenceType === 'weekly' && (!data.weekDays || data.weekDays.length === 0)) {
+      throw new Error('每周重复模式必须选择至少一个上课日期');
+    }
+
     const schedules: any[] = [];
     const start = dayjs(data.startDate);
     const end = dayjs(data.endDate);
@@ -801,7 +837,7 @@ export const schedulesDB = {
 
       if (data.recurrenceType === 'daily') {
         shouldCreate = true;
-      } else if (data.recurrenceType === 'weekly' && data.weekDays) {
+      } else if (data.recurrenceType === 'weekly' && data.weekDays && data.weekDays.length > 0) {
         const dayOfWeek = current.day();
         shouldCreate = data.weekDays.includes(dayOfWeek);
       }
@@ -811,8 +847,10 @@ export const schedulesDB = {
         const startTime = data.startTime.length === 5 ? data.startTime : data.startTime.padStart(5, '0');
         const endTime = data.endTime.length === 5 ? data.endTime : data.endTime.padStart(5, '0');
         
-        const startDateTime = `${current.format('YYYY-MM-DD')}T${startTime}:00`;
-        const endDateTime = `${current.format('YYYY-MM-DD')}T${endTime}:00`;
+        // 使用本地时间并明确指定时区偏移，避免UTC转换问题
+        const dateStr = current.format('YYYY-MM-DD');
+        const startDateTime = `${dateStr}T${startTime}:00+08:00`; // 中国时区
+        const endDateTime = `${dateStr}T${endTime}:00+08:00`;
         
         schedules.push({
           organizationId: data.organizationId,
@@ -833,7 +871,7 @@ export const schedulesDB = {
     }
 
     if (schedules.length === 0) {
-      throw new Error('没有生成任何排课记录');
+      throw new Error('没有生成任何排课记录，请检查日期范围和上课日期设置');
     }
 
     const { data: result, error } = await memfire
@@ -863,6 +901,23 @@ export const schedulesDB = {
   },
 
   /**
+   * 批量取消该班级以后所有排课
+   */
+  async cancelAllFuture(classId: string, fromDate: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data, error } = await memfire
+      .from('schedules')
+      .update({ status: 'cancelled' })
+      .eq('classId', classId)
+      .eq('status', 'scheduled')
+      .gte('startTime', fromDate);
+
+    if (error) throw error;
+    return data;
+  },
+
+  /**
    * 删除排课
    */
   async delete(scheduleId: string) {
@@ -875,6 +930,55 @@ export const schedulesDB = {
 
     if (error) throw error;
     return true;
+  },
+
+  /**
+   * 根据班级和日期查找排课
+   */
+  async findByClassAndDate(classId: string, date: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const startOfDay = `${date}T00:00:00`;
+    const endOfDay = `${date}T23:59:59`;
+
+    const { data, error } = await memfire
+      .from('schedules')
+      .select('*')
+      .eq('classId', classId)
+      .gte('startTime', startOfDay)
+      .lte('startTime', endOfDay)
+      .neq('status', 'cancelled')
+      .order('startTime', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 创建单个排课
+   */
+  async create(data: {
+    organizationId: string;
+    classId: string;
+    startTime: string;
+    endTime: string;
+    status: string;
+    isRecurring: boolean;
+    classroom?: string;
+    teacherId?: string;
+  }) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data: result, error } = await memfire
+      .from('schedules')
+      .insert(data)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return result;
   },
 
   /**
@@ -901,11 +1005,35 @@ export const schedulesDB = {
 // 考勤管理
 export const attendancesDB = {
   /**
+   * 创建考勤记录
+   */
+  async create(data: {
+    organizationId: string;
+    classId: string;
+    scheduleId: string;
+    studentId: string;
+    status: string;
+    notes?: string;
+  }) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data: result, error } = await memfire
+      .from('attendances')
+      .insert(data)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return result;
+  },
+
+  /**
    * 获取考勤记录
    */
   async list(params?: {
     classId?: string;
     scheduleId?: string;
+    studentId?: string;
     startDate?: string;
     endDate?: string;
   }) {
@@ -926,10 +1054,105 @@ export const attendancesDB = {
     if (params?.scheduleId) {
       query = query.eq('scheduleId', params.scheduleId);
     }
+    if (params?.studentId) {
+      query = query.eq('studentId', params.studentId);
+    }
 
-    const { data, error } = await query;
+    const { data, error} = await query;
     if (error) throw error;
     return data || [];
+  },
+
+  /**
+   * 更新考勤记录
+   */
+  async update(id: string, updates: { status?: string; notes?: string }) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data, error } = await memfire
+      .from('attendances')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  /**
+   * 按日期范围查询考勤记录（用于划课记录显示）
+   */
+  async getByDateRange(startDate: string, endDate: string, organizationId: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    try {
+      console.log('🔍 查询考勤记录:', { startDate, endDate, organizationId });
+
+      // 先通过排课时间筛选
+      const { data: schedules, error: schedError } = await memfire
+        .from('schedules')
+        .select('id, startTime, endTime, classId')
+        .gte('startTime', startDate + 'T00:00:00')
+        .lte('startTime', endDate + 'T23:59:59')
+        .neq('status', 'cancelled');
+
+      if (schedError) {
+        console.error('❌ 查询排课失败:', schedError);
+        throw schedError;
+      }
+
+      console.log('📅 查询到排课数:', schedules?.length || 0);
+
+      if (!schedules || schedules.length === 0) {
+        console.log('⚠️ 没有排课记录，返回空数组');
+        return [];
+      }
+
+      const scheduleIds = schedules.map((s: any) => s.id);
+
+      // 查询这些排课的考勤记录
+      const { data, error } = await memfire
+        .from('attendances')
+        .select(`
+          id,
+          studentId,
+          scheduleId,
+          classId,
+          status,
+          createdAt,
+          student:students(id, name),
+          schedule:schedules(id, startTime, endTime),
+          class:classes(id, name, code)
+        `)
+        .in('scheduleId', scheduleIds)
+        .order('createdAt', { ascending: false });
+
+      if (error) {
+        console.error('❌ 查询考勤记录失败:', error);
+        throw error;
+      }
+
+      console.log('✅ 查询到考勤记录数:', data?.length || 0);
+
+      // 格式化数据
+      return (data || []).map((att: any) => ({
+        id: att.id,
+        studentId: att.studentId,
+        studentName: att.student?.name || '未知学员',
+        scheduleId: att.scheduleId,
+        classId: att.classId,
+        className: att.class?.name || '未知班级',
+        status: att.status,
+        attendanceDate: att.schedule?.startTime,
+        scheduleTime: att.schedule?.startTime,
+        createdAt: att.createdAt,
+        operatorName: '系统管理员',
+      }));
+    } catch (error) {
+      console.error('❌ getByDateRange 错误:', error);
+      throw error;
+    }
   },
 
   /**
@@ -962,13 +1185,13 @@ export const attendancesDB = {
 
     if (classesError) throw classesError;
 
-    // 2. 获取过去两周的排课记录
+    // 2. 获取过去两周的排课记录（不限制状态，只要不是取消的）
     const { data: schedules, error: schedulesError } = await memfire
       .from('schedules')
       .select('id, classId, startTime, status')
       .gte('startTime', twoWeeksAgo.toISOString())
       .lte('startTime', now.toISOString())
-      .eq('status', 'completed');
+      .neq('status', 'cancelled');
 
     if (schedulesError) throw schedulesError;
 
@@ -1023,8 +1246,9 @@ export const attendancesDB = {
       const week1Present = week1Attendances.filter(
         (a: any) => a.status === 'present'
       ).length;
-      const week1Total = week1Attendances.length;
-      const week1Rate = week1Total > 0 ? (week1Present / week1Total) * 100 : null;
+      // 应该按排课数量计算，如果有排课但没考勤记录，算作0%出勤
+      const week1ExpectedTotal = week1Schedules.length * totalStudents;
+      const week1Rate = week1ExpectedTotal > 0 ? (week1Present / week1ExpectedTotal) * 100 : null;
 
       // 计算第二周出勤率
       const week2ScheduleIds = week2Schedules.map((s: any) => s.id);
@@ -1034,35 +1258,51 @@ export const attendancesDB = {
       const week2Present = week2Attendances.filter(
         (a: any) => a.status === 'present'
       ).length;
-      const week2Total = week2Attendances.length;
-      const week2Rate = week2Total > 0 ? (week2Present / week2Total) * 100 : null;
+      // 应该按排课数量计算，如果有排课但没考勤记录，算作0%出勤
+      const week2ExpectedTotal = week2Schedules.length * totalStudents;
+      const week2Rate = week2ExpectedTotal > 0 ? (week2Present / week2ExpectedTotal) * 100 : null;
 
-      // 判断是否连续两周低于阈值
-      const isLowAttendance =
-        week1Rate !== null &&
-        week2Rate !== null &&
-        week1Rate < threshold &&
-        week2Rate < threshold;
+      // 计算整体平均出勤率（基于排课数量，而不是考勤记录数量）
+        const totalPresent = week1Present + week2Present;
+      const totalExpected = week1ExpectedTotal + week2ExpectedTotal;
+      const averageRate = totalExpected > 0 ? Math.round((totalPresent / totalExpected) * 100) : 0;
+
+      // 判断是否为低出勤班级：
+      // 1. 必须有排课记录
+      // 2. 整体平均出勤率低于阈值，或者连续两周都低于阈值
+      const hasSchedule = classSchedules.length > 0;
+      const isBothWeeksLow = 
+        week1Rate !== null && week1Rate < threshold &&
+        week2Rate !== null && week2Rate < threshold;
+      const isAverageLow = averageRate < threshold;
+      
+      const isLowAttendance = hasSchedule && (isBothWeeksLow || isAverageLow);
 
       if (isLowAttendance) {
-        // 计算整体平均出勤率
-        const totalPresent = week1Present + week2Present;
-        const totalRecords = week1Total + week2Total;
-        const averageRate = totalRecords > 0 ? Math.round((totalPresent / totalRecords) * 100) : 0;
-
         // 计算低出勤学员数（出勤率低于60%的学员）
-        const studentAttendanceMap = new Map<string, { present: number; total: number }>();
+        const totalScheduleCount = classSchedules.length;
+        const studentAttendanceMap = new Map<string, { present: number; expected: number }>();
         
+        // 初始化所有活跃学员，期望的考勤次数 = 排课数量
+        activeEnrollments.forEach((e: any) => {
+          studentAttendanceMap.set(e.studentId, { 
+            present: 0, 
+            expected: totalScheduleCount 
+          });
+        });
+        
+        // 统计实际的出勤记录
         [...week1Attendances, ...week2Attendances].forEach((a: any) => {
-          const current = studentAttendanceMap.get(a.studentId) || { present: 0, total: 0 };
-          current.total += 1;
-          if (a.status === 'present') current.present += 1;
-          studentAttendanceMap.set(a.studentId, current);
+          const current = studentAttendanceMap.get(a.studentId);
+          if (current && a.status === 'present') {
+            current.present += 1;
+          }
         });
 
+        // 计算低出勤学员数
         let lowAttendanceCount = 0;
         studentAttendanceMap.forEach((stats) => {
-          const rate = (stats.present / stats.total) * 100;
+          const rate = stats.expected > 0 ? (stats.present / stats.expected) * 100 : 0;
           if (rate < threshold) lowAttendanceCount += 1;
         });
 
@@ -1074,6 +1314,7 @@ export const attendancesDB = {
             code: cls.code,
             courseType: cls.courseType,
             level: cls.level,
+            capacity: cls.capacity,
             teacher: cls.teacher,
           },
           totalStudents,
@@ -1142,7 +1383,8 @@ export const attendancesDB = {
       .from('schedules')
       .select('id, classId, startTime, status')
       .gte('startTime', startDate)
-      .lte('startTime', endDate);
+      .lte('startTime', endDate)
+      .neq('status', 'cancelled'); // 排除已取消的排课
 
     if (schedulesError) throw schedulesError;
 
@@ -1267,7 +1509,8 @@ export const attendancesDB = {
       .from('schedules')
       .select('id, classId, startTime, status')
       .gte('startTime', startDate)
-      .lte('startTime', endDate);
+      .lte('startTime', endDate)
+      .neq('status', 'cancelled'); // 排除已取消的排课
 
     if (schedulesError) throw schedulesError;
 
@@ -1347,7 +1590,7 @@ export const attendancesDB = {
 
       // 计算连续缺勤次数（从最近一次开始往前数）
       // 先按时间排序考勤记录（最新的在前面）
-      const sortedAttendances = [...studentAttendances].sort((a: any, b: any) => {
+      const sortedAttendances = [...allStudentAttendances].sort((a: any, b: any) => {
         const scheduleA = (schedules || []).find((s: any) => s.id === a.scheduleId);
         const scheduleB = (schedules || []).find((s: any) => s.id === b.scheduleId);
         const timeA = scheduleA ? new Date(scheduleA.startTime).getTime() : 0;
@@ -1835,6 +2078,11 @@ export const consumptionDB = {
     const startDate = params?.startDate || defaultStartDate.toISOString();
     const endDate = params?.endDate || defaultEndDate.toISOString();
 
+    console.log('📊 开始统计数据，时间范围:', { 
+      startDate: startDate.substring(0, 10), 
+      endDate: endDate.substring(0, 10) 
+    });
+
     // 1. 获取所有班级信息（包含班级类型）
     const { data: classes, error: classesError } = await memfire
       .from('classes')
@@ -1853,13 +2101,13 @@ export const consumptionDB = {
 
     if (classesError) throw classesError;
 
-    // 2. 获取指定时间范围内已完成的排课
+    // 2. 获取指定时间范围内的排课（排除已取消的）
     const { data: schedules, error: schedulesError } = await memfire
       .from('schedules')
       .select('id, classId, startTime, status')
       .gte('startTime', startDate)
       .lte('startTime', endDate)
-      .eq('status', 'completed');
+      .neq('status', 'cancelled');
 
     if (schedulesError) throw schedulesError;
 
@@ -1874,6 +2122,30 @@ export const consumptionDB = {
 
       if (attendancesError) throw attendancesError;
       attendances = attendanceData || [];
+      
+      console.log('📋 出勤记录查询:', {
+        排课数: schedules.length,
+        总考勤记录: attendances.length,
+        出勤人次: attendances.filter((a: any) => a.status === 'present').length,
+        缺勤人次: attendances.filter((a: any) => a.status === 'absent').length,
+      });
+      
+      // 为每条考勤记录找到对应的排课时间
+      const attendancesWithSchedule = attendances.map((a: any) => {
+        const schedule = schedules.find((s: any) => s.id === a.scheduleId);
+        return {
+          学员ID: a.studentId.substring(0, 8) + '...',
+          排课ID: a.scheduleId.substring(0, 8) + '...',
+          状态: a.status === 'present' ? '✅出勤' : '❌缺勤',
+          排课时间: schedule ? new Date(schedule.startTime).toLocaleString('zh-CN').substring(0, 16) : '未找到',
+          班级ID: a.classId?.substring(0, 8) + '...' || '无'
+        };
+      });
+      
+      console.log('📝 考勤详情（带排课时间）:');
+      console.table(attendancesWithSchedule);
+    } else {
+      console.warn('⚠️ 时间范围内没有排课记录，无法统计出勤');
     }
 
     // 4. 获取学员数据统计
@@ -1896,105 +2168,166 @@ export const consumptionDB = {
     // 新增人数：在时间范围内成单信息表中确定新报名的学员（不包括续费）
     let newRecruits = 0;
     try {
-      // 先尝试从 conversions 表获取（成单信息表）
-      let conversionData = null;
+      console.log('🔍 查询新增学员（从成单信息表），时间范围:', { startDate, endDate });
+      
+      // 从 conversions 表获取（成单信息表）
       const { data: conversions, error: conversionsError } = await memfire
         .from('conversions')
-        .select('id, studentId, source, conversionDate, createdAt')
+        .select('id, studentId, courseType, conversionDate, createdAt')
         .gte('conversionDate', startDate)
         .lte('conversionDate', endDate);
 
       if (!conversionsError && conversions) {
-        conversionData = conversions;
-      } else {
-        // 如果 conversions 表不存在，尝试 payments 表
-        const { data: payments, error: paymentsError } = await memfire
-          .from('payments')
-          .select('id, studentId, paymentType, source, createdAt')
-          .gte('createdAt', startDate)
-          .lte('createdAt', endDate);
-        
-        if (!paymentsError && payments) {
-          conversionData = payments;
-        }
-      }
-
-      if (conversionData) {
         // 筛选出新报名的学员（排除续费）
-        // 来源字段可能是 source 或 paymentType
-        const newStudents = conversionData.filter((p: any) => {
-          const sourceField = p.source || p.paymentType || '';
-          return sourceField !== '续费' && sourceField !== 'renewal' && sourceField !== '续报';
+        // courseType 为 '续费' 的记录是续费，其他都是新报名
+        const newStudents = conversions.filter((c: any) => {
+          const courseType = c.courseType || '';
+          return courseType !== '续费' && courseType !== 'renewal' && courseType !== '续报';
         });
         
-        // 去重获取新报名学员数
-        const uniqueNewStudents = new Set(newStudents.map((p: any) => p.studentId));
+        // 去重获取新报名学员数（同一学员可能有多次报名，只计一次）
+        const uniqueNewStudents = new Set(newStudents.map((c: any) => c.studentId));
         newRecruits = uniqueNewStudents.size;
-        console.log('新增学员统计:', { total: conversionData.length, newCount: newRecruits, filtered: newStudents.length });
-      } else {
-        console.warn('未找到成单信息表数据');
+        
+        console.log('✅ 新增学员统计:', { 
+          总成单数: conversions.length, 
+          新报名数: newStudents.length,
+          去重后新学员数: newRecruits,
+          续费数: conversions.length - newStudents.length
+        });
+      } else if (conversionsError) {
+        console.error('❌ 查询成单信息表出错:', conversionsError);
+        if (conversionsError.code === '42P01' || conversionsError.message?.includes('does not exist')) {
+          console.warn('⚠️ conversions 表不存在，新增学员数设为 0');
+        }
       }
     } catch (e) {
-      console.warn('获取新增学员失败:', e);
+      console.error('❌ 获取新增学员异常:', e);
     }
 
-    // 召回学员：从流失学员库中召回的学员
+    // 召回学员：从 inactive 状态重新激活的学员
+    // 在时间范围内从流失状态（inactive）被召回（变为active）的学员数量
+    // 
+    // ⚠️ 重要说明：关于重复计算问题
+    // - baseCount（基本盘）= 当前时刻所有 status='active' 的学员数（实际统计值）
+    // - recalled（召回）= 在时间范围内被召回的学员数（变化量）
+    // - 这两个指标不会导致重复计算，因为：
+    //   1. baseCount 是"期末快照"，直接统计当前活跃学员
+    //   2. recalled 是"过程变化量"，记录召回动作的发生
+    //   3. 展示时使用：本期净变化 = 新增 + 召回 - 不续费 - 流失
+    //   4. 不使用误导性公式：基本盘 = 花名册 + 新增 + 召回 - 不续费 - 流失
     let recalled = 0;
     try {
-      const { data: recalledFromLost, error: recalledError } = await memfire
-        .from('lost_students')
-        .select('id, studentId, recallDate, isRecalled')
-        .eq('isRecalled', true)
-        .gte('recallDate', startDate)
-        .lte('recallDate', endDate);
+      console.log('🔍 查询召回学员，时间范围:', { startDate, endDate });
+      
+      // 查询在指定时间范围内更新状态为 active，且 notes 中包含"删除原因"的学员
+      // 这表示学员之前被标记为流失（会在 notes 中记录删除原因），现在被召回
+      const { data: recalledStudents, error: recalledError } = await memfire
+        .from('students')
+        .select('id, name, status, notes, updatedAt')
+        .eq('status', 'active')
+        .gte('updatedAt', startDate)
+        .lte('updatedAt', endDate)
+        .like('notes', '%删除原因:%');  // notes 中包含"删除原因"说明之前是流失学员
 
-      if (!recalledError && recalledFromLost) {
-        recalled = recalledFromLost.length;
+      if (recalledError) {
+        console.error('❌ 查询召回学员出错:', recalledError);
       } else {
-        console.warn('获取召回学员失败，使用默认值0:', recalledError);
+        recalled = recalledStudents?.length || 0;
+        console.log('✅ 召回学员:', {
+          count: recalled,
+          students: recalledStudents?.map((s: any) => ({
+            name: s.name,
+            status: s.status,
+            updatedAt: s.updatedAt,
+            notes: s.notes
+          }))
+        });
       }
     } catch (e) {
-      console.warn('lost_students表可能不存在，召回人数设为0:', e);
+      console.error('❌ 查询召回学员异常:', e);
     }
 
-    // 不续费学员：续费表中确定不续费的学员
+    // 不续费学员：在时间范围内标记为不续费或已毕业的学员
     let nonRenewals = 0;
     try {
+      console.log('🔍 查询不续费学员（包括已毕业），时间范围:', { startDate, endDate });
+      
+      // 查询两种情况：
+      // 1. renewalStatus = 'no_renewal' （明确标记不续费）
+      // 2. status = 'graduated' （已毕业）
       const { data: noRenewalRecords, error: noRenewalError } = await memfire
         .from('students')
-        .select('id, renewalStatus, updatedAt')
-        .eq('renewalStatus', 'no_renewal')
+        .select('id, name, renewalStatus, updatedAt, status')
+        .or(`renewalStatus.eq.no_renewal,status.eq.graduated`)
         .gte('updatedAt', startDate)
         .lte('updatedAt', endDate);
 
-      if (!noRenewalError && noRenewalRecords) {
-        nonRenewals = noRenewalRecords.length;
+      if (noRenewalError) {
+        console.error('❌ 查询不续费学员出错:', noRenewalError);
       } else {
-        console.warn('获取不续费学员失败，使用默认值0:', noRenewalError);
+        nonRenewals = noRenewalRecords?.length || 0;
+        console.log('✅ 不续费学员（含已毕业）:', {
+          count: nonRenewals,
+          students: noRenewalRecords?.map((s: any) => ({
+            name: s.name,
+            status: s.status,
+            renewalStatus: s.renewalStatus,
+            updatedAt: s.updatedAt,
+            type: s.status === 'graduated' ? '已毕业' : '不续费'
+          }))
+        });
       }
     } catch (e) {
-      console.warn('查询不续费学员失败，使用默认值0:', e);
+      console.error('❌ 查询不续费学员异常:', e);
     }
 
-    // 流失学员：在时间范围内添加到流失学员库的数量
+    // 流失学员（停卡/删除花名册）：在时间范围内状态变为 inactive 或 deleted 的学员数量
     let deletedRoster = 0;
     try {
-      const { data: newLostStudents, error: lostError } = await memfire
-        .from('lost_students')
-        .select('id, studentId, createdAt')
-        .gte('createdAt', startDate)
-        .lte('createdAt', endDate);
+      console.log('🔍 查询流失学员，时间范围:', { startDate, endDate });
+      
+      // 查询在指定时间范围内更新状态为 inactive 或 deleted 的学员
+      const { data: lostStudents, error: lostError } = await memfire
+        .from('students')
+        .select('id, name, status, updatedAt')
+        .in('status', ['inactive', 'deleted'])
+        .gte('updatedAt', startDate)
+        .lte('updatedAt', endDate);
 
-      if (!lostError && newLostStudents) {
-        deletedRoster = newLostStudents.length;
+      if (lostError) {
+        console.error('❌ 查询流失学员出错:', lostError);
       } else {
-        console.warn('获取流失学员失败，使用默认值0:', lostError);
+        deletedRoster = lostStudents?.length || 0;
+        console.log('✅ 流失学员（停卡/删除）:', {
+          count: deletedRoster,
+          students: lostStudents?.map((s: any) => ({
+            name: s.name,
+            status: s.status,
+            updatedAt: s.updatedAt
+          }))
+        });
       }
     } catch (e) {
-      console.warn('lost_students表可能不存在，流失人数设为0:', e);
+      console.error('❌ 查询流失学员异常:', e);
     }
 
     // 5. 计算统计数据
+    
+    // 输出学员状态统计，帮助调试
+    const statusDistribution: any = {};
+    allStudents?.forEach((s: any) => {
+      statusDistribution[s.status] = (statusDistribution[s.status] || 0) + 1;
+    });
+    console.log('📊 学员状态分布:', statusDistribution);
+    
+    const renewalStatusDistribution: any = {};
+    allStudents?.forEach((s: any) => {
+      if (s.renewalStatus) {
+        renewalStatusDistribution[s.renewalStatus] = (renewalStatusDistribution[s.renewalStatus] || 0) + 1;
+      }
+    });
+    console.log('📊 续费状态分布:', renewalStatusDistribution);
     
     // 花名册人数：所有非删除状态的学员总数
     const rosterCount = allStudents?.length || 0;
@@ -2008,22 +2341,40 @@ export const consumptionDB = {
     // deletedRoster: 流失（停卡）学员数
     // newRecruits: 新报名学员数
 
-    // 整体出勤人数（去重）
+    // 班级统计（先定义，后面会用到）
+    const activeClasses = classes || [];
+
+    // 统计出勤数据
     const presentAttendances = attendances.filter((a: any) => a.status === 'present');
     const uniqueAttendedStudents = new Set(presentAttendances.map((a: any) => a.studentId));
-    const totalAttendance = uniqueAttendedStudents.size;
+    
+    // 出勤人数（用户定义）= 实际划课数 = 出勤人次
+    const totalAttendance = presentAttendances.length;
 
-    // 出勤人次（不去重，用于计算课单价）
-    const totalAttendanceCount = presentAttendances.length;
+    // 出勤人次（用户定义）= 应划课数 = 理想出勤人次
+    // 理想出勤人次 = 排课数量 × 每个班级的学员数总和
+    let totalAttendanceCount = 0; // 应划课数
+    if (schedules && schedules.length > 0) {
+      schedules.forEach((schedule: any) => {
+        const classData = activeClasses.find((cls: any) => cls.id === schedule.classId);
+        if (classData) {
+          const activeEnrollments = (classData.enrollments || []).filter((e: any) => e.status === 'active');
+          totalAttendanceCount += activeEnrollments.length;
+        }
+      });
+    }
 
-    // 出勤率 = 出勤人次 / 应出勤人次
-    const totalRecords = attendances.length;
-    const attendanceRate = totalRecords > 0 
-      ? Math.round((totalAttendanceCount / totalRecords) * 100) 
+    // 出勤率 = 实际划课数 / 应划课数
+    const attendanceRate = totalAttendanceCount > 0 
+      ? Math.round((totalAttendance / totalAttendanceCount) * 100) 
       : 0;
 
-    // 班级统计
-    const activeClasses = classes || [];
+    console.log('📊 出勤统计:', {
+      实际划课数: totalAttendance,
+      应划课数: totalAttendanceCount,
+      出勤率: attendanceRate + '%',
+      出勤学员数_去重: uniqueAttendedStudents.size,
+    });
     const classCount = activeClasses.length;
 
     // 幼儿班数（courseType 或 level 包含"幼儿"）
@@ -2049,25 +2400,116 @@ export const consumptionDB = {
       ? Math.round((totalEnrolled / totalCapacity) * 100) 
       : 0;
 
-    // 整体确认收入（暂时用出勤人次 * 预设单价计算，后续可从实际收费记录获取）
-    // 假设每节课收费 100 元
-    const defaultLessonPrice = 100;
-    const totalRevenue = totalAttendanceCount * defaultLessonPrice;
+    // 整体确认收入计算
+    // 正确逻辑：确认收入 = Σ(每个学员的课单价 × 该学员在本月的出勤次数)
+    // 课单价 = 报名价格 / 报名次数（从成单信息表获取，不限时间范围）
+    let totalRevenue = 0;
+    let avgLessonPrice = 0;
+    
+    try {
+      // 获取当前用户的机构ID
+      const { useAuthStore } = await import('../store/authStore');
+      const currentUser = useAuthStore.getState().user;
+      const userOrgId = currentUser?.organizationId;
 
-    // 课单价 = 整体确认收入 / 出勤人次
-    const lessonPrice = totalAttendanceCount > 0 
-      ? Math.round((totalRevenue / totalAttendanceCount) * 100) / 100
-      : 0;
+      if (!userOrgId) {
+        console.warn('⚠️ 无法获取机构ID，跳过收入统计');
+      } else {
+        // 1. 统计本月每个学员的出勤次数
+        const studentAttendanceCount = new Map<string, number>();
+        presentAttendances.forEach((att: any) => {
+          const count = studentAttendanceCount.get(att.studentId) || 0;
+          studentAttendanceCount.set(att.studentId, count + 1);
+        });
 
-    // 场地使用率（已完成排课数 / 可用时段数）
-    // 假设每天有 8 个可用时段
-    const startDateObj = new Date(startDate);
-    const endDateObj = new Date(endDate);
-    const daysDiff = Math.ceil((endDateObj.getTime() - startDateObj.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-    const totalAvailableSlots = daysDiff * 8;
+        console.log('📊 本月出勤统计:', {
+          出勤学员数: studentAttendanceCount.size,
+          实际出勤人次: totalAttendance,
+          应划课数: totalAttendanceCount,
+        });
+
+        // 2. 获取这些学员的成单记录（不限时间范围）
+        const studentIds = Array.from(studentAttendanceCount.keys());
+        
+        if (studentIds.length > 0) {
+          const { data: conversions, error: conversionsError } = await memfire
+            .from('conversions')
+            .select('studentId, price, totalLessons, conversionDate')
+            .eq('organizationId', userOrgId)
+            .in('studentId', studentIds);
+
+          if (conversionsError) {
+            console.error('❌ 查询成单记录出错:', conversionsError);
+          } else if (conversions && conversions.length > 0) {
+            console.log('✅ 获取到成单记录:', conversions.length, '条');
+            
+            // 3. 为每个学员计算课单价（如果一个学员有多个成单记录，取最新的）
+            const studentPriceMap = new Map<string, number>();
+            conversions.forEach((conv: any) => {
+              const price = conv.price || 0;
+              const lessons = conv.totalLessons || 0;
+              if (lessons > 0) {
+                const lessonPrice = price / lessons;
+                // 如果该学员已有记录，保留最新的（假设数据库返回的是按时间排序的）
+                if (!studentPriceMap.has(conv.studentId)) {
+                  studentPriceMap.set(conv.studentId, lessonPrice);
+                }
+              }
+            });
+
+            // 4. 计算确认收入
+            let totalPaidAmount = 0;
+            let totalPaidLessons = 0;
+            let studentRevenueDetails: any[] = [];
+
+            studentAttendanceCount.forEach((attendCount, studentId) => {
+              const lessonPrice = studentPriceMap.get(studentId);
+              if (lessonPrice && lessonPrice > 0) {
+                const revenue = lessonPrice * attendCount;
+                totalRevenue += revenue;
+                totalPaidAmount += lessonPrice * attendCount;
+                totalPaidLessons += attendCount;
+                studentRevenueDetails.push({
+                  studentId,
+                  课单价: lessonPrice.toFixed(2),
+                  出勤次数: attendCount,
+                  确认收入: revenue.toFixed(2)
+                });
+              }
+            });
+
+            // 计算平均课单价
+            avgLessonPrice = totalPaidLessons > 0 ? totalPaidAmount / totalPaidLessons : 0;
+
+            console.log('💰 收入计算明细:', {
+              有成单记录的学员数: studentPriceMap.size,
+              平均课单价: avgLessonPrice.toFixed(2),
+              实际划课数: totalAttendance,
+              应划课数: totalAttendanceCount,
+              计费出勤人次: totalPaidLessons,
+              确认收入: totalRevenue.toFixed(2),
+              明细: studentRevenueDetails
+            });
+          } else {
+            console.warn('⚠️ 未找到出勤学员的成单记录');
+          }
+        } else {
+          console.warn('⚠️ 本月没有出勤记录');
+        }
+      }
+    } catch (e) {
+      console.error('❌ 获取收入数据失败:', e);
+    }
+
+    // 课单价（已在上面计算）
+    const lessonPrice = Math.round(avgLessonPrice * 100) / 100;
+
+    // 场地使用率 = 已排课的班级数 / 总排课数
     const completedSchedules = schedules?.length || 0;
-    const venueUtilizationRate = totalAvailableSlots > 0 
-      ? Math.round((completedSchedules / totalAvailableSlots) * 100) 
+    const scheduledClassIds = new Set((schedules || []).map((s: any) => s.classId));
+    const scheduledClassCount = scheduledClassIds.size;
+    const venueUtilizationRate = completedSchedules > 0 
+      ? Math.round((scheduledClassCount / completedSchedules) * 100) 
       : 0;
 
     return {
@@ -2092,15 +2534,17 @@ export const consumptionDB = {
   },
 
   /**
-   * 获取班级学员人数变化统计
-   * 对比当前人数与上期人数，计算变化
+   * 获取班级学员人数变化统计（基于基本盘逻辑）
+   * 只统计 status='active' 的学员，考虑学员状态变化
    */
   async getClassStudentChanges(params: { startDate?: string; endDate?: string }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
     const { startDate, endDate } = params;
 
-    // 获取所有活跃班级及其当前学员数
+    console.log('🔍 查询班级学员变化，时间范围:', { startDate, endDate });
+
+    // 获取所有活跃班级
     const { data: classes, error: classesError } = await memfire
       .from('classes')
       .select(`
@@ -2118,28 +2562,56 @@ export const consumptionDB = {
 
     if (classesError) throw classesError;
 
-    // 获取每个班级的当前活跃学员数
-    const { data: currentEnrollments, error: currentError } = await memfire
+    // 获取每个班级的当前活跃学员数（只统计 status='active' 的学员）
+    const { data: currentEnrollmentsData, error: currentError } = await memfire
       .from('enrollments')
-      .select('classId, studentId')
+      .select('classId, studentId, student:students(id, status)')
       .eq('status', 'active');
 
     if (currentError) throw currentError;
 
-    // 统计当前每个班级的学员数
+    // 统计当前每个班级的活跃学员数（基本盘逻辑）
     const currentCounts: Record<string, number> = {};
-    (currentEnrollments || []).forEach((e: any) => {
-      if (e.classId) {
+    const currentStudents: Record<string, Set<string>> = {};
+    
+    (currentEnrollmentsData || []).forEach((e: any) => {
+      if (e.classId && e.student && e.student.status === 'active') {
         currentCounts[e.classId] = (currentCounts[e.classId] || 0) + 1;
+        if (!currentStudents[e.classId]) {
+          currentStudents[e.classId] = new Set();
+        }
+        currentStudents[e.classId].add(e.studentId);
       }
     });
 
-    // 获取时间范围内流失的学员（从班级中移除的）
+    console.log('📊 当前班级学员数（基本盘）:', currentCounts);
+
+    // 获取时间范围内的变化
     let lostFromClass: Record<string, number> = {};
     let newToClass: Record<string, number> = {};
 
     if (startDate && endDate) {
-      // 获取在时间范围内取消报名的学员
+      // 1. 获取在时间范围内状态变为非活跃的学员
+      const { data: inactiveStudents, error: inactiveError } = await memfire
+        .from('students')
+        .select('id, status, updatedAt, enrollments:enrollments(classId, status)')
+        .in('status', ['inactive', 'graduated', 'deleted'])
+        .gte('updatedAt', startDate)
+        .lte('updatedAt', endDate);
+
+      if (!inactiveError && inactiveStudents) {
+        // 统计每个班级流失的学员数
+        inactiveStudents.forEach((student: any) => {
+          const activeEnrollments = (student.enrollments || []).filter((e: any) => e.status === 'active');
+          activeEnrollments.forEach((e: any) => {
+            if (e.classId) {
+              lostFromClass[e.classId] = (lostFromClass[e.classId] || 0) + 1;
+            }
+          });
+        });
+      }
+
+      // 2. 获取在时间范围内取消报名的学员（从班级中移除）
       const { data: cancelledEnrollments, error: cancelledError } = await memfire
         .from('enrollments')
         .select('classId, studentId, updatedAt')
@@ -2147,31 +2619,33 @@ export const consumptionDB = {
         .gte('updatedAt', startDate)
         .lte('updatedAt', endDate);
 
-      if (cancelledError) throw cancelledError;
+      if (!cancelledError && cancelledEnrollments) {
+        cancelledEnrollments.forEach((e: any) => {
+          if (e.classId) {
+            lostFromClass[e.classId] = (lostFromClass[e.classId] || 0) + 1;
+          }
+        });
+      }
 
-      // 统计每个班级流失的学员数
-      (cancelledEnrollments || []).forEach((e: any) => {
-        if (e.classId) {
-          lostFromClass[e.classId] = (lostFromClass[e.classId] || 0) + 1;
-        }
-      });
+      console.log('📉 流失学员统计:', lostFromClass);
 
-      // 获取在时间范围内新增的报名
-      const { data: newEnrollments, error: newError } = await memfire
+      // 3. 获取在时间范围内新增的报名（且学员状态为 active）
+      const { data: newEnrollmentsData, error: newError } = await memfire
         .from('enrollments')
-        .select('classId, studentId, createdAt')
+        .select('classId, studentId, createdAt, student:students(id, status)')
         .eq('status', 'active')
         .gte('createdAt', startDate)
         .lte('createdAt', endDate);
 
-      if (newError) throw newError;
+      if (!newError && newEnrollmentsData) {
+        newEnrollmentsData.forEach((e: any) => {
+          if (e.classId && e.student && e.student.status === 'active') {
+            newToClass[e.classId] = (newToClass[e.classId] || 0) + 1;
+          }
+        });
+      }
 
-      // 统计每个班级新增的学员数
-      (newEnrollments || []).forEach((e: any) => {
-        if (e.classId) {
-          newToClass[e.classId] = (newToClass[e.classId] || 0) + 1;
-        }
-      });
+      console.log('📈 新增学员统计:', newToClass);
     }
 
     // 构建班级人数变化数据
@@ -2595,16 +3069,11 @@ export const lostStudentsDB = {
       notes += `,预计召回时间:${data.expectedRecallDate}`;
     }
 
-    // 2. 更新学员状态为inactive
-    const { error: updateError } = await memfire
-      .from('students')
-      .update({ 
-        status: 'inactive',
-        notes,
-      })
-      .eq('id', data.studentId);
-
-    if (updateError) throw updateError;
+    // 2. 更新学员状态为inactive（使用 studentsDB.update 以自动更新 updatedAt）
+    await studentsDB.update(data.studentId, { 
+      status: 'inactive',
+      notes,
+    });
 
     // 3. 取消该学员所有活跃的班级报名
     const { error: enrollmentError } = await memfire

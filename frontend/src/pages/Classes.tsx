@@ -73,6 +73,9 @@ const Classes = () => {
         week2Rate: item.week2Rate,
           totalStudents: item.totalStudents,
           lowAttendanceCount: item.lowAttendanceCount,
+          _count: {
+            enrollments: item.totalStudents, // 添加 _count 字段以匹配表格显示逻辑
+          },
         }));
         setClasses(formattedClasses);
     } catch (error: any) {
@@ -155,9 +158,21 @@ const Classes = () => {
   const handleScheduleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
+      
+      if (!user?.organizationId) {
+        message.error('无法获取机构信息，请重新登录');
+        return;
+      }
+
+      // 验证每周重复必须选择上课日期
+      if (values.recurrenceType === 'weekly' && (!values.weekDays || values.weekDays.length === 0)) {
+        message.error('每周重复模式必须选择至少一个上课日期');
+        return;
+      }
+      
       const scheduleData = {
         classId: schedulingClass.id,
-        organizationId: user?.organizationId || 'default-org',
+        organizationId: user.organizationId,
         recurrenceType: values.recurrenceType,
         startDate: values.startDate.format('YYYY-MM-DD'),
         endDate: values.endDate.format('YYYY-MM-DD'),
@@ -165,7 +180,7 @@ const Classes = () => {
         startTime: values.timeRange[0].format('HH:mm'),
         endTime: values.timeRange[1].format('HH:mm'),
         location: values.location,
-        teacherId: schedulingClass.teacherId,
+        teacherId: values.teacherId || schedulingClass.teacherId,
       };
 
       // 如果班级已有排课，先取消之前的排课
@@ -190,7 +205,15 @@ const Classes = () => {
 
   const submitSchedule = async (scheduleData: any) => {
     try {
-      // 保存排课规则到班级记录
+      // 取消之前的排课
+      if (schedulingClass.scheduleRule) {
+        await memfireDB.schedules.cancelByClass(schedulingClass.id);
+      }
+
+      // 创建新排课
+      await memfireDB.schedules.createRecurring(scheduleData);
+
+      // 更新班级的排课规则
       const scheduleRule = {
         recurrenceType: scheduleData.recurrenceType,
         startDate: scheduleData.startDate,
@@ -200,20 +223,16 @@ const Classes = () => {
         endTime: scheduleData.endTime,
         location: scheduleData.location,
       };
-
-      // 更新班级的排课规则
       await memfireDB.classes.update(schedulingClass.id, { scheduleRule });
 
-      // 如果是修改排课，先取消之前的排课
-      if (schedulingClass.scheduleRule) {
-        await memfireDB.schedules.cancelByClass(schedulingClass.id);
-      }
-
-      // 创建新的排课
-      await memfireDB.schedules.createRecurring(scheduleData);
+      // 更新当前班级显示
+      setSchedulingClass({
+        ...schedulingClass,
+        scheduleRule,
+      });
       
       message.success('排课成功');
-      setScheduleModalVisible(false);
+      // 不关闭窗口，保留排课信息显示
       fetchClasses();
     } catch (error: any) {
       console.error('排课失败:', error);
@@ -322,7 +341,14 @@ const Classes = () => {
                 </span>
               )}
               {' '}
-              {record.scheduleRule.startTime}-{record.scheduleRule.endTime}
+              {/* 确保时间格式一致，处理可能的时区问题 */}
+              {typeof record.scheduleRule.startTime === 'string' 
+                ? record.scheduleRule.startTime 
+                : dayjs(record.scheduleRule.startTime).format('HH:mm')}
+              -
+              {typeof record.scheduleRule.endTime === 'string' 
+                ? record.scheduleRule.endTime 
+                : dayjs(record.scheduleRule.endTime).format('HH:mm')}
             </div>
           )}
         </Space>
@@ -673,7 +699,7 @@ const Classes = () => {
               <Descriptions.Item label="负责教练">{viewingClass.teacher?.name || '-'}</Descriptions.Item>
               <Descriptions.Item label="课程类型">{viewingClass.courseType}</Descriptions.Item>
               <Descriptions.Item label="班级容量">
-                {viewingClass._count?.enrollments || 0} / {viewingClass.capacity}
+                {viewingClass._count?.enrollments || viewingClass.currentStudents || classStudents.length} / {viewingClass.capacity}
               </Descriptions.Item>
               <Descriptions.Item label="班级状态">
                 <Tag color={viewingClass.status === 'active' ? 'green' : 'orange'}>
