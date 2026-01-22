@@ -462,7 +462,7 @@ const Students = () => {
     }
   };
 
-  const fetchLessonLogs = async (page = 1, pageSize = logPagination.pageSize) => {
+  const fetchLessonLogs = async (page = 1, pageSize = logPagination.pageSize, filters?: { type?: string }) => {
     setLogLoading(true);
     try {
       const userOrgId = user?.organizationId;
@@ -471,15 +471,18 @@ const Students = () => {
         return;
       }
 
+      // 使用传入的filters或state中的logFilters
+      const currentFilters = filters !== undefined ? filters : logFilters;
+
       // 构建日期范围
       const startDate = logDateRange?.[0]?.format('YYYY-MM-DD') || '2020-01-01';
       const endDate = logDateRange?.[1]?.format('YYYY-MM-DD') || dayjs().add(1, 'year').format('YYYY-MM-DD');
 
-      console.log('📋 查询参数:', { page, pageSize, startDate, endDate, logFilters });
+      console.log('📋 查询参数:', { page, pageSize, startDate, endDate, filters: currentFilters });
 
       // 1. 查询考勤记录（划课记录）
       const attendanceRecords: any[] = [];
-      if (!logFilters.type || logFilters.type === 'deduct') {
+      if (!currentFilters.type || currentFilters.type === 'deduct') {
         try {
           console.log('🔍 开始查询考勤记录:', { startDate, endDate, userOrgId });
           const attendancesResult = await memfireDB.attendances.getByDateRange(startDate, endDate, userOrgId);
@@ -506,34 +509,42 @@ const Students = () => {
         }
       }
 
-      // 2. 查询增课记录
-      const addRecords: any[] = [];
-      // 只有在未选择类型或明确选择"增课"时才查询 lessonLogs
-      if (!logFilters.type || logFilters.type === 'add') {
+      // 2. 查询课时变动记录（包括增课和手动划课）
+      const lessonLogRecords: any[] = [];
+      // 根据筛选条件查询不同类型的记录
+      if (!currentFilters.type || currentFilters.type === 'add' || currentFilters.type === 'deduct') {
         try {
-          console.log('🔍 开始查询增课记录');
           const params: any = { 
             page: 1, 
             pageSize: 1000,
-            type: 'add'  // 始终只查询增课记录
           };
+          
+          // 只有明确筛选时才传入type参数
+          if (currentFilters.type) {
+            params.type = currentFilters.type;
+          }
+          
           if (logDateRange?.[0]) {
             params.startDate = startDate;
           }
           if (logDateRange?.[1]) {
             params.endDate = endDate;
           }
+          
+          console.log('🔍 开始查询课时变动记录:', params);
           const lessonLogsResult = await memfireDB.lessonLogs.list(params);
-          addRecords.push(...(lessonLogsResult.data || []));
-          console.log('✅ 查询到增课记录:', addRecords.length);
+          lessonLogRecords.push(...(lessonLogsResult.data || []));
+          console.log('✅ 查询到课时变动记录:', lessonLogRecords.length);
         } catch (err) {
-          console.error('❌ 查询增课记录失败:', err);
-          // 继续执行，只是不显示增课记录
+          console.error('❌ 查询课时变动记录失败:', err);
         }
       }
 
-      // 3. 合并并排序
-      const allRecords = [...attendanceRecords, ...addRecords].sort((a, b) => {
+      // 3. 合并所有记录并排序
+      // 注意：当筛选"划课"时，attendanceRecords包含考勤划课，lessonLogRecords包含手动划课
+      // 当筛选"增课"时，只有lessonLogRecords包含增课记录
+      // 当没有筛选时，显示所有记录
+      const allRecords = [...attendanceRecords, ...lessonLogRecords].sort((a, b) => {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
 
@@ -582,9 +593,11 @@ const Students = () => {
   };
 
   const handleLogTypeChange = (value: string) => {
-    setLogFilters({ type: value || undefined });
+    const newFilters = { type: value || undefined };
+    setLogFilters(newFilters);
     setLogPagination(prev => ({ ...prev, current: 1 }));
-    fetchLessonLogs(1, logPagination.pageSize);
+    // 立即使用新的筛选条件获取数据，避免状态异步更新问题
+    fetchLessonLogs(1, logPagination.pageSize, newFilters);
   };
 
   const handleExportLogs = async () => {
@@ -627,31 +640,36 @@ const Students = () => {
         }
       }
 
-      // 2. 查询所有增课记录（不分页）
-      const allAddRecords: any[] = [];
-      // 只有在未选择类型或明确选择"增课"时才查询 lessonLogs
-      if (!logFilters.type || logFilters.type === 'add') {
+      // 2. 查询所有课时变动记录（不分页，包括增课和手动划课）
+      const allLessonLogRecords: any[] = [];
+      if (!logFilters.type || logFilters.type === 'add' || logFilters.type === 'deduct') {
         try {
           const params: any = { 
             page: 1, 
             pageSize: 10000,
-            type: 'add'  // 始终只查询增课记录
           };
+          
+          // 只有明确筛选时才传入type参数
+          if (logFilters.type) {
+            params.type = logFilters.type;
+          }
+          
           if (logDateRange?.[0]) {
             params.startDate = startDate;
           }
           if (logDateRange?.[1]) {
             params.endDate = endDate;
           }
+          
           const lessonLogsResult = await memfireDB.lessonLogs.list(params);
-          allAddRecords.push(...(lessonLogsResult.data || []));
+          allLessonLogRecords.push(...(lessonLogsResult.data || []));
         } catch (err) {
-          console.error('❌ 导出时查询增课记录失败:', err);
+          console.error('❌ 导出时查询课时变动记录失败:', err);
         }
       }
 
       // 3. 合并并排序
-      const allRecords = [...allAttendanceRecords, ...allAddRecords].sort((a, b) => {
+      const allRecords = [...allAttendanceRecords, ...allLessonLogRecords].sort((a, b) => {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
 

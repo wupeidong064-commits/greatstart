@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, CheckCircleOutlined, UserAddOutlined, ImportOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, UserAddOutlined, ImportOutlined } from '@ant-design/icons';
 import memfireDB from '../services/memfireDB';
 import dayjs from 'dayjs';
 
@@ -236,14 +236,15 @@ const ExperienceSchedule = () => {
         await memfireDB.experienceLessons.create(submitData);
         message.success('创建成功');
         
-        // 如果是从鱼池导入，删除对应的鱼池线索
+        // 注意：不删除鱼池线索，保留以便统计添加数
+        // 鱼池记录会保留，用于现金流总结中的"添加数"统计
         if (sourceType === 'lead' && selectedLeadId) {
+          // 可选：更新鱼池线索的最近联系时间，表示已处理
           try {
-            await memfireDB.leads.delete(selectedLeadId);
-            message.success('已从鱼池移除该线索');
+            await memfireDB.leads.updateLastContactTime(selectedLeadId);
             fetchLeadsList(); // 刷新鱼池列表
           } catch (e) {
-            console.warn('删除鱼池线索失败:', e);
+            console.warn('更新鱼池线索失败:', e);
           }
         }
       }
@@ -382,26 +383,28 @@ const ExperienceSchedule = () => {
               <Button 
                 type="link" 
                 size="small"
-                icon={<CheckCircleOutlined />}
-                onClick={() => handleStatusChange(record.id, 'converted')}
-              >
-                成单
-              </Button>
-              <Button 
-                type="link" 
-                size="small"
                 onClick={() => handleStatusChange(record.id, 'unconverted')}
               >
                 未成单
               </Button>
             </>
           )}
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            编辑
-          </Button>
-          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
-            删除
-          </Button>
+          {record.status === 'converted' ? (
+            // 已成单状态：锁定记录，不允许编辑和删除
+            <span style={{ color: '#999', fontSize: '12px' }}>
+              已锁定（已成单记录不可修改）
+            </span>
+          ) : (
+            // 其他状态：正常显示编辑和删除按钮
+            <>
+              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+                编辑
+              </Button>
+              <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
+                删除
+              </Button>
+            </>
+          )}
         </Space>
       ),
     },
@@ -420,23 +423,13 @@ const ExperienceSchedule = () => {
     },
     { title: '负责人', dataIndex: 'assigneeName', key: 'assigneeName', width: 100 },
     {
-      title: '操作',
-      key: 'action',
-      width: 120,
-      render: (_: any, record: any) => (
-        <Space>
-          <Button 
-            type="link" 
-            size="small"
-            icon={<CheckCircleOutlined />}
-            onClick={() => {
-              handleStatusChange(record.id, 'converted');
-              setUnconvertedModalVisible(false);
-            }}
-          >
-            转成单
-          </Button>
-        </Space>
+      title: '备注',
+      key: 'note',
+      width: 200,
+      render: () => (
+        <span style={{ color: '#999', fontSize: '12px' }}>
+          如需成单，请前往【成单信息】页面登记
+        </span>
       ),
     },
   ];
@@ -653,11 +646,18 @@ const ExperienceSchedule = () => {
             </Form.Item>
           </div>
 
-          <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
+          <Form.Item 
+            name="status" 
+            label="状态" 
+            rules={[{ required: true, message: '请选择状态' }]}
+            tooltip="注意：'已成单'状态由成单信息表自动设置，无法手动选择"
+          >
             <Select placeholder="请选择状态">
               <Option value="pending">待上课</Option>
               <Option value="cancelled">已取消</Option>
-              <Option value="converted">已成单</Option>
+              <Option value="converted" disabled>
+                已成单（由成单信息表自动设置）
+              </Option>
               <Option value="unconverted">未成单</Option>
             </Select>
           </Form.Item>

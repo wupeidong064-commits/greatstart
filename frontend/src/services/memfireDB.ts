@@ -3975,8 +3975,71 @@ export const conversionsDB = {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
     const organizationId = await this.getOrganizationId();
+    
+    let finalLeadId = data.leadId;
+    let finalExperienceLessonId = data.experienceLessonId;
 
-    // 1. 先创建学员记录
+    // 【新增】如果是直接成单（没有体验课记录），自动补充鱼池和体验课记录
+    // 这样可以保证数据统计的完整性：添加数、到场数、成单数都会正确统计
+    if (!data.experienceLessonId && data.courseType !== '续费') {
+      try {
+        // 1. 创建鱼池记录（如果没有leadId）
+        if (!finalLeadId) {
+          const { data: newLead, error: leadError } = await memfire
+            .from('leads')
+            .insert({
+              organizationId,
+              customerName: data.studentName,
+              age: data.age || null,
+              contact: data.contact,
+              notes: data.notes ? `直接成单：${data.notes}` : '直接成单',
+              assigneeId: data.salesId || null,
+              assigneeName: data.salesName || null,
+            })
+            .select()
+            .single();
+
+          if (leadError) {
+            console.warn('自动创建鱼池记录失败:', leadError);
+          } else {
+            finalLeadId = newLead?.id;
+          }
+        }
+
+        // 2. 创建体验课记录（状态直接为 converted）
+        const conversionDate = data.conversionDate || new Date().toISOString().split('T')[0];
+        const { data: newExperienceLesson, error: experienceError } = await memfire
+          .from('experience_lessons')
+          .insert({
+            organizationId,
+            studentName: data.studentName,
+            age: data.age || null,
+            contact: data.contact,
+            source: '直接成单',
+            leadId: finalLeadId || null,
+            classId: data.classId || null,
+            className: data.className || null,
+            scheduleDate: conversionDate, // 使用成单日期作为体验课日期
+            assigneeId: data.salesId || null,
+            assigneeName: data.salesName || null,
+            status: 'converted', // 直接标记为已成单
+            notes: '直接成单（自动补充记录）',
+            convertedAt: new Date().toISOString(),
+          })
+          .select()
+          .single();
+
+        if (experienceError) {
+          console.warn('自动创建体验课记录失败:', experienceError);
+        } else {
+          finalExperienceLessonId = newExperienceLesson?.id;
+        }
+      } catch (e) {
+        console.warn('自动补充鱼池和体验课记录失败:', e);
+      }
+    }
+
+    // 3. 创建学员记录
     const studentData = {
       organizationId,
       name: data.studentName,
@@ -4002,7 +4065,7 @@ export const conversionsDB = {
       throw new Error('创建学员失败: ' + studentError.message);
     }
 
-    // 2. 创建成单记录
+    // 4. 创建成单记录
     const conversionData = {
       organizationId,
       studentName: data.studentName,
@@ -4022,8 +4085,8 @@ export const conversionsDB = {
       salesName: data.salesName || null,
       conversionDate: data.conversionDate || new Date().toISOString().split('T')[0],
       notes: data.notes || null,
-      experienceLessonId: data.experienceLessonId || null,
-      leadId: data.leadId || null,
+      experienceLessonId: finalExperienceLessonId || null, // 使用自动创建的体验课ID
+      leadId: finalLeadId || null, // 使用自动创建的鱼池ID
       studentId: newStudent.id, // 关联学员ID
     };
 
@@ -4039,7 +4102,7 @@ export const conversionsDB = {
       throw new Error('创建成单记录失败: ' + conversionError.message);
     }
 
-    // 3. 如果选择了班级，创建报名记录
+    // 5. 如果选择了班级，创建报名记录
     if (data.classId && newStudent.id) {
       try {
         await memfire
@@ -4059,6 +4122,8 @@ export const conversionsDB = {
     return {
       conversion: newConversion,
       student: newStudent,
+      lead: finalLeadId ? { id: finalLeadId } : null,
+      experienceLesson: finalExperienceLessonId ? { id: finalExperienceLessonId } : null,
     };
   },
 
@@ -4279,7 +4344,7 @@ export const cashflowSummaryDB = {
     const { startDate, endDate, staffId } = params || {};
 
     // 1. 新签板块数据
-    // 添加数（线索数）
+    // 添加数（线索数）- 时间段内鱼池表新增数量
     let leadsQuery = memfire
       .from('leads')
       .select('id', { count: 'exact' })
@@ -4291,24 +4356,13 @@ export const cashflowSummaryDB = {
     
     const { count: totalLeads } = await leadsQuery;
 
-    // 体验课表上登记的学员总数
-    let totalExperienceQuery = memfire
-      .from('experience_lessons')
-      .select('id', { count: 'exact' })
-      .eq('organizationId', organizationId);
-    
-    if (startDate) totalExperienceQuery = totalExperienceQuery.gte('scheduleDate', startDate);
-    if (endDate) totalExperienceQuery = totalExperienceQuery.lte('scheduleDate', endDate);
-    if (staffId) totalExperienceQuery = totalExperienceQuery.eq('assigneeId', staffId);
-    
-    const { count: totalExperienceLessons } = await totalExperienceQuery;
-
-    // 到场数（体验课completed和converted状态的数量）
+    // 到场数 - 体验课表中已上课的学员（排除待上课、已取消、没有状态的）
+    // 只统计：completed（已完成）、converted（已成单）、unconverted（未成单）
     let experienceQuery = memfire
       .from('experience_lessons')
       .select('id', { count: 'exact' })
       .eq('organizationId', organizationId)
-      .in('status', ['completed', 'converted']);
+      .in('status', ['completed', 'converted', 'unconverted']);
     
     if (startDate) experienceQuery = experienceQuery.gte('scheduleDate', startDate);
     if (endDate) experienceQuery = experienceQuery.lte('scheduleDate', endDate);
@@ -4316,22 +4370,23 @@ export const cashflowSummaryDB = {
     
     const { count: attendedExperience } = await experienceQuery;
 
-    // 成单数（体验课表中标记为converted的数量）
-    let convertedQuery = memfire
-      .from('experience_lessons')
+    // 成单数 - 成单信息表中除续费外的新增
+    // 即：查询 conversions 表中 courseType 不为 '续费' 的记录
+    let conversionsQuery = memfire
+      .from('conversions')
       .select('id', { count: 'exact' })
       .eq('organizationId', organizationId)
-      .eq('status', 'converted');
+      .or('courseType.neq.续费,courseType.is.null');
     
-    if (startDate) convertedQuery = convertedQuery.gte('scheduleDate', startDate);
-    if (endDate) convertedQuery = convertedQuery.lte('scheduleDate', endDate);
-    if (staffId) convertedQuery = convertedQuery.eq('assigneeId', staffId);
+    if (startDate) conversionsQuery = conversionsQuery.gte('conversionDate', startDate);
+    if (endDate) conversionsQuery = conversionsQuery.lte('conversionDate', endDate);
+    if (staffId) conversionsQuery = conversionsQuery.eq('salesId', staffId);
     
-    const { count: conversions } = await convertedQuery;
+    const { count: conversions } = await conversionsQuery;
 
-    // 成单率 = 成单数 / 体验课表上登记学员总数
-    const conversionRate = totalExperienceLessons && totalExperienceLessons > 0
-      ? Math.round((conversions || 0) / totalExperienceLessons * 100)
+    // 成单率 = 成单数 / 到场数
+    const conversionRate = attendedExperience && attendedExperience > 0
+      ? Math.round((conversions || 0) / attendedExperience * 100)
       : 0;
 
     // 2. 续费板块数据
@@ -4353,19 +4408,48 @@ export const cashflowSummaryDB = {
     // 获取时间范围内续费的学员ID（去重）
     const renewedStudentIds = new Set((renewals || []).map(r => r.studentId).filter(Boolean));
 
-    // 课时小于10的学员总数（当前待续费学员数）
-    const { count: lowLessonStudents } = await memfire
+    // 【修复1】查询当前待续费学员（课时<10），但排除已续费的学员，避免重复计算
+    // 包括所有课时<10的学员，无论是待续费还是明确不续费的
+    let lowLessonQuery = memfire
       .from('students')
       .select('id', { count: 'exact' })
-      .lt('remainingLessons', 10)
-      .or('renewalStatus.is.null,renewalStatus.neq.no_renewal');
+      .eq('organizationId', organizationId)
+      .lt('remainingLessons', 10);
+    
+    // 如果已续费的学员ID不为空，排除这些学员
+    if (renewedStudentIds.size > 0) {
+      const renewedIds = Array.from(renewedStudentIds);
+      lowLessonQuery = lowLessonQuery.not('id', 'in', `(${renewedIds.join(',')})`);
+    }
 
-    // 应续费总人数 = 当前待续费学员数 + 已续费学员数（因为续费后课时增加，可能不再<10）
-    const totalEligible = (lowLessonStudents || 0) + renewedStudentIds.size;
+    const { data: lowLessonStudentsData } = await lowLessonQuery;
+    
+    // 【修复2】如果按教练筛选，需要进一步过滤学员
+    let filteredLowLessonCount = lowLessonStudentsData?.length || 0;
+    if (staffId && lowLessonStudentsData && lowLessonStudentsData.length > 0) {
+      // 获取该教练负责的所有学员ID（通过成单记录）
+      const { data: staffStudents } = await memfire
+        .from('conversions')
+        .select('studentId')
+        .eq('organizationId', organizationId)
+        .eq('salesId', staffId);
+      
+      const staffStudentIds = new Set(
+        (staffStudents || []).map(s => s.studentId).filter(Boolean)
+      );
+      
+      // 只统计该教练负责的待续费学员
+      filteredLowLessonCount = lowLessonStudentsData.filter(
+        student => staffStudentIds.has(student.id)
+      ).length;
+    }
 
-    // 续费率 = 已续费学员数 / 应续费总人数（保证不超过100%）
+    // 应续费总人数 = 已续费学员数 + 仍待续费学员数（避免重复计算）
+    const totalEligible = renewedStudentIds.size + filteredLowLessonCount;
+
+    // 续费率 = 已续费学员数 / 应续费总人数
     const renewalRate = totalEligible > 0
-      ? Math.min(Math.round((renewedStudentIds.size / totalEligible) * 100), 100)
+      ? Math.round((renewedStudentIds.size / totalEligible) * 100)
       : 0;
 
     return {
