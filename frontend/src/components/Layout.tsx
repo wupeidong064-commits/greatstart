@@ -190,10 +190,6 @@ const Layout = () => {
       label: '财务管理',
       children: [
         {
-          key: '/finance/payments',
-          label: '收款记录',
-        },
-        {
           key: '/finance/expenses',
           label: '支出与报表',
         },

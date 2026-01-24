@@ -1588,31 +1588,47 @@ export const attendancesDB = {
         ? Math.round((presentCount / scheduleCount) * 100)
         : 0;
 
-      // 计算连续缺勤次数（从最近一次开始往前数）
-      // 先按时间排序考勤记录（最新的在前面）
-      const sortedAttendances = [...allStudentAttendances].sort((a: any, b: any) => {
-        const scheduleA = (schedules || []).find((s: any) => s.id === a.scheduleId);
-        const scheduleB = (schedules || []).find((s: any) => s.id === b.scheduleId);
-        const timeA = scheduleA ? new Date(scheduleA.startTime).getTime() : 0;
-        const timeB = scheduleB ? new Date(scheduleB.startTime).getTime() : 0;
-        return timeB - timeA; // 最新的在前面
-      });
-
-      // 计算从最近开始连续缺勤的次数
+      // 计算连续缺勤次数
+      // 如果学员出勤率低于60%且基本没上课，应该算作连续缺勤
       let continuousAbsentCount = 0;
-      for (const att of sortedAttendances) {
-        if (att.status === 'absent') {
-          continuousAbsentCount++;
-        } else {
-          break; // 遇到出勤就停止计数
+      
+      // 情况1：如果完全没有考勤记录但有排课，说明一节课都没上
+      if (totalRecords === 0 && scheduleCount > 0) {
+        continuousAbsentCount = scheduleCount;
+      } 
+      // 情况2：如果有考勤记录，计算实际连续缺勤次数
+      else if (totalRecords > 0) {
+        // 按时间排序考勤记录（最新的在前面）
+        const sortedAttendances = [...allStudentAttendances].sort((a: any, b: any) => {
+          const scheduleA = (schedules || []).find((s: any) => s.id === a.scheduleId);
+          const scheduleB = (schedules || []).find((s: any) => s.id === b.scheduleId);
+          const timeA = scheduleA ? new Date(scheduleA.startTime).getTime() : 0;
+          const timeB = scheduleB ? new Date(scheduleB.startTime).getTime() : 0;
+          return timeB - timeA; // 最新的在前面
+        });
+
+        // 计算从最近开始连续缺勤的次数
+        for (const att of sortedAttendances) {
+          if (att.status === 'absent') {
+            continuousAbsentCount++;
+          } else {
+            break; // 遇到出勤就停止计数
+          }
+        }
+        
+        // 如果全部考勤记录都是缺勤（一节课都没上），则连续缺勤次数应该等于排课数
+        // 因为可能有排课但还没打卡
+        if (continuousAbsentCount === totalRecords && absentCount === totalRecords && scheduleCount > totalRecords) {
+          continuousAbsentCount = scheduleCount;
         }
       }
 
-      // 判断是否连续请假两周（假设每周2次课，两周就是4次）
-      const isContinuousAbsent = continuousAbsentCount >= 4;
+      // 判断是否连续请假两周（每周1次课，两周就是2次）
+      const isContinuousAbsent = continuousAbsentCount >= 2;
 
       // 根据筛选条件决定是否加入结果
-      const meetsThreshold = attendanceRate < threshold && totalRecords > 0;
+      // 修改条件：如果有排课记录就应该被考虑，即使没有考勤记录
+      const meetsThreshold = attendanceRate < threshold && scheduleCount > 0;
       const meetsContinuousAbsent = !continuousAbsentOnly || isContinuousAbsent;
 
       if (meetsThreshold && meetsContinuousAbsent) {
@@ -1817,10 +1833,10 @@ export const usersDB = {
       
       const { count: attendanceCount } = await attendanceQuery;
 
-      // 成单数和成单金额：从 conversions 表获取
+      // 成单数和成单金额：从 conversions 表获取（成单信息表）
       let ordersQuery = memfireClient
         .from('conversions')
-        .select('id, price')
+        .select('id, price, courseType')
         .eq('salesId', salesperson.id);
       
       if (params?.startDate) {
@@ -1832,8 +1848,20 @@ export const usersDB = {
       
       const { data: orders } = await ordersQuery;
 
+      // 区分续费成单和新签成单
+      const renewalOrders = orders?.filter(order => order.courseType === '续费') || [];
+      const newOrders = orders?.filter(order => order.courseType !== '续费') || [];
+
       const orderCount = orders?.length || 0;
       const orderAmount = orders?.reduce((sum, order) => sum + (order.price || 0), 0) || 0;
+      
+      // 续费成单数据
+      const renewalOrderCount = renewalOrders.length;
+      const renewalOrderAmount = renewalOrders.reduce((sum, order) => sum + (order.price || 0), 0);
+      
+      // 新签成单数据
+      const newOrderCount = newOrders.length;
+      const newOrderAmount = newOrders.reduce((sum, order) => sum + (order.price || 0), 0);
 
       return {
         teacherId: salesperson.id,
@@ -1844,6 +1872,12 @@ export const usersDB = {
         attendanceCount: attendanceCount || 0,
         orderCount,
         orderAmount,
+        // 新增：续费成单数据
+        renewalOrderCount,
+        renewalOrderAmount,
+        // 新增：新签成单数据
+        newOrderCount,
+        newOrderAmount,
       };
     });
 
@@ -1964,6 +1998,43 @@ export const usersDB = {
     }
     console.log('划课记录:', lessonLogs);
 
+    // 获取筛选时间段内的所有排课（用于计算出勤率）
+    let schedulesQuery = memfire
+      .from('schedules')
+      .select('id, classId, startTime, status')
+      .neq('status', 'cancelled');
+    
+    // 应用时间筛选
+    if (params?.startDate) {
+      schedulesQuery = schedulesQuery.gte('startTime', params.startDate);
+    }
+    if (params?.endDate) {
+      schedulesQuery = schedulesQuery.lte('startTime', params.endDate);
+    }
+    
+    const { data: timeFilteredSchedules, error: schedulesError } = await schedulesQuery;
+    if (schedulesError) {
+      console.error('获取排课信息失败:', schedulesError);
+    }
+    console.log('筛选时间段内的排课:', timeFilteredSchedules);
+
+    // 获取筛选时间段内的所有考勤记录
+    let timeFilteredAttendances: any[] = [];
+    if (timeFilteredSchedules && timeFilteredSchedules.length > 0) {
+      const scheduleIds = timeFilteredSchedules.map((s: any) => s.id);
+      const { data: attendanceData, error: attendancesError2 } = await memfire
+        .from('attendances')
+        .select('id, status, scheduleId')
+        .in('scheduleId', scheduleIds);
+      
+      if (attendancesError2) {
+        console.error('获取考勤记录失败:', attendancesError2);
+      } else {
+        timeFilteredAttendances = attendanceData || [];
+      }
+    }
+    console.log('筛选时间段内的考勤记录:', timeFilteredAttendances);
+
     // 统计每个教练的数据
     const statistics = coaches.map(coach => {
       // 负责的班级（去重）
@@ -1983,11 +2054,40 @@ export const usersDB = {
       const studentCount = coachStudents.size;
       const coachStudentIds = Array.from(coachStudents);
 
-      // 学员出勤率
-      const coachAttendances = attendances?.filter(a => a.schedule?.class?.teacherId === coach.id) || [];
-      const totalAttendances = coachAttendances.length;
-      const presentCount = coachAttendances.filter(a => a.status === 'present').length;
-      const attendanceRate = totalAttendances > 0 ? Math.round((presentCount / totalAttendances) * 100) : 0;
+      // 学员出勤率计算
+      // 正确逻辑：(筛选时间段内)负责班级出勤人数 / 负责班级应出勤人数
+      
+      // 1. 获取该教练负责的所有班级ID
+      const coachClassIds = Array.from(coachClasses);
+      
+      // 2. 获取筛选时间段内该教练班级的排课
+      const coachSchedules = timeFilteredSchedules?.filter(
+        (s: any) => coachClassIds.includes(s.classId)
+      ) || [];
+      
+      // 3. 计算应出勤人数：每次排课 × 该班级的活跃学员数
+      let totalExpectedAttendances = 0;
+      for (const schedule of coachSchedules) {
+        const classStudentCount = enrollments?.filter(
+          e => e.classId === schedule.classId && e.class?.teacherId === coach.id
+        ).length || 0;
+        totalExpectedAttendances += classStudentCount;
+      }
+      
+      // 4. 获取实际出勤记录
+      const coachScheduleIds = coachSchedules.map((s: any) => s.id);
+      const coachAttendancesData = timeFilteredAttendances.filter(
+        (a: any) => coachScheduleIds.includes(a.scheduleId)
+      );
+      
+      const actualPresentCount = coachAttendancesData.filter(
+        (a: any) => a.status === 'present'
+      ).length;
+      
+      // 5. 计算出勤率
+      const attendanceRate = totalExpectedAttendances > 0 
+        ? Math.round((actualPresentCount / totalExpectedAttendances) * 100) 
+        : 0;
 
       // 基本盘人数 = 活跃学员数
       const activeStudents = coachStudentIds.filter(studentId => {
@@ -2504,13 +2604,34 @@ export const consumptionDB = {
     // 课单价（已在上面计算）
     const lessonPrice = Math.round(avgLessonPrice * 100) / 100;
 
-    // 场地使用率 = 已排课的班级数 / 总排课数
+    // 场地使用率 = 已开班数 / 最大开班数
+    // 从 settings 表获取最大开班数配置
+    let venueUtilizationRate = 0;
+    try {
+      const { data: maxClassesSetting, error: settingsError } = await memfire
+        .from('settings')
+        .select('value')
+        .eq('key', 'maxClasses')
+        .single();
+      
+      if (settingsError) {
+        console.warn('⚠️ 未找到最大开班数配置，场地使用率将为 0');
+      } else if (maxClassesSetting && maxClassesSetting.value) {
+        const maxClasses = Number(maxClassesSetting.value);
+        if (maxClasses > 0) {
+          venueUtilizationRate = Math.round((classCount / maxClasses) * 100);
+          console.log('✅ 场地使用率计算:', {
+            已开班数: classCount,
+            最大开班数: maxClasses,
+            使用率: venueUtilizationRate + '%'
+          });
+        }
+      }
+    } catch (e) {
+      console.error('❌ 获取最大开班数配置失败:', e);
+    }
+
     const completedSchedules = schedules?.length || 0;
-    const scheduledClassIds = new Set((schedules || []).map((s: any) => s.classId));
-    const scheduledClassCount = scheduledClassIds.size;
-    const venueUtilizationRate = completedSchedules > 0 
-      ? Math.round((scheduledClassCount / completedSchedules) * 100) 
-      : 0;
 
     return {
       totalAttendance,        // 整体出勤人数（去重）
@@ -2528,7 +2649,7 @@ export const consumptionDB = {
       eliteClassCount,        // 精英班数
       totalRevenue,           // 整体确认收入
       fullClassRate,          // 满班率
-      venueUtilizationRate,   // 场地使用率
+      venueUtilizationRate,   // 场地使用率（已开班数 / 最大开班数）
       completedSchedules,     // 已完成排课数
     };
   },
@@ -4469,6 +4590,96 @@ export const cashflowSummaryDB = {
   },
 };
 
+// 系统设置管理
+export const settingsDB = {
+  /**
+   * 获取配置项
+   */
+  async get(key: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data, error } = await memfire
+      .from('settings')
+      .select('*')
+      .eq('key', key)
+      .maybeSingle();
+
+    if (error) {
+      console.error('获取配置失败:', error);
+      throw error;
+    }
+    return data;
+  },
+
+  /**
+   * 设置配置项
+   */
+  async set(key: string, value: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    // 先检查是否存在
+    const { data: existing, error: selectError } = await memfire
+      .from('settings')
+      .select('id')
+      .eq('key', key)
+      .maybeSingle();
+
+    if (selectError) {
+      console.error('检查配置是否存在失败:', selectError);
+      throw selectError;
+    }
+
+    if (existing) {
+      // 更新现有配置 - 使用 snake_case 列名
+      const { data, error } = await memfire
+        .from('settings')
+        .update({ 
+          value, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('key', key)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('更新配置失败:', error);
+        throw error;
+      }
+      return data;
+    } else {
+      // 创建新配置
+      const { data, error } = await memfire
+        .from('settings')
+        .insert({ key, value })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('创建配置失败:', error);
+        throw error;
+      }
+      return data;
+    }
+  },
+
+  /**
+   * 删除配置项
+   */
+  async delete(key: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { error } = await memfire
+      .from('settings')
+      .delete()
+      .eq('key', key);
+
+    if (error) {
+      console.error('删除配置失败:', error);
+      throw error;
+    }
+  },
+};
+
 // 导出所有数据服务
 export const memfireDB = {
   students: studentsDB,
@@ -4485,6 +4696,7 @@ export const memfireDB = {
   experienceLessons: experienceLessonsDB,
   conversions: conversionsDB,
   cashflowSummary: cashflowSummaryDB,
+  settings: settingsDB,
 };
 
 export default memfireDB;

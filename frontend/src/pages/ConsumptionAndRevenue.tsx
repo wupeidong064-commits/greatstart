@@ -1,4 +1,4 @@
-import { Card, Row, Col, Statistic, Table, message, DatePicker, Space, Tag, Switch, Progress, Button } from 'antd';
+import { Card, Row, Col, Statistic, Table, message, DatePicker, Space, Tag, Switch, Progress, Button, Modal, Form, InputNumber } from 'antd';
 import { useState, useEffect } from 'react';
 import { 
   UserOutlined, 
@@ -26,6 +26,9 @@ const { RangePicker } = DatePicker;
 const ConsumptionAndRevenue = () => {
   const [loading, setLoading] = useState(false);
   const [classChangesLoading, setClassChangesLoading] = useState(false);
+  const [maxClassesModalVisible, setMaxClassesModalVisible] = useState(false);
+  const [maxClassesForm] = Form.useForm();
+  const [maxClasses, setMaxClasses] = useState(0); // 最大开班数
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>([
     dayjs().startOf('month'),
     dayjs().endOf('month'),
@@ -66,6 +69,7 @@ const ConsumptionAndRevenue = () => {
   useEffect(() => {
     fetchStatistics();
     fetchClassChanges();
+    fetchMaxClasses();
   }, [dateRange]);
 
   const fetchStatistics = async () => {
@@ -114,6 +118,48 @@ const ConsumptionAndRevenue = () => {
       });
     } finally {
       setClassChangesLoading(false);
+    }
+  };
+
+  // 获取最大开班数配置
+  const fetchMaxClasses = async () => {
+    try {
+      console.log('🔍 正在获取最大开班数配置...');
+      const config = await memfireDB.settings.get('maxClasses');
+      console.log('✅ 获取到配置:', config);
+      if (config && config.value) {
+        setMaxClasses(Number(config.value));
+      } else {
+        console.log('⚠️ 未找到配置，使用默认值 0');
+        setMaxClasses(0);
+      }
+    } catch (error: any) {
+      console.error('❌ 获取最大开班数配置失败:', error);
+      // 如果获取失败，使用默认值
+      setMaxClasses(0);
+    }
+  };
+
+  // 打开设置最大开班数弹窗
+  const handleOpenMaxClassesModal = () => {
+    maxClassesForm.setFieldsValue({ maxClasses });
+    setMaxClassesModalVisible(true);
+  };
+
+  // 保存最大开班数
+  const handleSaveMaxClasses = async (values: any) => {
+    try {
+      console.log('💾 正在保存最大开班数:', values.maxClasses);
+      await memfireDB.settings.set('maxClasses', values.maxClasses.toString());
+      console.log('✅ 保存成功');
+      setMaxClasses(values.maxClasses);
+      message.success('最大开班数设置成功');
+      setMaxClassesModalVisible(false);
+      // 重新获取统计数据以更新场地使用率
+      fetchStatistics();
+    } catch (error: any) {
+      console.error('❌ 保存最大开班数失败:', error);
+      message.error(error.message || '保存失败，请检查数据库是否已创建settings表');
     }
   };
 
@@ -360,9 +406,21 @@ const ConsumptionAndRevenue = () => {
           </Card>
         </Col>
         <Col span={8}>
-          <Card loading={loading} hoverable>
+          <Card 
+            loading={loading} 
+            hoverable
+            onClick={handleOpenMaxClassesModal}
+            style={{ cursor: 'pointer' }}
+          >
             <Statistic
-              title="场地使用率"
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>场地使用率</span>
+                  <span style={{ fontSize: 12, color: '#999', fontWeight: 'normal' }}>
+                    点击设置最大开班数
+                  </span>
+                </div>
+              }
               value={statistics.venueUtilizationRate}
               suffix="%"
               prefix={<HomeOutlined style={{ color: statistics.venueUtilizationRate >= 70 ? '#52c41a' : statistics.venueUtilizationRate >= 50 ? '#faad14' : '#ff4d4f' }} />}
@@ -371,6 +429,9 @@ const ConsumptionAndRevenue = () => {
                        statistics.venueUtilizationRate >= 50 ? '#faad14' : '#ff4d4f' 
               }}
             />
+            <div style={{ marginTop: 8, fontSize: 12, color: '#999', textAlign: 'center' }}>
+              {statistics.classCount} / {maxClasses || '未设置'}
+            </div>
           </Card>
         </Col>
       </Row>
@@ -818,6 +879,80 @@ const ConsumptionAndRevenue = () => {
           rowClassName={(record) => record.change < 0 ? 'ant-table-row-warning' : ''}
         />
       </Card>
+
+      {/* 设置最大开班数弹窗 */}
+      <Modal
+        title="设置最大开班数"
+        open={maxClassesModalVisible}
+        onCancel={() => setMaxClassesModalVisible(false)}
+        onOk={() => maxClassesForm.submit()}
+        width={500}
+      >
+        <div style={{ marginBottom: 16, padding: 12, background: '#f0f5ff', borderRadius: 8 }}>
+          <div style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+            💡 <strong>说明：</strong>
+          </div>
+          <div style={{ fontSize: 13, color: '#666', lineHeight: '1.6' }}>
+            • 场地使用率 = 已开班数 / 最大开班数<br />
+            • 已开班数：当前活跃的班级总数（{statistics.classCount} 个）<br />
+            • 最大开班数：场地能够容纳的最大班级数量<br />
+            • 设置后将用于计算场地使用率指标
+          </div>
+        </div>
+        
+        <Form 
+          form={maxClassesForm} 
+          onFinish={handleSaveMaxClasses} 
+          layout="vertical"
+        >
+          <Form.Item 
+            name="maxClasses" 
+            label="最大开班数" 
+            rules={[
+              { required: true, message: '请输入最大开班数' },
+              { type: 'number', min: 1, message: '最大开班数必须大于 0' }
+            ]}
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              placeholder="请输入场地最大开班数"
+              min={1}
+              step={1}
+              precision={0}
+              addonAfter="个班级"
+            />
+          </Form.Item>
+          
+          <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => prevValues.maxClasses !== currentValues.maxClasses}>
+            {({ getFieldValue }) => {
+              const maxClassesValue = getFieldValue('maxClasses');
+              const utilizationRate = maxClassesValue > 0 
+                ? Math.round((statistics.classCount / maxClassesValue) * 100) 
+                : 0;
+              
+              return (
+                <div style={{ 
+                  marginTop: 16, 
+                  padding: 12, 
+                  background: '#fffbe6', 
+                  borderRadius: 8, 
+                  border: '1px solid #ffe58f' 
+                }}>
+                  <div style={{ fontSize: 13, color: '#666' }}>
+                    当前已开班数：<strong style={{ color: '#1890ff' }}>{statistics.classCount}</strong> 个<br />
+                    设置后场地使用率：<strong style={{ 
+                      color: utilizationRate >= 70 ? '#52c41a' : 
+                             utilizationRate >= 50 ? '#faad14' : '#ff4d4f' 
+                    }}>
+                      {maxClassesValue > 0 ? `${utilizationRate}%` : '-'}
+                    </strong>
+                  </div>
+                </div>
+              );
+            }}
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

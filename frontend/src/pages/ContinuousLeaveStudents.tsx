@@ -50,11 +50,18 @@ const ContinuousLeaveStudents = () => {
         params.teacherId = selectedTeacher;
       }
 
+      console.log('📊 查询参数:', params);
+
       // 使用 MemFire 获取低出勤学员数据
       const data = await memfireDB.attendances.getLowAttendanceStudents(params);
+      console.log('📊 查询结果:', data?.length, '位学员', data);
       setStudents(data || []);
+      
+      if (!data || data.length === 0) {
+        message.info('没有符合条件的学员');
+      }
     } catch (error: any) {
-      console.error('获取低出勤学员失败:', error);
+      console.error('❌ 获取低出勤学员失败:', error);
       message.error(error.message || '获取低出勤学员失败');
       setStudents([]);
     } finally {

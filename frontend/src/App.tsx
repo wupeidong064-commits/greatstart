@@ -22,7 +22,6 @@ import OrderInfo from './pages/OrderInfo';
 import Teachers from './pages/Teachers';
 import TeacherDashboard from './pages/TeacherDashboard';
 import StaffList from './pages/StaffList';
-import Payments from './pages/Payments';
 import ExpensesAndReports from './pages/ExpensesAndReports';
 import StaffSalary from './pages/StaffSalary';
 import Statistics from './pages/Statistics';
@@ -81,7 +80,6 @@ function App() {
           <Route path="teachers/dashboard" element={<TeacherDashboard />} />
           
           {/* 财务管理 */}
-          <Route path="finance/payments" element={<Payments />} />
           <Route path="finance/expenses" element={<ExpensesAndReports />} />
           <Route path="finance/staff-salary" element={<StaffSalary />} />
           

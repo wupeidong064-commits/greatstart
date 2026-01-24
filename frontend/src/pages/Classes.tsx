@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, message, Tag, Input, Space, Select, DatePicker, TimePicker, Checkbox, Descriptions } from 'antd';
-import { PlusOutlined, FilterOutlined, CalendarOutlined, TeamOutlined } from '@ant-design/icons';
+import { PlusOutlined, FilterOutlined, CalendarOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
@@ -23,6 +23,10 @@ const Classes = () => {
   const [viewingClass, setViewingClass] = useState<any>(null);
   const [classStudents, setClassStudents] = useState<any[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
+  const [addStudentModalVisible, setAddStudentModalVisible] = useState(false);
+  const [addStudentForm] = Form.useForm();
+  const [addingToClass, setAddingToClass] = useState<any>(null);
+  const [availableStudents, setAvailableStudents] = useState<any[]>([]);
 
   // 获取教练员列表
   const fetchTeachers = async () => {
@@ -318,6 +322,47 @@ const Classes = () => {
     }
   };
 
+  const handleAddStudentToClass = (record: any) => {
+    setAddingToClass(record);
+    addStudentForm.resetFields();
+    fetchAvailableStudents();
+    setAddStudentModalVisible(true);
+  };
+
+  const fetchAvailableStudents = async () => {
+    try {
+      const allStudents = await memfireDB.students.listAll();
+      setAvailableStudents(allStudents || []);
+    } catch (error: any) {
+      console.error('获取学员列表失败:', error);
+      message.error(error.message || '获取学员列表失败');
+    }
+  };
+
+  const handleAddStudentSubmit = async (values: any) => {
+    if (!addingToClass) return;
+    try {
+      await memfireDB.enrollments.create({
+        studentId: values.studentId,
+        classId: addingToClass.id,
+        status: 'active',
+        notes: values.notes,
+      });
+      message.success('添加学员成功');
+      setAddStudentModalVisible(false);
+      // 刷新班级列表
+      fetchClasses();
+      // 如果学员名单窗口打开着，也刷新它
+      if (viewingClass?.id === addingToClass.id) {
+        const students = await memfireDB.classes.getClassStudents(addingToClass.id);
+        setClassStudents(students || []);
+      }
+    } catch (error: any) {
+      console.error('添加学员失败:', error);
+      message.error(error.message || '添加学员失败');
+    }
+  };
+
   const columns = [
     { 
       title: '班级名称', 
@@ -475,6 +520,9 @@ const Classes = () => {
       key: 'action',
       render: (_: any, record: any) => (
         <Space>
+          <Button type="link" icon={<UserAddOutlined />} onClick={() => handleAddStudentToClass(record)}>
+            添加学员
+          </Button>
           <Button type="link" icon={<TeamOutlined />} onClick={() => handleViewStudents(record)}>
             学员名单
           </Button>
@@ -770,6 +818,69 @@ const Classes = () => {
             showTotal: (total) => `共 ${total} 名学员`,
           }}
         />
+      </Modal>
+
+      {/* 添加学员到班级弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <UserAddOutlined />
+            <span>{addingToClass?.name} - 添加学员</span>
+          </Space>
+        }
+        open={addStudentModalVisible}
+        onCancel={() => {
+          setAddStudentModalVisible(false);
+          setAddingToClass(null);
+          addStudentForm.resetFields();
+        }}
+        onOk={() => addStudentForm.submit()}
+        width={600}
+      >
+        {addingToClass && (
+          <div style={{ marginBottom: 16, padding: 12, background: '#f0f5ff', borderRadius: 8 }}>
+            <Descriptions bordered size="small" column={2}>
+              <Descriptions.Item label="班级代码">{addingToClass.code}</Descriptions.Item>
+              <Descriptions.Item label="班级水平">{addingToClass.level || '-'}</Descriptions.Item>
+              <Descriptions.Item label="负责教练">{addingToClass.teacher?.name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="当前人数/容量">
+                {addingToClass._count?.enrollments || 0} / {addingToClass.capacity}
+              </Descriptions.Item>
+            </Descriptions>
+          </div>
+        )}
+        
+        <Form form={addStudentForm} onFinish={handleAddStudentSubmit} layout="vertical">
+          <Form.Item 
+            name="studentId" 
+            label="选择学员" 
+            rules={[{ required: true, message: '请选择学员' }]}
+          >
+            <Select
+              placeholder="请输入或选择学员姓名"
+              showSearch
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {availableStudents
+                .filter((student: any) => student.status === 'active')
+                .map((student: any) => (
+                  <Select.Option key={student.id} value={student.id}>
+                    {student.name} {student.phone ? `(${student.phone})` : ''}
+                  </Select.Option>
+                ))}
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="notes" label="备注">
+            <Input.TextArea 
+              rows={3} 
+              placeholder="选填，如：转班、新学员等备注信息" 
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

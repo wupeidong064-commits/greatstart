@@ -65,9 +65,9 @@ const TeacherDashboard = () => {
   const handleExport = async () => {
     try {
       // 将销售数据导出为 CSV
-      const csvHeader = '销售姓名,添加数,邀约数,到场数,成单数,成单金额\n';
+      const csvHeader = '销售姓名,添加数,邀约数,到场数,成单数,成单金额,新签成单数,新签金额,续费成单数,续费金额\n';
       const csvContent = salesData.map((item: any) => 
-        `${item.teacherName},${item.addedCount},${item.invitationCount},${item.attendanceCount},${item.orderCount},${item.orderAmount.toFixed(2)}`
+        `${item.teacherName},${item.addedCount},${item.invitationCount},${item.attendanceCount},${item.orderCount},${item.orderAmount.toFixed(2)},${item.newOrderCount || 0},${(item.newOrderAmount || 0).toFixed(2)},${item.renewalOrderCount || 0},${(item.renewalOrderAmount || 0).toFixed(2)}`
       ).join('\n');
       
       const csv = csvHeader + csvContent;
@@ -182,6 +182,46 @@ const TeacherDashboard = () => {
         <Tag color="red">¥{amount.toFixed(2)}</Tag>
       ),
     },
+    {
+      title: '新签成单数',
+      dataIndex: 'newOrderCount',
+      key: 'newOrderCount',
+      width: 110,
+      align: 'center' as const,
+      render: (count: number) => (
+        <Tag color="blue">{count} 单</Tag>
+      ),
+    },
+    {
+      title: '新签金额',
+      dataIndex: 'newOrderAmount',
+      key: 'newOrderAmount',
+      width: 120,
+      align: 'center' as const,
+      render: (amount: number) => (
+        <Tag color="geekblue">¥{amount.toFixed(2)}</Tag>
+      ),
+    },
+    {
+      title: '续费成单数',
+      dataIndex: 'renewalOrderCount',
+      key: 'renewalOrderCount',
+      width: 110,
+      align: 'center' as const,
+      render: (count: number) => (
+        <Tag color="purple">{count} 单</Tag>
+      ),
+    },
+    {
+      title: '续费金额',
+      dataIndex: 'renewalOrderAmount',
+      key: 'renewalOrderAmount',
+      width: 120,
+      align: 'center' as const,
+      render: (amount: number) => (
+        <Tag color="magenta">¥{amount.toFixed(2)}</Tag>
+      ),
+    },
   ];
 
   const managementColumns = [
@@ -260,7 +300,7 @@ const TeacherDashboard = () => {
             showSizeChanger: true,
             showTotal: (total) => `共 ${total} 位销售`,
           }}
-          scroll={{ x: 800 }}
+          scroll={{ x: 1400 }}
         />
       </Card>
 
