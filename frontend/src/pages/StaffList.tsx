@@ -73,8 +73,11 @@ const StaffList = () => {
         await memfireDB.users.update(editingStaff.id, values);
         message.success('更新成功');
       } else {
-        await memfireDB.users.create(values);
-        message.success('添加成功');
+        const result = await memfireDB.users.create(values);
+        const { defaultPassword } = result.data || {};
+        message.success(
+          `添加成功${defaultPassword ? `，默认密码：${defaultPassword}` : ''}`
+        );
       }
       setModalVisible(false);
       form.resetFields();

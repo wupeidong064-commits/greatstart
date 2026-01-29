@@ -6,6 +6,7 @@ import { AuthRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { sendSuccess } from '../utils/response';
 import prisma from '../config/database';
+import { memfireAdmin } from '../config/memfire';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -220,6 +221,192 @@ export const authController = {
       next(error);
     }
   },
+
+  // 创建机构管理者（使用 MemFire Admin API，自动确认邮箱）
+  createManager: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { email, password, name, organizationId } = req.body;
+
+      // 验证必填字段
+      if (!email || !password || !name || !organizationId) {
+        return next(new ApiError('缺少必填字段', 400, 'MISSING_FIELDS'));
+      }
+
+      // 验证机构是否存在（从 MemFire 查询）
+      const { data: org, error: orgError } = await memfireAdmin
+        .from('organizations')
+        .select('id')
+        .eq('id', organizationId)
+        .maybeSingle();
+
+      if (orgError || !org) {
+        return next(new ApiError('机构不存在', 400, 'ORGANIZATION_NOT_FOUND'));
+      }
+
+      // 1. 使用 MemFire Admin API 创建用户（自动确认邮箱）
+      const { data: authData, error: authError } = await memfireAdmin.auth.admin.createUser({
+        email,
+        password: finalPassword,
+        email_confirm: true, // 自动确认邮箱
+        user_metadata: {
+          name,
+        },
+      });
+
+      if (authError) {
+        // 邮箱已存在
+        if (authError.message.includes('already exists')) {
+          return next(new ApiError('邮箱已被注册', 400, 'EMAIL_EXISTS'));
+        }
+        return next(new ApiError(authError.message, 400, 'AUTH_ERROR'));
+      }
+
+      // 2. 在 users 表中创建记录（角色为 manager）
+      const { error: userError } = await memfireAdmin
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: authData.user.email,
+          name,
+          password: 'memfire_auth', // 占位值，实际密码由 MemFire Auth 管理
+          role: 'manager',
+          organizationId,
+        });
+
+      if (userError) {
+        // 如果 users 表操作失败，尝试回滚 MemFire Auth 用户
+        await memfireAdmin.auth.admin.deleteUser(authData.user.id);
+        return next(new ApiError('创建用户失败: ' + userError.message, 500, 'USER_CREATE_ERROR'));
+      }
+
+      sendSuccess(
+        res,
+        {
+          id: authData.user.id,
+          email: authData.user.email,
+          name,
+          role: 'manager',
+          organizationId,
+        },
+        '管理者创建成功',
+        201
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // 创建工作人员（教练、销售等），使用 MemFire Admin API 自动确认邮箱
+  createStaff: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { email, password, name, role, phone, group, organizationId, campusId } = req.body;
+
+      // 验证必填字段（password 可选，未提供时自动生成）
+      if (!email || !name || !role) {
+        return next(new ApiError('缺少必填字段', 400, 'MISSING_FIELDS'));
+      }
+
+      // 如果未提供密码，生成默认密码
+      const finalPassword = password || '123456';
+
+      // 验证角色：只允许创建 staff、coach、sales、teacher 等非管理员角色
+      const allowedRoles = ['coach', 'sales', 'teacher', 'staff'];
+      if (!allowedRoles.includes(role)) {
+        return next(new ApiError('无效的角色，只能创建教练、销售、教师等工作人员', 400, 'INVALID_ROLE'));
+      }
+
+      // 如果未指定 organizationId，使用当前用户的
+      const finalOrganizationId = organizationId || req.memfireUser?.organizationId;
+      if (!finalOrganizationId) {
+        return next(new ApiError('缺少机构信息', 400, 'MISSING_ORGANIZATION'));
+      }
+
+      // 验证机构是否存在
+      const { data: org, error: orgError } = await memfireAdmin
+        .from('organizations')
+        .select('id')
+        .eq('id', finalOrganizationId)
+        .maybeSingle();
+
+      if (orgError || !org) {
+        return next(new ApiError('机构不存在', 400, 'ORGANIZATION_NOT_FOUND'));
+      }
+
+      // 如果指定了 campusId，验证校区是否存在
+      if (campusId) {
+        const { data: campus, error: campusError } = await memfireAdmin
+          .from('campuses')
+          .select('id, organizationId')
+          .eq('id', campusId)
+          .maybeSingle();
+
+        if (campusError || !campus) {
+          return next(new ApiError('校区不存在', 400, 'CAMPUS_NOT_FOUND'));
+        }
+        if (campus.organizationId !== finalOrganizationId) {
+          return next(new ApiError('校区不属于该机构', 400, 'CAMPUS_MISMATCH'));
+        }
+      }
+
+      // 1. 使用 MemFire Admin API 创建用户（自动确认邮箱）
+      const { data: authData, error: authError } = await memfireAdmin.auth.admin.createUser({
+        email,
+        password: finalPassword,
+        email_confirm: true, // 自动确认邮箱
+        user_metadata: {
+          name,
+        },
+      });
+
+      if (authError) {
+        // 邮箱已存在
+        if (authError.message.includes('already exists')) {
+          return next(new ApiError('邮箱已被注册', 400, 'EMAIL_EXISTS'));
+        }
+        return next(new ApiError(authError.message, 400, 'AUTH_ERROR'));
+      }
+
+      // 2. 在 users 表中创建记录
+      const { error: userError } = await memfireAdmin
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: authData.user.email,
+          name,
+          password: 'memfire_auth', // 占位值，实际密码由 MemFire Auth 管理
+          role,
+          organizationId: finalOrganizationId,
+          campusId: campusId || null,
+          phone: phone || null,
+          group: group || null,
+          isActive: true,
+        });
+
+      if (userError) {
+        // 如果 users 表操作失败，尝试回滚 MemFire Auth 用户
+        await memfireAdmin.auth.admin.deleteUser(authData.user.id);
+        return next(new ApiError('创建用户失败: ' + userError.message, 500, 'USER_CREATE_ERROR'));
+      }
+
+      sendSuccess(
+        res,
+        {
+          id: authData.user.id,
+          email: authData.user.email,
+          name,
+          role,
+          organizationId: finalOrganizationId,
+          campusId,
+          phone,
+          defaultPassword: finalPassword,
+        },
+        '工作人员创建成功',
+        201
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 // 注册验证规则
@@ -227,7 +414,7 @@ export const registerValidation = [
   body('email').isEmail().withMessage('无效的邮箱地址'),
   body('password').isLength({ min: 6 }).withMessage('密码至少6位'),
   body('name').notEmpty().withMessage('姓名不能为空'),
-  body('role').isIn(['admin', 'manager', 'teacher', 'staff', 'parent']).withMessage('无效的角色'),
+  body('role').isIn(['admin', 'manager', 'teacher', 'coach', 'sales', 'staff', 'parent']).withMessage('无效的角色'),
 ];
 
 export const loginValidation = [

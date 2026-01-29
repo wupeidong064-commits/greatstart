@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Card, Statistic, Row, Col } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, FilterOutlined, PlusCircleOutlined } from '@ant-design/icons';
 import memfireDB from '../services/memfireDB';
+import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
+import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -61,6 +63,15 @@ const OrderInfo = () => {
   // 统计数据
   const [stats, setStats] = useState({ totalCount: 0, totalAmount: 0 });
 
+  // 获取当前用户和权限
+  const user = useAuthStore((state) => state.user);
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+
+  // 权限检查：教练角色只能创建，不能编辑/删除
+  const canEdit = normalizedRole === 'admin' || normalizedRole === 'manager';
+  const canDelete = normalizedRole === 'admin' || normalizedRole === 'manager';
+  const canCreate = normalizedRole === 'admin' || normalizedRole === 'manager' || normalizedRole === 'coach';
+
   useEffect(() => {
     fetchData();
     fetchClasses();
@@ -86,6 +97,10 @@ const OrderInfo = () => {
         params.startDate = dateRange[0].format('YYYY-MM-DD');
         params.endDate = dateRange[1].format('YYYY-MM-DD');
       }
+      
+      // 应用数据过滤：teacher 角色只看自己的销售数据
+      const filter = getDataScopeFilter('sales');
+      Object.assign(params, filter);
       
       const result = await memfireDB.conversions.list(params);
       setData(result.data || []);
@@ -228,9 +243,51 @@ const OrderInfo = () => {
       return;
     }
     try {
-      const selectedClass = classes.find(c => c.id === values.classId);
-      const normalizedSalesId = values.salesId === 'none' ? null : values.salesId;
-      const selectedSales = normalizedSalesId ? staffList.find(s => s.id === normalizedSalesId) : undefined;
+      // 获取学员当前的活跃报名记录（原班级）
+      const activeEnrollment = selectedRenewalStudent.enrollments?.find((e: any) => e.status === 'active');
+      const originalClassId = activeEnrollment?.classId;
+      const originalClass = activeEnrollment?.class;
+      const originalTeacherId = originalClass?.teacher?.id;
+      const originalTeacherName = originalClass?.teacher?.name;
+
+      // 确定实际的班级ID和班级信息
+      let finalClassId = values.classId || originalClassId; // 未填班级则使用原班级
+      let finalClassName = null;
+      let finalTeacherId = originalTeacherId; // 默认使用原班级教练
+
+      if (values.classId) {
+        // 如果填了新班级，获取新班级信息
+        const selectedClass = classes.find(c => c.id === values.classId);
+        finalClassName = selectedClass?.name || null;
+        finalTeacherId = selectedClass?.teacher?.id || originalTeacherId;
+      } else {
+        // 未填班级，使用原班级信息
+        finalClassName = originalClass?.name || null;
+      }
+
+      // 确定salesId和salesName的逻辑
+      let finalSalesId = null;
+      let finalSalesName = null;
+
+      if (values.salesId) {
+        // 填入了跟进人 → 算跟进人业绩
+        const selectedSales = staffList.find(s => s.id === values.salesId);
+        finalSalesId = values.salesId;
+        finalSalesName = selectedSales?.name || null;
+      } else {
+        // 未填跟进人，使用班级负责教练
+        if (values.classId) {
+          // 填入了班级但未填跟进人 → 算新班级负责教练员业绩
+          const selectedClass = classes.find(c => c.id === values.classId);
+          finalSalesId = selectedClass?.teacher?.id || originalTeacherId;
+          finalSalesName = selectedClass?.teacher?.name || originalTeacherName;
+        } else {
+          // 未填班级也未填跟进人 → 算原班级负责教练员业绩
+          finalSalesId = originalTeacherId;
+          finalSalesName = originalTeacherName;
+        }
+      }
+
       const addition = values.totalLessons || 0;
       const newRemaining = (selectedRenewalStudent.remainingLessons || 0) + addition;
 
@@ -240,15 +297,15 @@ const OrderInfo = () => {
         gender: selectedRenewalStudent.gender || null,
         contact: selectedRenewalStudent.phone || selectedRenewalStudent.parentPhone || '',
         parentName: selectedRenewalStudent.parentName || null,
-        classId: values.classId || null,
-        className: selectedClass?.name || null,
+        classId: finalClassId || null,
+        className: finalClassName,
         courseType: '续费',
         totalLessons: addition || null,
         price: values.price || null,
         paymentMethod: values.paymentMethod || null,
         paymentStatus: values.paymentStatus || 'paid',
-        salesId: normalizedSalesId,
-        salesName: values.salesId === 'none' ? '无销售' : selectedSales?.name || null,
+        salesId: finalSalesId || null,
+        salesName: finalSalesName || null,
         conversionDate: values.conversionDate ? values.conversionDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
         notes: values.notes ? `续费 - ${values.notes}` : '续费',
         existingStudentId: selectedRenewalStudent.id,
@@ -467,23 +524,27 @@ const OrderInfo = () => {
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <Space size="small">
-          <Button 
-            type="link" 
-            size="small" 
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
-          <Button 
-            type="link" 
-            size="small" 
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDelete(record.id)}
-          >
-            删除
-          </Button>
+          {canEdit && (
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(record.id)}
+            >
+              删除
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -494,12 +555,16 @@ const OrderInfo = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>成单信息表</h2>
         <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            新增成单
-          </Button>
-          <Button type="default" icon={<PlusCircleOutlined />} onClick={handleOpenRenewalModal}>
-            新增续费
-          </Button>
+          {canCreate && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+              新增成单
+            </Button>
+          )}
+          {canCreate && (
+            <Button type="default" icon={<PlusCircleOutlined />} onClick={handleOpenRenewalModal}>
+              新增续费
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -610,7 +675,7 @@ const OrderInfo = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item name="classId" label="续费班级">
-              <Select placeholder="请选择班级" allowClear showSearch optionFilterProp="children">
+              <Select placeholder="请选择班级（不填则保持原班级）" allowClear showSearch optionFilterProp="children">
                 {classes.map((cls) => (
                   <Option key={cls.id} value={cls.id}>
                     {cls.name}
@@ -648,11 +713,9 @@ const OrderInfo = () => {
             </Form.Item>
             <Form.Item
               name="salesId"
-              label="销售/跟进人"
-              rules={[{ required: true, message: '请选择销售/跟进人（可选“无销售”）' }]}
+              label="跟进人"
             >
-              <Select placeholder="请选择" showSearch optionFilterProp="children">
-                <Option value="none">无销售</Option>
+              <Select placeholder="请选择（不填则算班级教练）" allowClear showSearch optionFilterProp="children">
                 {staffList.map((staff) => (
                   <Option key={staff.id} value={staff.id}>
                     {staff.name}
@@ -660,6 +723,21 @@ const OrderInfo = () => {
                 ))}
               </Select>
             </Form.Item>
+          </div>
+
+          <div style={{ 
+            marginBottom: 16, 
+            padding: 8, 
+            background: '#e6f7ff', 
+            border: '1px solid #91d5ff', 
+            borderRadius: 4,
+            fontSize: 12,
+            color: '#666'
+          }}>
+            <div><strong>💡 业绩归属说明：</strong></div>
+            <div>• 填写跟进人 → 业绩算跟进人</div>
+            <div>• 填写班级但不填跟进人 → 业绩算该班级教练</div>
+            <div>• 都不填 → 业绩算原班级教练</div>
           </div>
 
           <Form.Item name="conversionDate" label="续费日期" rules={[{ required: true }]}>

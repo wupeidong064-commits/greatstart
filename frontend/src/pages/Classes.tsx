@@ -3,11 +3,20 @@ import { Table, Button, Modal, Form, message, Tag, Input, Space, Select, DatePic
 import { PlusOutlined, FilterOutlined, CalendarOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { useAuthStore } from '../store/authStore';
+import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
 const Classes = () => {
+  const { user } = useAuthStore();
+  const userRole = user ? normalizeRole(user.role) : null;
+  const isSales = userRole === 'sales';
+  const isCoach = userRole === 'coach';
+
+  // 销售和教练角色只能查看，不能操作
+  const canEdit = !isSales && !isCoach;
+
   const [classes, setClasses] = useState<any[]>([]);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +61,9 @@ const Classes = () => {
   const fetchClasses = async () => {
     setLoading(true);
     try {
-      const data = await memfireDB.classes.list();
+      // 应用数据过滤：teacher 角色只看自己的班级
+      const filter = getDataScopeFilter('classes');
+      const data = await memfireDB.classes.list(filter);
       setClasses(data || []);
     } catch (error: any) {
       console.error('获取班级列表失败:', error);
@@ -520,19 +531,23 @@ const Classes = () => {
       key: 'action',
       render: (_: any, record: any) => (
         <Space>
-          <Button type="link" icon={<UserAddOutlined />} onClick={() => handleAddStudentToClass(record)}>
-            添加学员
-          </Button>
+          {canEdit && (
+            <>
+              <Button type="link" icon={<UserAddOutlined />} onClick={() => handleAddStudentToClass(record)}>
+                添加学员
+              </Button>
+              <Button type="link" onClick={() => handleEdit(record)}>编辑</Button>
+              {record.status === 'active' ? (
+                <Button type="link" onClick={() => handleSuspendClass(record.id)}>停课</Button>
+              ) : record.status === 'inactive' ? (
+                <Button type="link" onClick={() => handleResumeClass(record.id)}>复课</Button>
+              ) : null}
+              <Button type="link" danger onClick={() => handleDelete(record.id)}>删除</Button>
+            </>
+          )}
           <Button type="link" icon={<TeamOutlined />} onClick={() => handleViewStudents(record)}>
             学员名单
           </Button>
-          <Button type="link" onClick={() => handleEdit(record)}>编辑</Button>
-          {record.status === 'active' ? (
-            <Button type="link" onClick={() => handleSuspendClass(record.id)}>停课</Button>
-          ) : record.status === 'inactive' ? (
-            <Button type="link" onClick={() => handleResumeClass(record.id)}>复课</Button>
-          ) : null}
-          <Button type="link" danger onClick={() => handleDelete(record.id)}>删除</Button>
         </Space>
       ),
     },
@@ -563,13 +578,15 @@ const Classes = () => {
           >
             {showExperienceClassOnly ? '取消筛选' : '优先安排体验课班级'}
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-            setEditingClass(null);
-            form.resetFields();
-            setModalVisible(true);
-          }}>
-            新增班级
-          </Button>
+          {canEdit && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => {
+              setEditingClass(null);
+              form.resetFields();
+              setModalVisible(true);
+            }}>
+              新增班级
+            </Button>
+          )}
         </Space>
       </div>
       <Table columns={columns} dataSource={classes} loading={loading} rowKey="id" />

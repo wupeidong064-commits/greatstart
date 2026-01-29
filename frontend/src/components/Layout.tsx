@@ -23,6 +23,7 @@ import {
   FundProjectionScreenOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
+import { getUserMenuPermissions } from '../utils/dataFilter';
 import type { MenuProps } from 'antd';
 
 const { Header, Sider, Content } = AntLayout;
@@ -89,155 +90,219 @@ const Layout = () => {
     }
   };
 
-  const menuItems = [
-    {
-      key: '/operation',
-      icon: <AppstoreOutlined />,
-      label: '课消收入中心',
-      children: [
-        {
-          key: '/classes',
-          label: '班级管理',
-        },
-        {
-          key: '/operation/weekly-schedule',
-          label: '每周排课',
-        },
-        {
-          key: '/attendances',
-          label: '出勤管理',
-          children: [
-            {
-              key: '/attendances',
-              label: '班级出勤',
-            },
-            {
-              key: '/attendances/continuous-leave',
-              label: '低出勤学员',
-            },
-            {
-              key: '/attendances/honeymoon',
-              label: '蜜月期客户出勤',
-            },
-          ],
-        },
-        {
-          key: '/operation/consumption',
-          label: '课消收入总结',
-        },
-      ],
-    },
-    {
-      key: '/cashflow',
-      icon: <DollarOutlined />,
-      label: '现金流中心',
-      children: [
-        {
-          key: '/cashflow/summary',
-          label: '现金流收入总结',
-        },
-        {
-          key: '/cashflow/marketing',
-          label: '营销与销售（鱼池）',
-        },
-        {
-          key: '/cashflow/experience-schedule',
-          label: '体验课表',
-        },
-        {
-          key: '/cashflow/order-info',
-          label: '成单信息表',
-        },
-        {
-          key: '/students/renewal',
-          label: '续费管理',
-        },
-      ],
-    },
-    {
-      key: '/students',
-      icon: <UserOutlined />,
-      label: '学员管理',
-      children: [
-        {
-          key: '/students',
-          label: '学员列表/档案',
-        },
-        {
-          key: '/students/lost',
-          label: '流失学员库',
-        },
-      ],
-    },
-    {
-      key: '/teachers',
-      icon: <UsergroupAddOutlined />,
-      label: '工作人员管理',
-      children: [
-        {
-          key: '/teachers',
-          label: '教练员数据',
-        },
-        {
+  // 获取当前用户的菜单权限
+  const permissions = getUserMenuPermissions();
+
+  // 🔍 临时调试日志 - 查看用户信息和权限
+  useEffect(() => {
+    console.log('=== 菜单权限调试信息 ===');
+    console.log('当前用户:', user);
+    console.log('用户角色:', user?.role);
+    console.log('菜单权限:', permissions);
+    console.log('========================');
+  }, [user, permissions]);
+
+  // 构建菜单项，根据权限动态显示
+  const buildMenuItems = () => {
+    const items = [];
+
+    console.log('🔍 开始构建菜单，权限:', permissions);
+
+    // 课消收入中心 - admin/manager/teacher 可见
+    if (permissions.canViewAllClasses || user?.role === 'teacher') {
+      console.log('✅ 添加"课消收入中心"菜单');
+      items.push({
+        key: '/operation',
+        icon: <AppstoreOutlined />,
+        label: user?.role === 'teacher' ? '我的班级管理' : '课消收入中心',
+        children: [
+          {
+            key: '/classes',
+            label: user?.role === 'teacher' ? '我的班级' : '班级管理',
+          },
+          ...(permissions.canViewAllClasses ? [{
+            key: '/operation/weekly-schedule',
+            label: '每周排课',
+          }] : []),
+          {
+            key: '/attendances',
+            label: '出勤管理',
+            children: [
+              {
+                key: '/attendances',
+                label: '班级出勤',
+              },
+              {
+                key: '/attendances/continuous-leave',
+                label: '低出勤学员',
+              },
+              {
+                key: '/attendances/honeymoon',
+                label: '蜜月期客户出勤',
+              },
+            ],
+          },
+          ...(permissions.canViewAllClasses ? [{
+            key: '/operation/consumption',
+            label: '课消收入总结',
+          }] : []),
+        ],
+      });
+    }
+
+    // 现金流中心（销售相关）- admin/manager/teacher 可见
+    if (permissions.canViewSalesData) {
+      console.log('✅ 添加"现金流中心"菜单');
+      items.push({
+        key: '/cashflow',
+        icon: <DollarOutlined />,
+        label: user?.role === 'teacher' ? '我的销售管理' : '现金流中心',
+        children: [
+          ...(permissions.canViewReports ? [{
+            key: '/cashflow/summary',
+            label: '现金流收入总结',
+          }] : []),
+          {
+            key: '/cashflow/marketing',
+            label: user?.role === 'teacher' ? '我的鱼池' : '营销与销售（鱼池）',
+          },
+          {
+            key: '/cashflow/experience-schedule',
+            label: user?.role === 'teacher' ? '我的体验课' : '体验课表',
+          },
+          {
+            key: '/cashflow/order-info',
+            label: user?.role === 'teacher' ? '我的成单' : '成单信息表',
+          },
+          {
+            key: '/students/renewal',
+            label: user?.role === 'teacher' ? '我的续费学员' : '续费管理',
+          },
+        ],
+      });
+    }
+
+    // 学员管理 - admin/manager/teacher 可见
+    if (permissions.canViewAllStudents || user?.role === 'teacher') {
+      console.log('✅ 添加"学员管理"菜单');
+      items.push({
+        key: '/students',
+        icon: <UserOutlined />,
+        label: user?.role === 'teacher' ? '我的学员' : '学员管理',
+        children: [
+          {
+            key: '/students',
+            label: user?.role === 'teacher' ? '我的学员列表' : '学员列表/档案',
+          },
+          ...(permissions.canViewAllStudents ? [{
+            key: '/students/lost',
+            label: '流失学员库',
+          }] : []),
+        ],
+      });
+    }
+
+    // 工作人员管理 - admin/manager 可见，coach 只能看到教练员数据
+    if (permissions.canViewReports || user?.role === 'coach') {
+      const menuItems = [];
+      // 教练员数据 - admin/manager/coach 都可见
+      menuItems.push({
+        key: '/teachers',
+        label: '教练员数据',
+      });
+      // 销售数据 - 只有 admin/manager 可见
+      if (permissions.canViewReports) {
+        menuItems.push({
           key: '/teachers/dashboard',
           label: '销售数据',
-        },
-      ],
-    },
-    {
-      key: '/finance',
-      icon: <WalletOutlined />,
-      label: '财务管理',
-      children: [
-        {
-          key: '/finance/expenses',
-          label: '支出与报表',
-        },
-        {
-          key: '/finance/staff-salary',
-          label: '人员工资',
-        },
-      ],
-    },
-    {
-      key: '/analytics',
-      icon: <BarChartOutlined />,
-      label: '数据统计与分析',
-      children: [
-        {
-          key: '/summary/weekly',
-          label: '周总结',
-        },
-        {
-          key: '/analytics/special',
-          label: '季度总结',
-        },
-      ],
-    },
-  ];
+        });
+      }
+      items.push({
+        key: '/teachers',
+        icon: <UsergroupAddOutlined />,
+        label: user?.role === 'coach' ? '教练数据' : '工作人员管理',
+        children: menuItems,
+      });
+    }
 
-  // 管理员和超级管理员可见的菜单
-  if (user?.role === 'admin' || user?.role === 'super_admin') {
-    menuItems.push({
-      key: '/system',
-      icon: <SettingOutlined />,
-      label: '系统管理',
-      children: [
-        {
+    // 财务管理 - admin/manager 可见
+    if (permissions.canViewReports) {
+      items.push({
+        key: '/finance',
+        icon: <WalletOutlined />,
+        label: '财务管理',
+        children: [
+          {
+            key: '/finance/expenses',
+            label: '支出与报表',
+          },
+          {
+            key: '/finance/staff-salary',
+            label: '人员工资',
+          },
+        ],
+      });
+    }
+
+    // 数据统计与分析 - admin/manager 可见
+    if (permissions.canViewReports) {
+      items.push({
+        key: '/analytics',
+        icon: <BarChartOutlined />,
+        label: '数据统计与分析',
+        children: [
+          {
+            key: '/summary/weekly',
+            label: '周总结',
+          },
+          {
+            key: '/analytics/special',
+            label: '季度总结',
+          },
+        ],
+      });
+    }
+
+    // 系统管理 - admin 可见
+    if (permissions.canViewUsers || permissions.canViewOrganizations || permissions.canViewSettings) {
+      const systemChildren = [];
+      
+      if (permissions.canViewUsers) {
+        systemChildren.push({
           key: '/system/staff-list',
           label: '工作人员列表',
-        },
-        {
+        });
+      }
+      
+      if (permissions.canViewOrganizations) {
+        systemChildren.push({
           key: '/organizations',
           label: '机构管理',
-        },
-        {
+        });
+      }
+      
+      if (permissions.canViewSettings) {
+        systemChildren.push({
           key: '/system/settings',
           label: '基础设置',
-        },
-      ],
-    });
-  }
+        });
+      }
+      
+      if (systemChildren.length > 0) {
+        items.push({
+          key: '/system',
+          icon: <SettingOutlined />,
+          label: '系统管理',
+          children: systemChildren,
+        });
+      }
+    }
+
+    console.log('🔍 菜单构建完成，总共', items.length, '个顶级菜单');
+    return items;
+  };
+
+  const menuItems = buildMenuItems();
 
   const userMenuItems: MenuProps['items'] = [
     {

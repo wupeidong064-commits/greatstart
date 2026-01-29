@@ -1,4 +1,5 @@
 import { memfire } from '../lib/memfire';
+import api from './api';
 
 if (!memfire) {
   // eslint-disable-next-line no-console
@@ -111,6 +112,19 @@ export const memfireAuth = {
         name: (user.user_metadata as any)?.name ?? null,
       };
     }
+  },
+
+  // 创建机构管理者
+  async createManager(email: string, password: string, name: string, organizationId: string) {
+    // 调用后端 API，使用 MemFire Admin API 创建用户（自动确认邮箱）
+    const response = await api.post('/auth/create-manager', {
+      email,
+      password,
+      name,
+      organizationId,
+    });
+
+    return response;
   },
 };
 

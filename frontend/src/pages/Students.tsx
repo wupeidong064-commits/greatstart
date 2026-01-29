@@ -3,6 +3,7 @@ import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePic
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { useAuthStore } from '../store/authStore';
+import { getDataScopeFilter } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { Search } = Input;
@@ -42,12 +43,14 @@ const Students = () => {
   const [showUnscheduledOnly, setShowUnscheduledOnly] = useState(false);
   const { user } = useAuthStore();
 
-  if (!user || user.role !== 'super_admin') {
+  // 权限检查：允许 admin、manager、sales、teacher、coach 角色访问
+  const allowedRoles = ['admin', 'manager', 'sales', 'teacher', 'coach'];
+  if (!user || !allowedRoles.includes(user.role)) {
     return (
       <div style={{ padding: '40px', textAlign: 'center' }}>
         <Alert
           message="权限受限"
-          description="仅超级管理员可查看学员管理页面，如需访问请联系系统管理员"
+          description="您没有权限访问学员管理页面，如需访问请联系系统管理员"
           type="warning"
           showIcon
         />
@@ -97,6 +100,10 @@ const Students = () => {
       if (showUnscheduledOnly) {
         params.unscheduledOnly = true;
       }
+      
+      // 应用数据过滤：teacher 角色只看自己班级的学员
+      const filter = getDataScopeFilter('students');
+      Object.assign(params, filter);
       
       const response = await memfireDB.students.list(params);
       setStudents(response.data || []);

@@ -2,11 +2,18 @@ import { Card, Table, Button, Space, Tag, message, Progress, Modal, Form, Input,
 import { UsergroupAddOutlined, FileExcelOutlined, DeleteOutlined, UserAddOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import memfireDB from '../services/memfireDB';
+import { useAuthStore } from '../store/authStore';
+import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
 const Teachers = () => {
+  // 获取当前用户和权限
+  const user = useAuthStore((state) => state.user);
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+  const canManageStaff = normalizedRole === 'admin' || normalizedRole === 'manager';
+
   const [loading, setLoading] = useState(false);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [managementModalVisible, setManagementModalVisible] = useState(false);
@@ -80,11 +87,14 @@ const Teachers = () => {
 
   const handleAddTeacher = async (values: any) => {
     try {
-      await memfireDB.users.create({
+      const result = await memfireDB.users.create({
         ...values,
         role: 'coach',
       });
-      message.success('添加教练成功');
+      const { defaultPassword } = result.data || {};
+      message.success(
+        `添加教练成功${defaultPassword ? `，默认密码：${defaultPassword}` : ''}`
+      );
       addForm.resetFields();
       fetchTeachersList();
       fetchTeachers(); // 刷新统计数据
@@ -322,9 +332,11 @@ const Teachers = () => {
           <Button icon={<FileExcelOutlined />} onClick={handleExport}>
             教练员数据导出
           </Button>
-          <Button type="primary" icon={<UsergroupAddOutlined />} onClick={() => setManagementModalVisible(true)}>
-            人员管理
-          </Button>
+          {canManageStaff && (
+            <Button type="primary" icon={<UsergroupAddOutlined />} onClick={() => setManagementModalVisible(true)}>
+              人员管理
+            </Button>
+          )}
         </Space>
       </div>
       <Card title={
