@@ -3,7 +3,7 @@ import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePic
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { useAuthStore } from '../store/authStore';
-import { getDataScopeFilter } from '../utils/dataFilter';
+import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { Search } = Input;
@@ -42,6 +42,10 @@ const Students = () => {
   const [logFilters, setLogFilters] = useState<{ type?: string }>({});
   const [showUnscheduledOnly, setShowUnscheduledOnly] = useState(false);
   const { user } = useAuthStore();
+
+  // 权限检查
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+  const canManageStudents = normalizedRole === 'admin' || normalizedRole === 'manager';
 
   // 权限检查：允许 admin、manager、sales、teacher、coach 角色访问
   const allowedRoles = ['admin', 'manager', 'sales', 'teacher', 'coach'];
@@ -915,12 +919,16 @@ const Students = () => {
           <Button type="link" icon={<MinusCircleOutlined />} onClick={() => handleDeductLessons(record)}>
             划课
           </Button>
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            编辑
-          </Button>
-          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
-            删除
-          </Button>
+          {canManageStudents && (
+            <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+              编辑
+            </Button>
+          )}
+          {canManageStudents && (
+            <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
+              删除
+            </Button>
+          )}
         </Space>
       ),
       width: 260,
@@ -1010,9 +1018,9 @@ const Students = () => {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h1>学员管理</h1>
         <Space>
-          <Button 
-            type="default" 
-            icon={<DownloadOutlined />} 
+          <Button
+            type="default"
+            icon={<DownloadOutlined />}
             onClick={handleExportAllStudents}
             style={{ color: '#52c41a', borderColor: '#52c41a' }}
           >
@@ -1021,12 +1029,16 @@ const Students = () => {
           <Button type="default" icon={<PlusCircleOutlined />} onClick={handleOpenLogModal}>
             划课记录
           </Button>
-          <Button type="primary" icon={<SwapOutlined />} onClick={handleTransfer}>
-            调班
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            新增学员
-          </Button>
+          {canManageStudents && (
+            <Button type="primary" icon={<SwapOutlined />} onClick={handleTransfer}>
+              调班
+            </Button>
+          )}
+          {canManageStudents && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+              新增学员
+            </Button>
+          )}
         </Space>
       </div>
 

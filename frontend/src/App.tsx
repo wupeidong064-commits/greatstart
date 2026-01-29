@@ -31,6 +31,7 @@ import SpecialAnalysis from './pages/SpecialAnalysis';
 import Organizations from './pages/Organizations';
 import Users from './pages/Users';
 import Settings from './pages/Settings';
+import ChangePassword from './pages/ChangePassword';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -92,6 +93,7 @@ function App() {
           <Route path="system/staff-list" element={<StaffList />} />
           <Route path="organizations" element={<Organizations />} />
           <Route path="system/settings" element={<Settings />} />
+          <Route path="change-password" element={<ChangePassword />} />
         </Route>
       </Routes>
     </BrowserRouter>

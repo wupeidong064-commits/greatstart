@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Table, Input, Space, Tag, message, Button, Select, Modal, Form, InputNumber, DatePicker, Tabs, Popconfirm } from 'antd';
 import { SearchOutlined, FileExcelOutlined, CheckCircleOutlined, CloseCircleOutlined, UserOutlined } from '@ant-design/icons';
 import memfireDB from '../services/memfireDB';
+import { getDataScopeFilter } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -93,11 +94,14 @@ const RenewalStudents = () => {
   const fetchRenewalStudents = async () => {
     setLoading(true);
     try {
+      // 应用数据过滤：teacher 角色自动传入自己的 ID
+      const filter = getDataScopeFilter('students');
+      
       const result = await memfireDB.students.listForRenewal({
           page: pagination.current,
           pageSize: pagination.pageSize,
         search: searchText,
-        teacherId: selectedTeacher || undefined,
+        teacherId: selectedTeacher || filter.teacherId || undefined,
         maxRemainingLessons: 10,
         excludeNoRenewal: true, // 排除已标记不续费的
         renewalStartDate: renewalDateRange?.[0] ? renewalDateRange[0].format('YYYY-MM-DD') : undefined,
@@ -120,10 +124,14 @@ const RenewalStudents = () => {
   const fetchNoRenewalStudents = async () => {
     setNoRenewalLoading(true);
     try {
+      // 应用数据过滤：teacher 角色自动传入自己的 ID
+      const filter = getDataScopeFilter('students');
+      
       const result = await memfireDB.students.listNoRenewal({
         page: noRenewalPagination.current,
         pageSize: noRenewalPagination.pageSize,
         search: searchText,
+        teacherId: filter.teacherId || undefined,
       });
       
       let filteredData = result.data || [];
@@ -182,8 +190,50 @@ const RenewalStudents = () => {
   // 提交续费
   const handleRenewalSubmit = async (values: any) => {
     try {
-      const selectedClass = classList.find(c => c.id === values.classId);
-      const selectedSales = teacherList.find(t => t.id === values.salesId);
+      // 获取学员当前的活跃报名记录（原班级）
+      const activeEnrollment = renewingStudent.enrollments?.find((e: any) => e.status === 'active');
+      const originalClassId = activeEnrollment?.classId;
+      const originalClass = activeEnrollment?.class;
+      const originalTeacherId = originalClass?.teacher?.id;
+      const originalTeacherName = originalClass?.teacher?.name;
+
+      // 确定实际的班级ID和班级信息
+      let finalClassId = values.classId || originalClassId; // 未填班级则使用原班级
+      let finalClassName = null;
+      let finalTeacherId = originalTeacherId; // 默认使用原班级教练
+
+      if (values.classId) {
+        // 如果填了新班级，获取新班级信息
+        const selectedClass = classList.find(c => c.id === values.classId);
+        finalClassName = selectedClass?.name || null;
+        finalTeacherId = selectedClass?.teacher?.id || originalTeacherId;
+      } else {
+        // 未填班级，使用原班级信息
+        finalClassName = originalClass?.name || null;
+      }
+
+      // 确定salesId和salesName的逻辑
+      let finalSalesId = null;
+      let finalSalesName = null;
+
+      if (values.salesId) {
+        // 情况3: 填入了跟进人 → 算跟进人业绩
+        const selectedSales = teacherList.find(t => t.id === values.salesId);
+        finalSalesId = values.salesId;
+        finalSalesName = selectedSales?.name || null;
+      } else {
+        // 未填跟进人，使用班级负责教练
+        if (values.classId) {
+          // 情况2: 填入了班级但未填跟进人 → 算新班级负责教练员业绩
+          const selectedClass = classList.find(c => c.id === values.classId);
+          finalSalesId = selectedClass?.teacher?.id || originalTeacherId;
+          finalSalesName = selectedClass?.teacher?.name || originalTeacherName;
+        } else {
+          // 情况1: 未填班级也未填跟进人 → 算原班级负责教练员业绩
+          finalSalesId = originalTeacherId;
+          finalSalesName = originalTeacherName;
+        }
+      }
 
       const conversionData = {
         studentName: renewingStudent.name,
@@ -191,14 +241,14 @@ const RenewalStudents = () => {
         gender: renewingStudent.gender || null,
         contact: renewingStudent.phone || renewingStudent.parentPhone || '未填写',
         parentName: renewingStudent.parentName || null,
-        classId: values.classId || null,
-        className: selectedClass?.name || null,
+        classId: finalClassId || null,
+        className: finalClassName,
         totalLessons: values.totalLessons,
         price: values.price,
         paymentMethod: values.paymentMethod || null,
         paymentStatus: values.paymentStatus || 'paid',
-        salesId: values.salesId || null,
-        salesName: selectedSales?.name || null,
+        salesId: finalSalesId || null,
+        salesName: finalSalesName || null,
         conversionDate: values.conversionDate ? values.conversionDate.format('YYYY-MM-DD') : null,
         notes: `续费 - ${values.notes || ''}`,
         existingStudentId: renewingStudent.id,
@@ -609,19 +659,36 @@ const RenewalStudents = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item name="classId" label="续费班级">
-              <Select placeholder="请选择班级" allowClear showSearch optionFilterProp="children">
+              <Select placeholder="请选择班级（不填则保持原班级）" allowClear showSearch optionFilterProp="children">
                 {classList.map((cls) => (
-                  <Option key={cls.id} value={cls.id}>{cls.name}</Option>
+                  <Option key={cls.id} value={cls.id}>
+                    {cls.name} {cls.teacher?.name && `(${cls.teacher.name})`}
+                  </Option>
                 ))}
               </Select>
             </Form.Item>
             <Form.Item name="salesId" label="跟进人">
-              <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
+              <Select placeholder="请选择（不填则算班级教练）" allowClear showSearch optionFilterProp="children">
                 {teacherList.map((staff) => (
                   <Option key={staff.id} value={staff.id}>{staff.name}</Option>
                 ))}
               </Select>
             </Form.Item>
+          </div>
+
+          <div style={{ 
+            marginBottom: 16, 
+            padding: 8, 
+            background: '#e6f7ff', 
+            border: '1px solid #91d5ff', 
+            borderRadius: 4,
+            fontSize: 12,
+            color: '#666'
+          }}>
+            <div><strong>💡 业绩归属说明：</strong></div>
+            <div>• 填写跟进人 → 业绩算跟进人</div>
+            <div>• 填写班级但不填跟进人 → 业绩算该班级教练</div>
+            <div>• 都不填 → 业绩算原班级教练</div>
           </div>
 
           <Form.Item name="conversionDate" label="续费日期" rules={[{ required: true }]}>

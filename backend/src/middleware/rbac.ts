@@ -2,14 +2,24 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
 import { ApiError } from './errorHandler';
 
-export type Role = 'admin' | 'manager' | 'teacher' | 'staff' | 'parent';
+export type Role = 'admin' | 'manager' | 'teacher' | 'coach' | 'sales' | 'staff' | 'parent';
 
 const roleHierarchy: Record<Role, number> = {
   admin: 5,
   manager: 4,
   teacher: 3,
+  coach: 3,
+  sales: 3,
   staff: 2,
   parent: 1,
+};
+
+const roleMapping: Record<string, Role> = {
+  'teacher': 'coach',
+};
+
+export const normalizeRole = (role: string): Role => {
+  return roleMapping[role] || (role as Role);
 };
 
 export const requireRole = (...allowedRoles: Role[]) => {
@@ -18,7 +28,8 @@ export const requireRole = (...allowedRoles: Role[]) => {
       return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
     }
 
-    if (!allowedRoles.includes(req.user.role as Role)) {
+    const normalizedRole = normalizeRole(req.user.role);
+    if (!allowedRoles.includes(normalizedRole)) {
       return next(
         new ApiError('权限不足', 403, 'FORBIDDEN')
       );
@@ -34,7 +45,8 @@ export const requireMinRole = (minRole: Role) => {
       return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
     }
 
-    const userRoleLevel = roleHierarchy[req.user.role as Role] || 0;
+    const normalizedRole = normalizeRole(req.user.role);
+    const userRoleLevel = roleHierarchy[normalizedRole] || 0;
     const minRoleLevel = roleHierarchy[minRole];
 
     if (userRoleLevel < minRoleLevel) {
@@ -52,8 +64,10 @@ export const requireOrganizationAccess = () => {
       return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
     }
 
-    // 系统管理员可以访问所有数据
-    if (req.user.role === 'admin') {
+    const normalizedRole = normalizeRole(req.user.role);
+
+    // 所有 admin 角色可以访问所有数据
+    if (normalizedRole === 'admin') {
       return next();
     }
 

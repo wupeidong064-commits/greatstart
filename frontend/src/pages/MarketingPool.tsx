@@ -1,7 +1,9 @@
 import { Table, Button, Space, message, Modal, Form, Input, InputNumber, DatePicker, Select } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import memfireDB from '../services/memfireDB';
+import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
+import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
 
 interface StaffUser {
@@ -19,11 +21,18 @@ const MarketingPool = () => {
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [form] = Form.useForm();
   const [staffList, setStaffList] = useState<StaffUser[]>([]);
+  const [selectedAssignee, setSelectedAssignee] = useState<string | undefined>(undefined);
+  const [searchKeyword, setSearchKeyword] = useState('');
+
+  // 权限检查
+  const user = useAuthStore((state) => state.user);
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+  const canManageAll = normalizedRole === 'admin' || normalizedRole === 'manager';
 
   useEffect(() => {
     fetchData();
     fetchStaffList();
-  }, [pagination.current, pagination.pageSize]);
+  }, [pagination.current, pagination.pageSize, selectedAssignee]);
 
   // 获取工作人员列表（用于负责人选择）
   const fetchStaffList = async () => {
@@ -38,10 +47,23 @@ const MarketingPool = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const result = await memfireDB.leads.list({
+      // 对于 admin 和 manager，支持按负责人筛选
+      const params: any = {
         page: pagination.current,
         pageSize: pagination.pageSize,
-      });
+      };
+
+      // 如果选择了负责人，添加筛选条件
+      if (selectedAssignee) {
+        params.assigneeId = selectedAssignee;
+      }
+
+      // 如果有搜索关键词，添加搜索条件
+      if (searchKeyword) {
+        params.search = searchKeyword;
+      }
+
+      const result = await memfireDB.leads.list(params);
       setData(result.data || []);
       setPagination({
         ...pagination,
@@ -53,6 +75,13 @@ const MarketingPool = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 重置筛选
+  const handleResetFilter = () => {
+    setSelectedAssignee(undefined);
+    setSearchKeyword('');
+    setPagination({ ...pagination, current: 1 });
   };
 
   const handleAdd = () => {
@@ -222,6 +251,49 @@ const MarketingPool = () => {
           新增线索
         </Button>
       </div>
+
+      {/* 筛选栏 */}
+      {canManageAll && (
+        <Space style={{ marginBottom: 16 }} wrap>
+          <Select
+            placeholder="筛选负责人"
+            allowClear
+            showSearch
+            optionFilterProp="children"
+            style={{ width: 200 }}
+            value={selectedAssignee}
+            onChange={(value) => {
+              setSelectedAssignee(value);
+              setPagination({ ...pagination, current: 1 });
+            }}
+            filterOption={(input, option) =>
+              (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+            }
+          >
+            {staffList.map(staff => (
+              <Select.Option key={staff.id} value={staff.id}>
+                {staff.name}
+              </Select.Option>
+            ))}
+          </Select>
+          <Input
+            placeholder="搜索姓名或联系方式"
+            allowClear
+            prefix={<SearchOutlined />}
+            style={{ width: 250 }}
+            value={searchKeyword}
+            onChange={(e) => setSearchKeyword(e.target.value)}
+            onPressEnter={() => setPagination({ ...pagination, current: 1 })}
+          />
+          <Button onClick={() => setPagination({ ...pagination, current: 1 })} icon={<SearchOutlined />}>
+            搜索
+          </Button>
+          <Button onClick={handleResetFilter}>
+            重置
+          </Button>
+        </Space>
+      )}
+
       <Table
         columns={columns}
         dataSource={data}

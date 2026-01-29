@@ -1,13 +1,13 @@
 import { Card, Row, Col, Statistic, Table, message, DatePicker, Space, Tag, Switch, Progress, Button, Modal, Form, InputNumber } from 'antd';
 import { useState, useEffect } from 'react';
-import { 
-  UserOutlined, 
-  TeamOutlined, 
-  CheckCircleOutlined, 
-  DollarOutlined, 
-  AppstoreOutlined, 
-  WalletOutlined, 
-  HomeOutlined, 
+import {
+  UserOutlined,
+  TeamOutlined,
+  CheckCircleOutlined,
+  DollarOutlined,
+  AppstoreOutlined,
+  WalletOutlined,
+  HomeOutlined,
   PercentageOutlined,
   CalendarOutlined,
   ArrowUpOutlined,
@@ -19,6 +19,8 @@ import {
   DownloadOutlined,
 } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
+import { useAuthStore } from '../store/authStore';
+import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -33,6 +35,11 @@ const ConsumptionAndRevenue = () => {
     dayjs().startOf('month'),
     dayjs().endOf('month'),
   ]);
+
+  // 权限检查
+  const user = useAuthStore((state) => state.user);
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+  const canManageSettings = normalizedRole === 'admin' || normalizedRole === 'manager';
   const [statistics, setStatistics] = useState({
     totalAttendance: 0,       // 实际划课数（出勤人次）
     totalAttendanceCount: 0,  // 应划课数（理想出勤人次）
@@ -407,26 +414,19 @@ const ConsumptionAndRevenue = () => {
         </Col>
         <Col span={8}>
           <Card 
-            loading={loading} 
-            hoverable
-            onClick={handleOpenMaxClassesModal}
-            style={{ cursor: 'pointer' }}
+            loading={loading}
+            hoverable={canManageSettings}
+            onClick={canManageSettings ? handleOpenMaxClassesModal : undefined}
+            style={canManageSettings ? { cursor: 'pointer' } : undefined}
           >
             <Statistic
-              title={
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span>场地使用率</span>
-                  <span style={{ fontSize: 12, color: '#999', fontWeight: 'normal' }}>
-                    点击设置最大开班数
-                  </span>
-                </div>
-              }
+              title="场地使用率"
               value={statistics.venueUtilizationRate}
               suffix="%"
               prefix={<HomeOutlined style={{ color: statistics.venueUtilizationRate >= 70 ? '#52c41a' : statistics.venueUtilizationRate >= 50 ? '#faad14' : '#ff4d4f' }} />}
-              valueStyle={{ 
-                color: statistics.venueUtilizationRate >= 70 ? '#52c41a' : 
-                       statistics.venueUtilizationRate >= 50 ? '#faad14' : '#ff4d4f' 
+              valueStyle={{
+                color: statistics.venueUtilizationRate >= 70 ? '#52c41a' :
+                       statistics.venueUtilizationRate >= 50 ? '#faad14' : '#ff4d4f'
               }}
             />
             <div style={{ marginTop: 8, fontSize: 12, color: '#999', textAlign: 'center' }}>

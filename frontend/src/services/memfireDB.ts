@@ -10,6 +10,39 @@ if (!memfire) {
 // 学员管理
 export const studentsDB = {
   /**
+   * 获取当前用户的机构ID（复用 leadsDB 的逻辑）
+   */
+  async getOrganizationId(): Promise<string> {
+    const { useAuthStore } = await import('../store/authStore');
+    const currentUser = useAuthStore.getState().user;
+
+    // 1. 先检查 store 中是否有 organizationId
+    if (currentUser?.organizationId) {
+      return currentUser.organizationId;
+    }
+
+    // 2. 尝试从 users 表获取
+    if (currentUser?.id && memfire) {
+      try {
+        const { data: userData } = await memfire
+          .from('users')
+          .select('*')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+
+        if (userData?.organizationId) {
+          return userData.organizationId;
+        }
+      } catch (error) {
+        console.error('获取机构ID失败:', error);
+      }
+    }
+
+    // 3. 如果都没有，返回默认值
+    return 'default-org';
+  },
+
+  /**
    * 获取学员列表（分页）
    */
   async list(params?: {
@@ -23,9 +56,10 @@ export const studentsDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
     const { page = 1, pageSize = 10, lowAttendanceOnly = false, search = '', keyword = '', unscheduledOnly = false, teacherId } = params || {};
     const searchTerm = keyword || search;  // 优先使用 keyword
-    
+
     let query = memfire
       .from('students')
       .select(`
@@ -42,6 +76,7 @@ export const studentsDB = {
           )
         )
       `, { count: 'exact' })
+      .eq('organizationId', organizationId)
       .order('createdAt', { ascending: false });
 
     // 搜索过滤
@@ -240,10 +275,12 @@ export const studentsDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
-    const { 
-      page = 1, 
-      pageSize = 10, 
-      search = '', 
+    const organizationId = await this.getOrganizationId();
+
+    const {
+      page = 1,
+      pageSize = 10,
+      search = '',
       teacherId,
       maxRemainingLessons = 10,
       excludeNoRenewal = true,
@@ -265,6 +302,7 @@ export const studentsDB = {
           )
         )
       `, { count: 'exact' })
+      .eq('organizationId', organizationId)
       .lt('remainingLessons', maxRemainingLessons)
       .order('remainingLessons', { ascending: true });
 
@@ -391,6 +429,8 @@ export const studentsDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     const { page = 1, pageSize = 10, search = '', teacherId } = params || {};
 
     let query = memfire
@@ -408,6 +448,7 @@ export const studentsDB = {
           )
         )
       `, { count: 'exact' })
+      .eq('organizationId', organizationId)
       .or(`renewalStatus.eq.no_renewal,status.eq.graduated`)  // 包括不续费和已毕业
       .order('updatedAt', { ascending: false });
 
@@ -510,12 +551,47 @@ export const studentsDB = {
 // 班级管理
 export const classesDB = {
   /**
+   * 获取当前用户的机构ID（复用 leadsDB 的逻辑）
+   */
+  async getOrganizationId(): Promise<string> {
+    const { useAuthStore } = await import('../store/authStore');
+    const currentUser = useAuthStore.getState().user;
+
+    // 1. 先检查 store 中是否有 organizationId
+    if (currentUser?.organizationId) {
+      return currentUser.organizationId;
+    }
+
+    // 2. 尝试从 users 表获取
+    if (currentUser?.id && memfire) {
+      try {
+        const { data: userData } = await memfire
+          .from('users')
+          .select('*')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+
+        if (userData?.organizationId) {
+          return userData.organizationId;
+        }
+      } catch (error) {
+        console.error('获取机构ID失败:', error);
+      }
+    }
+
+    // 3. 如果都没有，返回默认值
+    return 'default-org';
+  },
+
+  /**
    * 获取班级列表（完整信息）
    */
   async list(params?: {
     teacherId?: string;  // 按教练ID过滤
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const organizationId = await this.getOrganizationId();
 
     let query = memfire
       .from('classes')
@@ -524,6 +600,7 @@ export const classesDB = {
         teacher:users(id, name),
         enrollments:enrollments(id, status)
       `)
+      .eq('organizationId', organizationId)
       .order('createdAt', { ascending: false });
 
     // 按教练ID过滤
@@ -622,21 +699,24 @@ export const classesDB = {
   async listAll() {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     const { data, error } = await memfire
       .from('classes')
       .select(`
-        id, 
-        name, 
-        code, 
+        id,
+        name,
+        code,
         status,
         teacherId,
         teacher:users(id, name)
       `)
+      .eq('organizationId', organizationId)
       .eq('status', 'active')
       .order('name', { ascending: true });
 
     if (error) throw error;
-    
+
     // 处理 teacher 数据（Supabase 返回的是数组，需要取第一个）
     return (data || []).map((cls: any) => ({
       ...cls,
@@ -791,6 +871,39 @@ export const enrollmentsDB = {
 // 排课管理
 export const schedulesDB = {
   /**
+   * 获取当前用户的机构ID（复用 leadsDB 的逻辑）
+   */
+  async getOrganizationId(): Promise<string> {
+    const { useAuthStore } = await import('../store/authStore');
+    const currentUser = useAuthStore.getState().user;
+
+    // 1. 先检查 store 中是否有 organizationId
+    if (currentUser?.organizationId) {
+      return currentUser.organizationId;
+    }
+
+    // 2. 尝试从 users 表获取
+    if (currentUser?.id && memfire) {
+      try {
+        const { data: userData } = await memfire
+          .from('users')
+          .select('*')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+
+        if (userData?.organizationId) {
+          return userData.organizationId;
+        }
+      } catch (error) {
+        console.error('获取机构ID失败:', error);
+      }
+    }
+
+    // 3. 如果都没有，返回默认值
+    return 'default-org';
+  },
+
+  /**
    * 获取排课列表
    */
   async list(params?: {
@@ -801,18 +914,21 @@ export const schedulesDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     let query = memfire
       .from('schedules')
       .select(`
         *,
         class:classes(
-          id, 
-          name, 
+          id,
+          name,
           code,
           enrollments:enrollments(id, status)
         ),
         teacher:users(id, name)
       `)
+      .eq('organizationId', organizationId)
       .order('startTime', { ascending: true });
 
     if (params?.classId) {
@@ -1035,6 +1151,39 @@ export const schedulesDB = {
 // 考勤管理
 export const attendancesDB = {
   /**
+   * 获取当前用户的机构ID（复用 leadsDB 的逻辑）
+   */
+  async getOrganizationId(): Promise<string> {
+    const { useAuthStore } = await import('../store/authStore');
+    const currentUser = useAuthStore.getState().user;
+
+    // 1. 先检查 store 中是否有 organizationId
+    if (currentUser?.organizationId) {
+      return currentUser.organizationId;
+    }
+
+    // 2. 尝试从 users 表获取
+    if (currentUser?.id && memfire) {
+      try {
+        const { data: userData } = await memfire
+          .from('users')
+          .select('*')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+
+        if (userData?.organizationId) {
+          return userData.organizationId;
+        }
+      } catch (error) {
+        console.error('获取机构ID失败:', error);
+      }
+    }
+
+    // 3. 如果都没有，返回默认值
+    return 'default-org';
+  },
+
+  /**
    * 创建考勤记录
    */
   async create(data: {
@@ -1069,6 +1218,8 @@ export const attendancesDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     let query = memfire
       .from('attendances')
       .select(`
@@ -1076,6 +1227,7 @@ export const attendancesDB = {
         student:students(id, name),
         schedule:schedules(id, startTime, endTime)
       `)
+      .eq('organizationId', organizationId)
       .order('createdAt', { ascending: false });
 
     if (params?.classId) {
@@ -1376,6 +1528,8 @@ export const attendancesDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     // 1. 获取所有活跃班级及其学员数
     let classQuery = memfire
       .from('classes')
@@ -1390,6 +1544,7 @@ export const attendancesDB = {
         teacher:users(id, name),
         enrollments:enrollments(id, studentId, status)
       `)
+      .eq('organizationId', organizationId)
       .eq('status', 'active')
       .order('name', { ascending: true });
 
@@ -1405,13 +1560,14 @@ export const attendancesDB = {
     // 2. 获取指定时间范围的排课记录（默认最近一周）
     const now = new Date();
     const defaultStartDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
+
     const startDate = params?.startDate || defaultStartDate.toISOString();
     const endDate = params?.endDate || now.toISOString();
 
     const { data: schedules, error: schedulesError } = await memfire
       .from('schedules')
       .select('id, classId, startTime, status')
+      .eq('organizationId', organizationId)
       .gte('startTime', startDate)
       .lte('startTime', endDate)
       .neq('status', 'cancelled'); // 排除已取消的排课
@@ -1495,6 +1651,7 @@ export const attendancesDB = {
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
     const threshold = params?.threshold ?? 60;
     const teacherId = params?.teacherId;
     const continuousAbsentOnly = params?.continuousAbsentOnly ?? false;
@@ -1523,21 +1680,23 @@ export const attendancesDB = {
           )
         )
       `)
+      .eq('organizationId', organizationId)
       .eq('status', 'active')
-      .order('name', { ascending: true});
+      .order('name', { ascending: true });
 
     if (studentsError) throw studentsError;
 
     // 2. 获取指定时间范围的排课记录（默认最近30天）
     const now = new Date();
     const defaultStartDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    
+
     const startDate = params?.startDate || defaultStartDate.toISOString();
     const endDate = params?.endDate || now.toISOString();
 
     const { data: schedules, error: schedulesError } = await memfire
       .from('schedules')
       .select('id, classId, startTime, status')
+      .eq('organizationId', organizationId)
       .gte('startTime', startDate)
       .lte('startTime', endDate)
       .neq('status', 'cancelled'); // 排除已取消的排课
@@ -1702,9 +1861,12 @@ export const usersDB = {
   async listTeachers() {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     const { data, error } = await memfire
       .from('users')
       .select('id, name, email, role')
+      .eq('organizationId', organizationId)
       .in('role', ['coach', 'sales', 'admin', 'super_admin']) // 包含教练、销售、管理等可作为负责人的角色
       .eq('isActive', true)
       .order('name', { ascending: true });
@@ -1719,9 +1881,12 @@ export const usersDB = {
   async listAll() {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     const { data, error } = await memfire
       .from('users')
       .select('id, name, email, phone, role, isActive, group')
+      .eq('organizationId', organizationId)
       .order('name', { ascending: true });
 
     if (error) throw error;
@@ -1780,10 +1945,13 @@ export const usersDB = {
   async getSalesStatistics(params?: { startDate?: string; endDate?: string }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     // 1. 获取所有销售人员（角色为 teacher、sales 或 coach）
     const { data: salesPeople, error: salesError } = await memfire
       .from('users')
       .select('id, name, email')
+      .eq('organizationId', organizationId)
       .in('role', ['teacher', 'sales', 'coach'])
       .eq('isActive', true);
 
@@ -1801,36 +1969,40 @@ export const usersDB = {
       const memfireClient = memfire;
       if (!memfireClient) throw new Error('MemFire 客户端未初始化');
 
-      // 添加数：鱼池表中的线索数 + 体验课表中的数量（因为转化后会从鱼池移除）
+      // 添加数：只统计鱼池表中新增的线索数
       let leadsQuery = memfireClient
         .from('leads')
         .select('id', { count: 'exact' })
+        .eq('organizationId', organizationId)
         .eq('assigneeId', salesperson.id);
-      
+
       if (params?.startDate) {
         leadsQuery = leadsQuery.gte('createdAt', params.startDate);
       }
       if (params?.endDate) {
         leadsQuery = leadsQuery.lte('createdAt', params.endDate);
       }
-      
+
       const { count: leadsCount } = await leadsQuery;
 
+      // 体验课表中的数量（用于邀约数统计）
       let experienceQuery = memfireClient
         .from('experience_lessons')
         .select('id', { count: 'exact' })
+        .eq('organizationId', organizationId)
         .eq('assigneeId', salesperson.id);
-      
+
       if (params?.startDate) {
         experienceQuery = experienceQuery.gte('scheduleDate', params.startDate);
       }
       if (params?.endDate) {
         experienceQuery = experienceQuery.lte('scheduleDate', params.endDate);
       }
-      
+
       const { count: experienceCount } = await experienceQuery;
 
-      const addedCount = (leadsCount || 0) + (experienceCount || 0);
+      // 添加数：只统计鱼池表中的线索数（不包括体验课）
+      const addedCount = leadsCount || 0;
 
       // 邀约数：所有登记在体验课表的数量（不限状态）
       const invitationCount = experienceCount || 0;
@@ -1839,24 +2011,26 @@ export const usersDB = {
       let attendanceQuery = memfireClient
         .from('experience_lessons')
         .select('id', { count: 'exact' })
+        .eq('organizationId', organizationId)
         .eq('assigneeId', salesperson.id)
         .eq('status', 'converted');
-      
+
       if (params?.startDate) {
         attendanceQuery = attendanceQuery.gte('scheduleDate', params.startDate);
       }
       if (params?.endDate) {
         attendanceQuery = attendanceQuery.lte('scheduleDate', params.endDate);
       }
-      
+
       const { count: attendanceCount } = await attendanceQuery;
 
       // 成单数和成单金额：从 conversions 表获取（成单信息表）
       let ordersQuery = memfireClient
         .from('conversions')
         .select('id, price, courseType')
+        .eq('organizationId', organizationId)
         .eq('salesId', salesperson.id);
-      
+
       if (params?.startDate) {
         ordersQuery = ordersQuery.gte('conversionDate', params.startDate);
       }
@@ -1912,13 +2086,16 @@ export const usersDB = {
    */
   async getCoachStatistics(params?: { startDate?: string; endDate?: string }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
-    
+
+    const organizationId = await this.getOrganizationId();
+
     console.log('开始获取教练统计数据', params);
 
-    // 1. 获取所有角色为 coach 的用户（不限制 organizationId）
+    // 1. 获取所有角色为 coach 的用户
     const { data: coaches, error: coachesError } = await memfire
       .from('users')
       .select('id, name')
+      .eq('organizationId', organizationId)
       .eq('role', 'coach')
       .eq('isActive', true);
 
@@ -1926,9 +2103,9 @@ export const usersDB = {
       console.error('获取教练列表失败:', coachesError);
       throw coachesError;
     }
-    
+
     console.log('找到的教练:', coaches);
-    
+
     if (!coaches || coaches.length === 0) {
       console.log('没有找到任何教练，返回空数组');
       return [];
@@ -1941,6 +2118,7 @@ export const usersDB = {
     const { data: enrollments, error: enrollmentsError } = await memfire
       .from('enrollments')
       .select('id, studentId, classId, class:classes(id, teacherId)')
+      .eq('organizationId', organizationId)
       .eq('status', 'active')
       .in('class.teacherId', coachIds);
 
@@ -1954,6 +2132,7 @@ export const usersDB = {
     const { data: attendances, error: attendancesError } = await memfire
       .from('attendances')
       .select('id, studentId, status, schedule:schedules(id, classId, class:classes(teacherId))')
+      .eq('organizationId', organizationId)
       .in('schedule.class.teacherId', coachIds);
 
     if (attendancesError) {
@@ -1966,8 +2145,9 @@ export const usersDB = {
     // 4. 获取每个教练的成单数据（作为销售的）
     let conversionsQuery = memfire
       .from('conversions')
-      .select('id, studentId, price, salesId, conversionDate, courseType, totalLessons');
-    
+      .select('id, studentId, price, salesId, conversionDate, courseType, totalLessons')
+      .eq('organizationId', organizationId);
+
     // 如果有时间范围，筛选成单日期
     if (params?.startDate) {
       conversionsQuery = conversionsQuery.gte('conversionDate', params.startDate);
@@ -1987,7 +2167,8 @@ export const usersDB = {
     // 5. 获取学员信息（用于计算基本盘）
     const { data: students, error: studentsError } = await memfire
       .from('students')
-      .select('id, name, status, createdAt');
+      .select('id, name, status, createdAt')
+      .eq('organizationId', organizationId);
 
     if (studentsError) {
       console.error('获取学员信息失败:', studentsError);
@@ -2114,18 +2295,20 @@ export const usersDB = {
       });
       const baseCount = activeStudents.length;
 
-      // 个人新招数（作为销售人员的成单，排除续费）
-      const newRecruits = conversions?.filter(c => 
+      // 个人新招数（作为销售人员的成单，排除续费，使用 Set 去重）
+      const newRecruitConversions = conversions?.filter(c =>
         c.salesId === coach.id && c.courseType !== '续费'
-      ).length || 0;
+      ) || [];
+      const uniqueNewRecruits = new Set(newRecruitConversions.map(c => c.studentId));
+      const newRecruits = uniqueNewRecruits.size;
 
       // 续费率计算
-      const renewals = conversions?.filter(c => 
+      const renewals = conversions?.filter(c =>
         c.salesId === coach.id && c.courseType === '续费'
       ) || [];
       const renewalStudents = new Set(renewals.map(r => r.studentId));
-      const renewalRate = baseCount > 0 
-        ? Math.round((renewalStudents.size / baseCount) * 100) 
+      const renewalRate = baseCount > 0
+        ? Math.round((renewalStudents.size / baseCount) * 100)
         : 0;
 
       // 成单金额（作为销售的成单金额）
@@ -2181,6 +2364,13 @@ export const usersDB = {
 // 课消收入统计
 export const consumptionDB = {
   /**
+   * 获取当前用户的机构ID（复用 leadsDB 的逻辑）
+   */
+  async getOrganizationId(): Promise<string> {
+    return leadsDB.getOrganizationId();
+  },
+
+  /**
    * 获取课消收入统计数据
    * @param params.startDate 开始日期
    * @param params.endDate 结束日期
@@ -2188,17 +2378,19 @@ export const consumptionDB = {
   async getStatistics(params?: { startDate?: string; endDate?: string }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
+
     // 默认时间范围：本月
     const now = new Date();
     const defaultStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
     const defaultEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    
+
     const startDate = params?.startDate || defaultStartDate.toISOString();
     const endDate = params?.endDate || defaultEndDate.toISOString();
 
-    console.log('📊 开始统计数据，时间范围:', { 
-      startDate: startDate.substring(0, 10), 
-      endDate: endDate.substring(0, 10) 
+    console.log('📊 开始统计数据，时间范围:', {
+      startDate: startDate.substring(0, 10),
+      endDate: endDate.substring(0, 10)
     });
 
     // 1. 获取所有班级信息（包含班级类型）
@@ -2215,6 +2407,7 @@ export const consumptionDB = {
         teacherId,
         enrollments:enrollments(id, studentId, status)
       `)
+      .eq('organizationId', organizationId)
       .eq('status', 'active');
 
     if (classesError) throw classesError;
@@ -2223,6 +2416,7 @@ export const consumptionDB = {
     const { data: schedules, error: schedulesError } = await memfire
       .from('schedules')
       .select('id, classId, startTime, status')
+      .eq('organizationId', organizationId)
       .gte('startTime', startDate)
       .lte('startTime', endDate)
       .neq('status', 'cancelled');
@@ -2271,6 +2465,7 @@ export const consumptionDB = {
     const { data: allStudents, error: allStudentsError } = await memfire
       .from('students')
       .select('id, status, createdAt, updatedAt')
+      .eq('organizationId', organizationId)
       .neq('status', 'deleted');
 
     if (allStudentsError) throw allStudentsError;
@@ -2279,6 +2474,7 @@ export const consumptionDB = {
     const { data: activeStudents, error: studentsError } = await memfire
       .from('students')
       .select('id')
+      .eq('organizationId', organizationId)
       .eq('status', 'active');
 
     if (studentsError) throw studentsError;
@@ -2287,11 +2483,12 @@ export const consumptionDB = {
     let newRecruits = 0;
     try {
       console.log('🔍 查询新增学员（从成单信息表），时间范围:', { startDate, endDate });
-      
+
       // 从 conversions 表获取（成单信息表）
       const { data: conversions, error: conversionsError } = await memfire
         .from('conversions')
         .select('id, studentId, courseType, conversionDate, createdAt')
+        .eq('organizationId', organizationId)
         .gte('conversionDate', startDate)
         .lte('conversionDate', endDate);
 
@@ -2337,12 +2534,13 @@ export const consumptionDB = {
     let recalled = 0;
     try {
       console.log('🔍 查询召回学员，时间范围:', { startDate, endDate });
-      
+
       // 查询在指定时间范围内更新状态为 active，且 notes 中包含"删除原因"的学员
       // 这表示学员之前被标记为流失（会在 notes 中记录删除原因），现在被召回
       const { data: recalledStudents, error: recalledError } = await memfire
         .from('students')
         .select('id, name, status, notes, updatedAt')
+        .eq('organizationId', organizationId)
         .eq('status', 'active')
         .gte('updatedAt', startDate)
         .lte('updatedAt', endDate)
@@ -2370,13 +2568,14 @@ export const consumptionDB = {
     let nonRenewals = 0;
     try {
       console.log('🔍 查询不续费学员（包括已毕业），时间范围:', { startDate, endDate });
-      
+
       // 查询两种情况：
       // 1. renewalStatus = 'no_renewal' （明确标记不续费）
       // 2. status = 'graduated' （已毕业）
       const { data: noRenewalRecords, error: noRenewalError } = await memfire
         .from('students')
         .select('id, name, renewalStatus, updatedAt, status')
+        .eq('organizationId', organizationId)
         .or(`renewalStatus.eq.no_renewal,status.eq.graduated`)
         .gte('updatedAt', startDate)
         .lte('updatedAt', endDate);
@@ -2404,11 +2603,12 @@ export const consumptionDB = {
     let deletedRoster = 0;
     try {
       console.log('🔍 查询流失学员，时间范围:', { startDate, endDate });
-      
+
       // 查询在指定时间范围内更新状态为 inactive 或 deleted 的学员
       const { data: lostStudents, error: lostError } = await memfire
         .from('students')
         .select('id, name, status, updatedAt')
+        .eq('organizationId', organizationId)
         .in('status', ['inactive', 'deleted'])
         .gte('updatedAt', startDate)
         .lte('updatedAt', endDate);
@@ -2679,6 +2879,7 @@ export const consumptionDB = {
   async getClassStudentChanges(params: { startDate?: string; endDate?: string }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
     const { startDate, endDate } = params;
 
     console.log('🔍 查询班级学员变化，时间范围:', { startDate, endDate });
@@ -2696,6 +2897,7 @@ export const consumptionDB = {
         teacherId,
         teacher:users(id, name)
       `)
+      .eq('organizationId', organizationId)
       .eq('status', 'active')
       .order('name');
 
@@ -2705,6 +2907,7 @@ export const consumptionDB = {
     const { data: currentEnrollmentsData, error: currentError } = await memfire
       .from('enrollments')
       .select('classId, studentId, student:students(id, status)')
+      .eq('organizationId', organizationId)
       .eq('status', 'active');
 
     if (currentError) throw currentError;
@@ -2734,6 +2937,7 @@ export const consumptionDB = {
       const { data: inactiveStudents, error: inactiveError } = await memfire
         .from('students')
         .select('id, status, updatedAt, enrollments:enrollments(classId, status)')
+        .eq('organizationId', organizationId)
         .in('status', ['inactive', 'graduated', 'deleted'])
         .gte('updatedAt', startDate)
         .lte('updatedAt', endDate);
@@ -2754,6 +2958,7 @@ export const consumptionDB = {
       const { data: cancelledEnrollments, error: cancelledError } = await memfire
         .from('enrollments')
         .select('classId, studentId, updatedAt')
+        .eq('organizationId', organizationId)
         .eq('status', 'cancelled')
         .gte('updatedAt', startDate)
         .lte('updatedAt', endDate);
@@ -2772,6 +2977,7 @@ export const consumptionDB = {
       const { data: newEnrollmentsData, error: newError } = await memfire
         .from('enrollments')
         .select('classId, studentId, createdAt, student:students(id, status)')
+        .eq('organizationId', organizationId)
         .eq('status', 'active')
         .gte('createdAt', startDate)
         .lte('createdAt', endDate);
@@ -2840,11 +3046,20 @@ export const consumptionDB = {
 // 蜜月期客户（新报名学员）管理
 export const honeymoonDB = {
   /**
+   * 获取当前用户的机构ID（复用 leadsDB 的逻辑）
+   */
+  async getOrganizationId(): Promise<string> {
+    return leadsDB.getOrganizationId();
+  },
+
+  /**
    * 获取蜜月期客户列表（报名30天内的学员）
    * 自动筛选报名时间在30天内的学员，超过30天自动不再显示
    */
   async getHoneymoonStudents() {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const organizationId = await this.getOrganizationId();
 
     // 计算30天前的日期
     const thirtyDaysAgo = new Date();
@@ -2863,6 +3078,7 @@ export const honeymoonDB = {
         student:students(id, name, phone, parentPhone, status),
         class:classes(id, name, code, teacherId, teacher:users(id, name))
       `)
+      .eq('organizationId', organizationId)
       .gte('createdAt', thirtyDaysAgoStr)
       .order('createdAt', { ascending: true });
 
@@ -3015,11 +3231,19 @@ export const honeymoonDB = {
 // 流失学员管理
 export const lostStudentsDB = {
   /**
+   * 获取当前用户的机构ID（复用 leadsDB 的逻辑）
+   */
+  async getOrganizationId(): Promise<string> {
+    return leadsDB.getOrganizationId();
+  },
+
+  /**
    * 获取流失学员列表（status = inactive）
    */
   async list(params?: { page?: number; pageSize?: number; keyword?: string; teacherId?: string }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
+    const organizationId = await this.getOrganizationId();
     const { page = 1, pageSize = 10, keyword = '' } = params || {};
     const teacherId = params?.teacherId;
 
@@ -3038,6 +3262,7 @@ export const lostStudentsDB = {
           )
         )
       `, { count: 'exact' })
+      .eq('organizationId', organizationId)
       .eq('status', 'inactive')
       .order('updatedAt', { ascending: false });
 
@@ -3363,9 +3588,9 @@ export const leadsDB = {
       .eq('organizationId', organizationId)
       .order('createdAt', { ascending: false });
 
-    // 权限控制：非管理员只能看到自己负责的线索
-    const isAdmin = ['admin', 'super_admin'].includes(userRole);
-    if (!isAdmin && userId) {
+    // 权限控制：admin 和 manager 可以看到所有线索，其他角色只能看到自己负责的线索
+    const isAdminOrManager = ['admin', 'super_admin', 'manager'].includes(userRole);
+    if (!isAdminOrManager && userId) {
       // 普通员工只能看到分配给自己的线索，或者未分配的线索
       query = query.or(`assigneeId.eq.${userId},assigneeId.is.null`);
     }
@@ -3664,9 +3889,9 @@ export const experienceLessonsDB = {
       .order('scheduleDate', { ascending: false })
       .order('createdAt', { ascending: false });
 
-    // 权限控制：非管理员只能看到自己负责的体验课
-    const isAdmin = ['admin', 'super_admin'].includes(userRole);
-    if (!isAdmin && userId) {
+    // 权限控制：admin 和 manager 可以看到所有体验课，其他角色只能看到自己负责的
+    const isAdminOrManager = ['admin', 'super_admin', 'manager'].includes(userRole);
+    if (!isAdminOrManager && userId) {
       query = query.or(`assigneeId.eq.${userId},assigneeId.is.null`);
     }
 
@@ -4034,9 +4259,9 @@ export const conversionsDB = {
       .order('conversionDate', { ascending: false })
       .order('createdAt', { ascending: false });
 
-    // 权限控制：非管理员只能看到自己负责的成单
-    const isAdmin = ['admin', 'super_admin'].includes(userRole);
-    if (!isAdmin && userId) {
+    // 权限控制：admin 和 manager 可以看到所有成单，其他角色只能看到自己负责的
+    const isAdminOrManager = ['admin', 'super_admin', 'manager'].includes(userRole);
+    if (!isAdminOrManager && userId) {
       query = query.or(`salesId.eq.${userId},salesId.is.null`);
     }
 

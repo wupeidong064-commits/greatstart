@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, UserAddOutlined, ImportOutlined } from '@ant-design/icons';
 import memfireDB from '../services/memfireDB';
+import { getDataScopeFilter } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -66,11 +67,14 @@ const ExperienceSchedule = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // 应用数据过滤：teacher 角色只看自己负责的体验课
+      const filter = getDataScopeFilter('experiences');
+      
       const result = await memfireDB.experienceLessons.list({
         page: pagination.current,
         pageSize: pagination.pageSize,
         teachingTeacherId: teacherFilter || undefined,
-        assigneeId: assigneeFilter || undefined,
+        assigneeId: assigneeFilter || filter.assigneeId || undefined,
       });
       setData(result.data || []);
       setPagination(prev => ({

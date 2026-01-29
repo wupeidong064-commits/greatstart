@@ -21,6 +21,7 @@ import {
   FileSearchOutlined,
   AppstoreOutlined,
   FundProjectionScreenOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { getUserMenuPermissions } from '../utils/dataFilter';
@@ -305,6 +306,17 @@ const Layout = () => {
   const menuItems = buildMenuItems();
 
   const userMenuItems: MenuProps['items'] = [
+    {
+      key: 'change-password',
+      icon: <KeyOutlined />,
+      label: '修改密码',
+      onClick: () => {
+        navigate('/change-password');
+      },
+    },
+    {
+      type: 'divider',
+    },
     {
       key: 'logout',
       icon: <LogoutOutlined />,

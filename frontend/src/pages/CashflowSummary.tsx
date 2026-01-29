@@ -3,6 +3,8 @@ import { Card, Row, Col, Statistic, DatePicker, Space, Spin, Select } from 'antd
 import { DollarOutlined, UserAddOutlined, TeamOutlined, RiseOutlined, SyncOutlined } from '@ant-design/icons';
 import memfireDB from '../services/memfireDB';
 import dayjs from 'dayjs';
+import { useAuthStore } from '../store/authStore';
+import { normalizeRole } from '../utils/dataFilter';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -29,10 +31,18 @@ const CashflowSummary = () => {
       renewalRate: 0,
     },
   });
+  const { user } = useAuthStore();
 
   useEffect(() => {
     fetchStaffList();
   }, []);
+
+  // sales 角色自动选择自己
+  useEffect(() => {
+    if (user && normalizeRole(user.role) === 'sales') {
+      setSelectedStaff(user.id);
+    }
+  }, [user]);
 
   useEffect(() => {
     fetchData();
@@ -69,29 +79,33 @@ const CashflowSummary = () => {
     }
   };
 
+  const isSales = user && normalizeRole(user.role) === 'sales';
+
   return (
     <div style={{ padding: '24px' }}>
       <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}>现金流收入总结</h2>
         <Space>
-          <Select
-            placeholder="按人员筛选"
-            allowClear
-            style={{ width: 200 }}
-            value={selectedStaff}
-            onChange={setSelectedStaff}
-            showSearch
-            optionFilterProp="children"
-            filterOption={(input, option) =>
-              (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
-            }
-          >
-            {staffList.map(staff => (
-              <Option key={staff.id} value={staff.id}>
-                {staff.name}
-              </Option>
-            ))}
-          </Select>
+          {!isSales && (
+            <Select
+              placeholder="按人员筛选"
+              allowClear
+              style={{ width: 200 }}
+              value={selectedStaff}
+              onChange={setSelectedStaff}
+              showSearch
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {staffList.map(staff => (
+                <Option key={staff.id} value={staff.id}>
+                  {staff.name}
+                </Option>
+              ))}
+            </Select>
+          )}
           <RangePicker
             value={dateRange}
             onChange={handleDateChange}

@@ -246,7 +246,7 @@ export const authController = {
       // 1. 使用 MemFire Admin API 创建用户（自动确认邮箱）
       const { data: authData, error: authError } = await memfireAdmin.auth.admin.createUser({
         email,
-        password: finalPassword,
+        password,
         email_confirm: true, // 自动确认邮箱
         user_metadata: {
           name,

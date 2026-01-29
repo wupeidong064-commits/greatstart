@@ -126,6 +126,52 @@ export const memfireAuth = {
 
     return response;
   },
+
+  // 修改密码（使用原密码验证）
+  async changePassword(oldPassword: string, newPassword: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    // 首先验证原密码是否正确
+    const { data: { user }, error: signInError } = await memfire.auth.signInWithPassword({
+      email: (await this.getCurrentUser())?.email || '',
+      password: oldPassword,
+    });
+
+    if (signInError) {
+      return { success: false, error: '原密码错误' };
+    }
+
+    // 更新密码
+    const { error: updateError } = await memfire.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (updateError) {
+      return { success: false, error: updateError.message || '密码修改失败' };
+    }
+
+    return { success: true, data: { message: '密码修改成功' } };
+  },
+
+  // 忘记密码 - 发送重置密码邮件
+  async resetPassword(email: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data, error } = await memfire.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/login`,
+    });
+
+    if (error) {
+      return { success: false, error: error.message || '发送邮件失败' };
+    }
+
+    return { success: true, data };
+  },
+
+  // 登出（已存在 signOut 方法，添加别名）
+  async logout() {
+    return this.signOut();
+  },
 };
 
 

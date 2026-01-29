@@ -2,6 +2,8 @@ import { Card, Table, Tag, message, Button, Space, Modal, Form, Input, DatePicke
 import { UserAddOutlined, FileExcelOutlined, DeleteOutlined, UsergroupAddOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import memfireDB from '../services/memfireDB';
+import { useAuthStore } from '../store/authStore';
+import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -14,6 +16,11 @@ const TeacherDashboard = () => {
   const [teachersLoading, setTeachersLoading] = useState(false);
   const [addForm] = Form.useForm();
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+
+  // 权限检查
+  const user = useAuthStore((state) => state.user);
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+  const canManageStaff = normalizedRole === 'admin' || normalizedRole === 'manager';
 
   useEffect(() => {
     fetchSalesData();
@@ -34,7 +41,14 @@ const TeacherDashboard = () => {
         params.endDate = dateRange[1].format('YYYY-MM-DD');
       }
       const data = await memfireDB.users.getSalesStatistics(params);
-      setSalesData(data || []);
+
+      // 对于 coach 角色，只显示自己的数据
+      if (normalizedRole === 'coach' && user?.id) {
+        const ownData = data.filter((item: any) => item.teacherId === user.id);
+        setSalesData(ownData || []);
+      } else {
+        setSalesData(data || []);
+      }
     } catch (error: any) {
       console.error('获取销售数据失败:', error);
       message.error('获取销售数据失败');
@@ -265,9 +279,11 @@ const TeacherDashboard = () => {
           <Button icon={<FileExcelOutlined />} onClick={handleExport}>
             销售数据导出
           </Button>
-          <Button type="primary" icon={<UsergroupAddOutlined />} onClick={() => setManagementModalVisible(true)}>
-            人员管理
-          </Button>
+          {canManageStaff && (
+            <Button type="primary" icon={<UsergroupAddOutlined />} onClick={() => setManagementModalVisible(true)}>
+              人员管理
+            </Button>
+          )}
         </Space>
       </div>
       <Card title={
