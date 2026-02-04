@@ -14,6 +14,8 @@ import { attendanceRoutes } from './routes/attendances';
 import { enrollmentRoutes } from './routes/enrollments';
 import { paymentRoutes } from './routes/payments';
 import { statisticsRoutes } from './routes/statistics';
+import { memfireUsersRoutes } from './routes/memfireUsers';
+import parentRoutes from './routes/parents';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
 
@@ -60,6 +62,8 @@ app.use('/api/attendances', attendanceRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/statistics', statisticsRoutes);
+app.use('/api/memfire/users', memfireUsersRoutes);
+app.use('/api/parent', parentRoutes);
 
 // 错误处理
 app.use(errorHandler);

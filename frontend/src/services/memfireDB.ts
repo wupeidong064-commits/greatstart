@@ -1877,20 +1877,17 @@ export const usersDB = {
 
   /**
    * 获取所有用户列表
+   * 系统管理员（无 organizationId）可以查看所有用户
+   * 其他用户只能查看自己机构的用户
+   * 通过后端 API 获取，后端使用 service_role key 绕过 RLS
    */
   async listAll() {
-    if (!memfire) throw new Error('MemFire 客户端未初始化');
+    // 使用后端 API 而不是直接查询 MemFire，避免 RLS 限制
+    const api = (await import('./api')).default;
+    const response = await api.get('/memfire/users');
 
-    const organizationId = await this.getOrganizationId();
-
-    const { data, error } = await memfire
-      .from('users')
-      .select('id, name, email, phone, role, isActive, group')
-      .eq('organizationId', organizationId)
-      .order('name', { ascending: true });
-
-    if (error) throw error;
-    return data || [];
+    console.log('[usersDB.listAll] 从后端 API 获取用户列表:', response.data);
+    return response.data || [];
   },
 
   /**
@@ -4987,6 +4984,8 @@ export const organizationsDB = {
     address?: string;
     phone?: string;
     email?: string;
+    startDate?: string;
+    endDate?: string;
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
@@ -4998,6 +4997,8 @@ export const organizationsDB = {
         address: data.address,
         phone: data.phone,
         email: data.email,
+        startdate: data.startDate,  // 使用小写列名
+        enddate: data.endDate,       // 使用小写列名
         isActive: true,
       })
       .select()
@@ -5016,6 +5017,8 @@ export const organizationsDB = {
     phone?: string;
     email?: string;
     isActive?: boolean;
+    startDate?: string;
+    endDate?: string;
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
@@ -5027,6 +5030,8 @@ export const organizationsDB = {
         phone: data.phone,
         email: data.email,
         isActive: data.isActive,
+        startdate: data.startDate,  // 使用小写列名
+        enddate: data.endDate,       // 使用小写列名
         updatedAt: new Date().toISOString(),
       })
       .eq('id', id)
@@ -5035,6 +5040,21 @@ export const organizationsDB = {
 
     if (error) throw error;
     return org;
+  },
+
+  /**
+   * 获取所有机构列表（不分页）
+   */
+  async listAll() {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data, error } = await memfire
+      .from('organizations')
+      .select('*')
+      .order('createdAt', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
   },
 
   /**
@@ -5049,6 +5069,157 @@ export const organizationsDB = {
       .eq('id', id);
 
     if (error) throw error;
+  },
+};
+
+export const campusesDB = {
+  /**
+   * 获取所有校区列表
+   */
+  async listAll() {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data, error } = await memfire
+      .from('campuses')
+      .select('*')
+      .order('createdAt', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  },
+
+  /**
+   * 获取校区列表（分页）
+   */
+  async list(params?: {
+    page?: number;
+    pageSize?: number;
+    organizationId?: string;
+  }) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { page = 1, pageSize = 10, organizationId } = params || {};
+
+    let query = memfire
+      .from('campuses')
+      .select('*', { count: 'exact' })
+      .order('createdAt', { ascending: false });
+
+    if (organizationId) {
+      query = query.eq('organizationId', organizationId);
+    }
+
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+    query = query.range(from, to);
+
+    const { data, error, count } = await query;
+
+    if (error) throw error;
+
+    return {
+      data: data || [],
+      total: count || 0,
+      page,
+      pageSize,
+    };
+  },
+
+  /**
+   * 创建校区
+   */
+  async create(data: {
+    organizationId: string;
+    name: string;
+    code: string;
+    address?: string;
+    phone?: string;
+  }) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { data: result, error } = await memfire
+      .from('campuses')
+      .insert({
+        organizationId: data.organizationId,
+        name: data.name,
+        code: data.code,
+        address: data.address || null,
+        phone: data.phone || null,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return result;
+  },
+
+  /**
+   * 删除校区
+   */
+  async delete(id: string) {
+    if (!memfire) throw new Error('MemFire 客户端未初始化');
+
+    const { error } = await memfire
+      .from('campuses')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  },
+};
+
+/**
+ * 学员/家长专用数据服务
+ * 通过后端 API 获取数据，不直接访问数据库
+ */
+export const parentDB = {
+  /**
+   * 获取与当前家长用户关联的学员列表
+   */
+  async getLinkedStudents() {
+    const response = await api.get('/parent/students');
+    return response.data;
+  },
+
+  /**
+   * 获取学员的课表
+   */
+  async getStudentSchedules(studentId: string, params?: {
+    startDate?: string;
+    endDate?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const response = await api.get(`/parent/schedules/${studentId}`, { params });
+    return response.data;
+  },
+
+  /**
+   * 获取学员的出勤记录
+   */
+  async getStudentAttendances(studentId: string, params?: {
+    startDate?: string;
+    endDate?: string;
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const response = await api.get(`/parent/attendances/${studentId}`, { params });
+    return response.data;
+  },
+
+  /**
+   * 获取学员的缴费记录
+   */
+  async getStudentPayments(studentId: string, params?: {
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const response = await api.get(`/parent/payments/${studentId}`, { params });
+    return response.data;
   },
 };
 
@@ -5070,6 +5241,8 @@ export const memfireDB = {
   cashflowSummary: cashflowSummaryDB,
   settings: settingsDB,
   organizations: organizationsDB,
+  campuses: campusesDB,
+  parent: parentDB,
 };
 
 export default memfireDB;

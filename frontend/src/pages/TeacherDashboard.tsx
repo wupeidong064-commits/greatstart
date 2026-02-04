@@ -106,7 +106,7 @@ const TeacherDashboard = () => {
     try {
       await memfireDB.users.create({
         ...values,
-        role: 'teacher', // 设置为 teacher 角色（销售）
+        role: 'sales', // 销售角色
       });
       message.success('添加销售成功');
       addForm.resetFields();

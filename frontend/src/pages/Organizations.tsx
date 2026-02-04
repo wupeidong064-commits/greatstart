@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, message, Modal, Form, Input, Popconfirm, Space } from 'antd';
-import { PlusOutlined, DeleteOutlined, UserAddOutlined } from '@ant-design/icons';
+import { Table, Button, message, Modal, Form, Input, Popconfirm, Space, DatePicker, Select } from 'antd';
+import { PlusOutlined, DeleteOutlined, UserAddOutlined, BankOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { memfireAuth } from '../services/memfireAuth';
+import dayjs from 'dayjs';
+
+const { Option } = Select;
 
 interface Organization {
   id: string;
@@ -12,6 +15,8 @@ interface Organization {
   phone?: string;
   email?: string;
   isActive?: boolean;
+  startdate?: string;  // 使用小写，与数据库列名一致
+  enddate?: string;    // 使用小写，与数据库列名一致
   createdAt?: string;
 }
 
@@ -20,11 +25,16 @@ const Organizations = () => {
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [managerModalVisible, setManagerModalVisible] = useState(false);
+  const [campusModalVisible, setCampusModalVisible] = useState(false);
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
+  const [campuses, setCampuses] = useState<any[]>([]);
+  const [campusLoading, setCampusLoading] = useState(false);
   const [form] = Form.useForm();
   const [managerForm] = Form.useForm();
+  const [campusForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [managerSubmitting, setManagerSubmitting] = useState(false);
+  const [campusSubmitting, setCampusSubmitting] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
 
   useEffect(() => {
@@ -58,6 +68,8 @@ const Organizations = () => {
         address: values.address,
         phone: values.phone,
         email: values.email,
+        startDate: values.startDate ? values.startDate.format('YYYY-MM-DD') : undefined,
+        endDate: values.endDate ? values.endDate.format('YYYY-MM-DD') : undefined,
       });
 
       message.success('机构创建成功');
@@ -128,6 +140,64 @@ const Organizations = () => {
     }
   };
 
+  // 打开校区管理弹窗
+  const handleManageCampuses = async (org: Organization) => {
+    setSelectedOrg(org);
+    setCampusModalVisible(true);
+    await fetchCampuses(org.id);
+  };
+
+  // 获取机构的校区列表
+  const fetchCampuses = async (orgId: string) => {
+    setCampusLoading(true);
+    try {
+      const result = await memfireDB.campuses.list({ organizationId: orgId });
+      setCampuses(result.data);
+    } catch (error: any) {
+      message.error(error.message || '获取校区列表失败');
+    } finally {
+      setCampusLoading(false);
+    }
+  };
+
+  // 添加校区
+  const handleAddCampus = async () => {
+    try {
+      const values = await campusForm.validateFields();
+      setCampusSubmitting(true);
+
+      await memfireDB.campuses.create({
+        organizationId: selectedOrg!.id,
+        name: values.name,
+        code: values.code,
+        address: values.address,
+        phone: values.phone,
+      });
+
+      message.success('校区添加成功');
+      campusForm.resetFields();
+      await fetchCampuses(selectedOrg!.id);
+    } catch (error: any) {
+      if (error.errorFields) {
+        return;
+      }
+      message.error(error.message || '添加校区失败');
+    } finally {
+      setCampusSubmitting(false);
+    }
+  };
+
+  // 删除校区
+  const handleDeleteCampus = async (campusId: string) => {
+    try {
+      await memfireDB.campuses.delete(campusId);
+      message.success('校区删除成功');
+      await fetchCampuses(selectedOrg!.id);
+    } catch (error: any) {
+      message.error(error.message || '删除校区失败');
+    }
+  };
+
   const columns = [
     { title: '机构名称', dataIndex: 'name', key: 'name' },
     { title: '机构代码', dataIndex: 'code', key: 'code' },
@@ -135,16 +205,42 @@ const Organizations = () => {
     { title: '电话', dataIndex: 'phone', key: 'phone' },
     { title: '邮箱', dataIndex: 'email', key: 'email' },
     {
+      title: '开通时间',
+      dataIndex: 'startdate',
+      key: 'startdate',
+      render: (startdate: string) => startdate ? dayjs(startdate).format('YYYY-MM-DD') : '-',
+    },
+    {
+      title: '结束时间',
+      dataIndex: 'enddate',
+      key: 'enddate',
+      render: (enddate: string) => enddate ? dayjs(enddate).format('YYYY-MM-DD') : '-',
+    },
+    {
       title: '状态',
       dataIndex: 'isActive',
       key: 'isActive',
-      render: (isActive: boolean) => (isActive ? '启用' : '禁用'),
+      render: (isActive: boolean, record: Organization) => {
+        // 如果有结束时间且已过期，显示已过期
+        if (record.enddate && dayjs(record.enddate).isBefore(dayjs(), 'day')) {
+          return <span style={{ color: 'red' }}>已过期</span>;
+        }
+        return isActive ? '启用' : '禁用';
+      },
     },
     {
       title: '操作',
       key: 'actions',
       render: (_: any, record: Organization) => (
         <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<BankOutlined />}
+            onClick={() => handleManageCampuses(record)}
+          >
+            管理校区
+          </Button>
           <Button
             type="link"
             size="small"
@@ -261,6 +357,30 @@ const Organizations = () => {
           >
             <Input placeholder="请输入邮箱地址" />
           </Form.Item>
+
+          <Form.Item
+            label="开通时间"
+            name="startDate"
+            tooltip="机构服务开始时间"
+          >
+            <DatePicker
+              style={{ width: '100%' }}
+              format="YYYY-MM-DD"
+              placeholder="选择开通时间"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="结束时间"
+            name="endDate"
+            tooltip="机构服务结束时间，留空表示永久有效"
+          >
+            <DatePicker
+              style={{ width: '100%' }}
+              format="YYYY-MM-DD"
+              placeholder="选择结束时间（可选）"
+            />
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -345,6 +465,91 @@ const Organizations = () => {
             <Input.Password placeholder="请再次输入密码" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 校区管理模态框 */}
+      <Modal
+        title={`${selectedOrg?.name} - 校区管理`}
+        open={campusModalVisible}
+        onCancel={() => {
+          setCampusModalVisible(false);
+          setSelectedOrg(null);
+          setCampuses([]);
+          campusForm.resetFields();
+        }}
+        footer={null}
+        width={800}
+      >
+        {/* 添加校区表单 */}
+        <div style={{ marginBottom: 16, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
+          <Form form={campusForm} layout="inline" style={{ width: '100%' }}>
+            <Form.Item
+              name="name"
+              rules={[{ required: true, message: '请输入校区名称' }]}
+              style={{ flex: 1, marginRight: 8 }}
+            >
+              <Input placeholder="校区名称" />
+            </Form.Item>
+            <Form.Item
+              name="code"
+              rules={[{ required: true, message: '请输入校区代码' }]}
+              style={{ width: 150, marginRight: 8 }}
+            >
+              <Input placeholder="校区代码" />
+            </Form.Item>
+            <Form.Item name="address" style={{ flex: 1, marginRight: 8 }}>
+              <Input placeholder="校区地址" />
+            </Form.Item>
+            <Form.Item name="phone" style={{ width: 130, marginRight: 8 }}>
+              <Input placeholder="联系电话" />
+            </Form.Item>
+            <Form.Item>
+              <Button type="primary" onClick={handleAddCampus} loading={campusSubmitting}>
+                添加校区
+              </Button>
+            </Form.Item>
+          </Form>
+        </div>
+
+        {/* 校区列表 */}
+        <Table
+          columns={[
+            { title: '校区名称', dataIndex: 'name', key: 'name' },
+            { title: '校区代码', dataIndex: 'code', key: 'code' },
+            { title: '地址', dataIndex: 'address', key: 'address', render: (addr: string) => addr || '-' },
+            { title: '联系电话', dataIndex: 'phone', key: 'phone', render: (phone: string) => phone || '-' },
+            {
+              title: '创建时间',
+              dataIndex: 'createdAt',
+              key: 'createdAt',
+              width: 180,
+              render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD HH:mm') : '-',
+            },
+            {
+              title: '操作',
+              key: 'actions',
+              width: 100,
+              render: (_: any, record: any) => (
+                <Popconfirm
+                  title="删除校区"
+                  description="确定要删除这个校区吗？"
+                  onConfirm={() => handleDeleteCampus(record.id)}
+                  okText="确定"
+                  cancelText="取消"
+                >
+                  <Button type="link" size="small" danger>
+                    删除
+                  </Button>
+                </Popconfirm>
+              ),
+            },
+          ]}
+          dataSource={campuses}
+          loading={campusLoading}
+          rowKey="id"
+          pagination={false}
+          size="small"
+        />
       </Modal>
     </div>
   );

@@ -14,8 +14,6 @@ export const errorHandler = (
   const statusCode = err.statusCode || 500;
   const message = err.message || '服务器内部错误';
 
-  console.error('Error:', err);
-
   res.status(statusCode).json({
     success: false,
     error: {

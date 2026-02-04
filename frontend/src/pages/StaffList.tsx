@@ -2,29 +2,89 @@ import { useState, useEffect } from 'react';
 import { Table, Button, Space, Tag, message, Modal, Form, Input, Select, Card } from 'antd';
 import { UserAddOutlined, EditOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
 import memfireDB from '../services/memfireDB';
+import { useAuthStore } from '../store/authStore';
+import { normalizeRole } from '../utils/dataFilter';
 
 const { Option } = Select;
 
 const StaffList = () => {
+  const { user } = useAuthStore();
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+  const isAdmin = normalizedRole === 'admin';
+  const userOrgId = user?.organizationId;
+
   const [loading, setLoading] = useState(false);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [filteredStaffList, setFilteredStaffList] = useState<any[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingStaff, setEditingStaff] = useState<any>(null);
   const [form] = Form.useForm();
   const [groupModalVisible, setGroupModalVisible] = useState(false);
   const [groups, setGroups] = useState<string[]>([]);
   const [newGroupName, setNewGroupName] = useState('');
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [campuses, setCampuses] = useState<any[]>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(undefined);
+  const [selectedCampusId, setSelectedCampusId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     fetchStaffList();
     fetchGroups();
+    if (isAdmin) {
+      fetchOrganizations();
+      fetchCampuses();
+    }
   }, []);
+
+  useEffect(() => {
+    // admin：根据选择的机构和校区筛选（可组合使用）
+    // 非admin：只显示自己机构的工作人员
+    if (isAdmin) {
+      let filtered = staffList;
+      // 按机构筛选
+      if (selectedOrgId) {
+        filtered = filtered.filter((staff: any) => staff.organizationId === selectedOrgId);
+      }
+      // 按校区筛选（可以和机构筛选组合使用）
+      if (selectedCampusId) {
+        filtered = filtered.filter((staff: any) => staff.campusId === selectedCampusId);
+      }
+      setFilteredStaffList(filtered);
+    } else {
+      // 非admin（manager等）：只显示自己机构的工作人员
+      if (userOrgId) {
+        const filtered = staffList.filter((staff: any) => staff.organizationId === userOrgId);
+        setFilteredStaffList(filtered);
+      } else {
+        setFilteredStaffList(staffList);
+      }
+    }
+  }, [selectedOrgId, selectedCampusId, staffList, isAdmin, userOrgId]);
+
+  const fetchOrganizations = async () => {
+    try {
+      const data = await memfireDB.organizations.listAll();
+      setOrganizations(data || []);
+    } catch (error) {
+      console.error('获取机构列表失败:', error);
+    }
+  };
+
+  const fetchCampuses = async () => {
+    try {
+      const data = await memfireDB.campuses.listAll();
+      setCampuses(data || []);
+    } catch (error) {
+      console.error('获取校区列表失败:', error);
+    }
+  };
 
   const fetchStaffList = async () => {
     setLoading(true);
     try {
       const data = await memfireDB.users.listAll();
       setStaffList(data || []);
+      setFilteredStaffList(data || []);
     } catch (error: any) {
       console.error('获取工作人员列表失败:', error);
       message.error('获取工作人员列表失败');
@@ -118,7 +178,8 @@ const StaffList = () => {
   const getRoleTag = (role: string) => {
     const roleMap: Record<string, { text: string; color: string }> = {
       super_admin: { text: '超级管理', color: 'red' },
-      admin: { text: '管理', color: 'orange' },
+      admin: { text: '系统管理', color: 'orange' },
+      manager: { text: '校区管理', color: 'purple' },
       finance: { text: '财务', color: 'blue' },
       sales: { text: '销售', color: 'green' },
       coach: { text: '教练', color: 'cyan' },
@@ -223,9 +284,60 @@ const StaffList = () => {
       </div>
 
       <Card>
+        {/* 筛选器 - 仅系统管理员可见 */}
+        {isAdmin && (
+          <div style={{ marginBottom: 16 }}>
+            <Space wrap>
+              <span>筛选：</span>
+
+              {/* 机构筛选 */}
+              <Select
+                style={{ width: 200 }}
+                placeholder="全部机构"
+                allowClear
+                value={selectedOrgId}
+                onChange={setSelectedOrgId}
+              >
+                {organizations.map((org: any) => (
+                  <Option key={org.id} value={org.id}>
+                    {org.name}
+                  </Option>
+                ))}
+              </Select>
+
+              {/* 校区筛选 */}
+              <Select
+                style={{ width: 200 }}
+                placeholder="全部校区"
+                allowClear
+                value={selectedCampusId}
+                onChange={setSelectedCampusId}
+              >
+                {campuses.map((campus: any) => (
+                  <Option key={campus.id} value={campus.id}>
+                    {campus.name}
+                  </Option>
+                ))}
+              </Select>
+
+              <span style={{ color: '#999' }}>
+                {selectedOrgId
+                  ? `机构：${organizations.find((o: any) => o.id === selectedOrgId)?.name}`
+                  : ''}
+                {selectedCampusId
+                  ? ` ${selectedOrgId ? '|' : ''} 校区：${campuses.find((c: any) => c.id === selectedCampusId)?.name}`
+                  : ''}
+                {!selectedOrgId && !selectedCampusId
+                  ? `显示全部 (${staffList.length} 人)`
+                  : ''}
+              </span>
+            </Space>
+          </div>
+        )}
+
         <Table
           columns={columns}
-          dataSource={staffList}
+          dataSource={filteredStaffList}
           loading={loading}
           rowKey="id"
           pagination={{

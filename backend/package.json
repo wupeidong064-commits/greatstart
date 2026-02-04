@@ -12,6 +12,8 @@
     "prisma:studio": "prisma studio",
     "init:admin": "tsx scripts/initAdmin.ts",
     "create:test-user": "tsx scripts/createTestUser.ts",
+    "clean-db": "tsx src/scripts/cleanDatabase.ts",
+    "create-admin": "tsx src/scripts/createAdmin.ts",
     "prisma:seed": "tsx prisma/seed.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""

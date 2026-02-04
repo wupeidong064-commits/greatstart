@@ -69,7 +69,14 @@ const Login = () => {
       });
 
       message.success('登录成功');
-      navigate('/operation/consumption');
+
+      // 根据角色跳转到不同页面
+      const userRole = (profile && profile.role) || 'user';
+      if (userRole === 'admin') {
+        navigate('/organizations'); // 系统管理员跳转到机构管理
+      } else {
+        navigate('/operation/consumption'); // 其他角色跳转到运营数据
+      }
     } catch (error: any) {
       console.error('登录错误详情:', error);
       const errorMessage = error.message || '登录失败，请稍后重试';

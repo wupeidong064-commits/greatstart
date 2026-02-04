@@ -407,6 +407,101 @@ export const authController = {
       next(error);
     }
   },
+
+  // 创建家长/学员账号（与学员关联）
+  createParent: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { email, password, name, phone, studentId, organizationId } = req.body;
+
+      // 验证必填字段
+      if (!email || !name || !phone) {
+        return next(new ApiError('缺少必填字段（邮箱、姓名、电话）', 400, 'MISSING_FIELDS'));
+      }
+
+      // 如果未提供密码，生成默认密码
+      const finalPassword = password || '123456';
+
+      // 如果未指定 organizationId，使用当前用户的
+      const finalOrganizationId = organizationId || req.body.organizationId;
+      if (!finalOrganizationId) {
+        return next(new ApiError('缺少机构信息', 400, 'MISSING_ORGANIZATION'));
+      }
+
+      // 验证机构是否存在
+      const org = await prisma.organization.findUnique({
+        where: { id: finalOrganizationId },
+      });
+
+      if (!org) {
+        return next(new ApiError('机构不存在', 400, 'ORGANIZATION_NOT_FOUND'));
+      }
+
+      // 如果指定了 studentId，验证学员是否存在且属于该机构
+      if (studentId) {
+        const student = await prisma.student.findFirst({
+          where: {
+            id: studentId,
+            organizationId: finalOrganizationId,
+          },
+        });
+
+        if (!student) {
+          return next(new ApiError('学员不存在或不属于该机构', 400, 'STUDENT_NOT_FOUND'));
+        }
+
+        // 更新学员的家长电话，确保关联
+        await prisma.student.update({
+          where: { id: studentId },
+          data: { parentPhone: phone },
+        });
+      }
+
+      // 加密密码
+      const hashedPassword = await bcrypt.hash(finalPassword, 10);
+
+      // 检查邮箱是否已存在
+      const existingUser = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (existingUser) {
+        return next(new ApiError('邮箱已被注册', 400, 'EMAIL_EXISTS'));
+      }
+
+      // 创建用户（角色为 parent）
+      const user = await prisma.user.create({
+        data: {
+          email,
+          password: hashedPassword,
+          name,
+          role: 'parent',
+          phone,
+          organizationId: finalOrganizationId,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          phone: true,
+          organizationId: true,
+        },
+      });
+
+      sendSuccess(
+        res,
+        {
+          ...user,
+          defaultPassword: finalPassword,
+        },
+        '家长账号创建成功',
+        201
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 // 注册验证规则

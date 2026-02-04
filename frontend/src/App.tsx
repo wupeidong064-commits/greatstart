@@ -32,6 +32,10 @@ import Organizations from './pages/Organizations';
 import Users from './pages/Users';
 import Settings from './pages/Settings';
 import ChangePassword from './pages/ChangePassword';
+// 学员中心页面
+import MySchedules from './pages/student/MySchedules';
+import MyAttendances from './pages/student/MyAttendances';
+import MyPayments from './pages/student/MyPayments';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -94,6 +98,11 @@ function App() {
           <Route path="organizations" element={<Organizations />} />
           <Route path="system/settings" element={<Settings />} />
           <Route path="change-password" element={<ChangePassword />} />
+
+          {/* 学员中心 - parent 角色专属 */}
+          <Route path="student/schedules" element={<MySchedules />} />
+          <Route path="student/attendances" element={<MyAttendances />} />
+          <Route path="student/payments" element={<MyPayments />} />
         </Route>
       </Routes>
     </BrowserRouter>

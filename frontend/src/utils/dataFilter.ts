@@ -93,7 +93,7 @@ export const needsDataFiltering = () => {
  * ```typescript
  * // 在班级列表页面
  * const filter = getDataScopeFilter('classes');
- * // 如果用户是 teacher，返回 { teacherId: 'xxx' }
+ * // 如果用户是 coach，返回 { teacherId: 'xxx' }
  * // 如果用户是 admin/manager，返回 {}
  * 
  * const result = await memfireDB.classes.list({
@@ -177,11 +177,8 @@ export const getDataScopeFilter = (pageType: PageType): DataScopeFilter => {
  */
 export const getUserMenuPermissions = () => {
   const user = getCurrentUser();
-  
-  console.log('🔍 [getUserMenuPermissions] 当前用户:', user);
-  
+
   if (!user) {
-    console.log('❌ [getUserMenuPermissions] 用户为空，返回空权限');
     return {
       canViewOrganizations: false,
       canViewUsers: false,
@@ -190,44 +187,40 @@ export const getUserMenuPermissions = () => {
       canViewSalesData: false,
       canViewReports: false,
       canViewSettings: false,
+      canViewStudentPortal: false,
     };
   }
-  
+
   const normalizedRole = normalizeRole(user.role);
-  console.log('🔍 [getUserMenuPermissions] 用户角色:', user.role, '规范化后:', normalizedRole);
-  console.log('🔍 [getUserMenuPermissions] 校区ID:', user.campusId);
-  
-  // 所有 admin 角色都有全部权限（无论是否有 campusId）
+
+  // 系统管理员 - 只能看系统管理，不看运营数据
   if (normalizedRole === 'admin') {
-    console.log('✅ [getUserMenuPermissions] 检测为系统管理员');
     return {
       canViewOrganizations: true,
       canViewUsers: true,
-      canViewAllClasses: true,
-      canViewAllStudents: true,
-      canViewSalesData: true,
-      canViewReports: true,
+      canViewAllClasses: false,  // 不看运营数据
+      canViewAllStudents: false,
+      canViewSalesData: false,
+      canViewReports: false,
       canViewSettings: true,
     };
   }
-  
-  // 管理者 - 无用户和机构管理权限
+
+  // 管理者 - 有运营数据查看权限，但无用户和机构管理权限
   if (normalizedRole === 'manager') {
-    console.log('✅ [getUserMenuPermissions] 检测为管理者');
     return {
       canViewOrganizations: false,
-      canViewUsers: false,
-      canViewAllClasses: true,
+      canViewUsers: true,  // 可以查看工作人员列表
+      canViewAllClasses: true,  // 可以看运营数据
       canViewAllStudents: true,
       canViewSalesData: true,
       canViewReports: true,
       canViewSettings: false,
     };
   }
-  
+
   // 教练 - 可查看班级、学员、销售数据，但只能看到自己的数据（通过数据过滤实现）
   if (normalizedRole === 'coach') {
-    console.log('✅ [getUserMenuPermissions] 检测为教练');
     return {
       canViewOrganizations: false,
       canViewUsers: false,
@@ -238,10 +231,9 @@ export const getUserMenuPermissions = () => {
       canViewSettings: false,
     };
   }
-  
+
   // 销售 - 可以查看所有表格，但只有查看权限，无法操作
   if (normalizedRole === 'sales') {
-    console.log('✅ [getUserMenuPermissions] 检测为销售');
     return {
       canViewOrganizations: false,
       canViewUsers: false,
@@ -252,10 +244,9 @@ export const getUserMenuPermissions = () => {
       canViewSettings: false,
     };
   }
-  
+
   // 工作人员 - 有限权限
   if (normalizedRole === 'staff') {
-    console.log('✅ [getUserMenuPermissions] 检测为工作人员');
     return {
       canViewOrganizations: false,
       canViewUsers: false,
@@ -266,10 +257,9 @@ export const getUserMenuPermissions = () => {
       canViewSettings: false,
     };
   }
-  
-  // 家长 - 最小权限
+
+  // 家长 - 学员专属功能
   if (normalizedRole === 'parent') {
-    console.log('✅ [getUserMenuPermissions] 检测为家长');
     return {
       canViewOrganizations: false,
       canViewUsers: false,
@@ -278,10 +268,11 @@ export const getUserMenuPermissions = () => {
       canViewSalesData: false,
       canViewReports: false,
       canViewSettings: false,
+      // 学员专属功能
+      canViewStudentPortal: true,  // 学员中心
     };
   }
-  
-  console.log('❌ [getUserMenuPermissions] 未匹配任何角色，返回空权限');
+
   return {
     canViewOrganizations: false,
     canViewUsers: false,
@@ -290,6 +281,7 @@ export const getUserMenuPermissions = () => {
     canViewSalesData: false,
     canViewReports: false,
     canViewSettings: false,
+    canViewStudentPortal: false,
   };
 };
 

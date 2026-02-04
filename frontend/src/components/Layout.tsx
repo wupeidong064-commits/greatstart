@@ -24,7 +24,7 @@ import {
   KeyOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
-import { getUserMenuPermissions } from '../utils/dataFilter';
+import { getUserMenuPermissions, normalizeRole } from '../utils/dataFilter';
 import type { MenuProps } from 'antd';
 
 const { Header, Sider, Content } = AntLayout;
@@ -34,12 +34,13 @@ const Layout = () => {
   const location = useLocation();
   const { user, clearAuth } = useAuthStore();
   const [openKeys, setOpenKeys] = useState<string[]>([]);
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
 
   // 根据当前路径自动展开相应的父菜单
   useEffect(() => {
     const path = location.pathname;
     const keys: string[] = [];
-    
+
     if (path.startsWith('/operation') || path.startsWith('/attendances') || path.startsWith('/classes')) {
       keys.push('/operation');
       // 如果是出勤相关页面，也展开出勤管理子菜单
@@ -65,10 +66,11 @@ const Layout = () => {
     if (path.startsWith('/analytics')) {
       keys.push('/analytics');
     }
-    if (path.startsWith('/system')) {
+    // 系统管理相关页面（包括机构管理、工作人员列表、基础设置）
+    if (path.startsWith('/system') || path === '/organizations') {
       keys.push('/system');
     }
-    
+
     setOpenKeys(keys);
   }, [location.pathname]);
 
@@ -94,32 +96,43 @@ const Layout = () => {
   // 获取当前用户的菜单权限
   const permissions = getUserMenuPermissions();
 
-  // 🔍 临时调试日志 - 查看用户信息和权限
-  useEffect(() => {
-    console.log('=== 菜单权限调试信息 ===');
-    console.log('当前用户:', user);
-    console.log('用户角色:', user?.role);
-    console.log('菜单权限:', permissions);
-    console.log('========================');
-  }, [user, permissions]);
-
   // 构建菜单项，根据权限动态显示
   const buildMenuItems = () => {
     const items = [];
 
-    console.log('🔍 开始构建菜单，权限:', permissions);
+    // 学员中心 - parent 角色专属
+    if (normalizedRole === 'parent') {
+      items.push({
+        key: '/student',
+        icon: <UserOutlined />,
+        label: '学员中心',
+        children: [
+          {
+            key: '/student/schedules',
+            label: '我的课表',
+          },
+          {
+            key: '/student/attendances',
+            label: '出勤记录',
+          },
+          {
+            key: '/student/payments',
+            label: '缴费信息',
+          },
+        ],
+      });
+    }
 
-    // 课消收入中心 - admin/manager/teacher 可见
-    if (permissions.canViewAllClasses || user?.role === 'teacher') {
-      console.log('✅ 添加"课消收入中心"菜单');
+    // 课消收入中心 - admin/manager/coach 可见
+    if (permissions.canViewAllClasses || normalizedRole === 'coach') {
       items.push({
         key: '/operation',
         icon: <AppstoreOutlined />,
-        label: user?.role === 'teacher' ? '我的班级管理' : '课消收入中心',
+        label: normalizedRole === 'coach' ? '我的班级管理' : '课消收入中心',
         children: [
           {
             key: '/classes',
-            label: user?.role === 'teacher' ? '我的班级' : '班级管理',
+            label: normalizedRole === 'coach' ? '我的班级' : '班级管理',
           },
           ...(permissions.canViewAllClasses ? [{
             key: '/operation/weekly-schedule',
@@ -151,13 +164,12 @@ const Layout = () => {
       });
     }
 
-    // 现金流中心（销售相关）- admin/manager/teacher 可见
+    // 现金流中心（销售相关）- admin/manager/coach 可见
     if (permissions.canViewSalesData) {
-      console.log('✅ 添加"现金流中心"菜单');
       items.push({
         key: '/cashflow',
         icon: <DollarOutlined />,
-        label: user?.role === 'teacher' ? '我的销售管理' : '现金流中心',
+        label: normalizedRole === 'coach' ? '我的销售管理' : '现金流中心',
         children: [
           ...(permissions.canViewReports ? [{
             key: '/cashflow/summary',
@@ -165,35 +177,34 @@ const Layout = () => {
           }] : []),
           {
             key: '/cashflow/marketing',
-            label: user?.role === 'teacher' ? '我的鱼池' : '营销与销售（鱼池）',
+            label: normalizedRole === 'coach' ? '我的鱼池' : '营销与销售（鱼池）',
           },
           {
             key: '/cashflow/experience-schedule',
-            label: user?.role === 'teacher' ? '我的体验课' : '体验课表',
+            label: normalizedRole === 'coach' ? '我的体验课' : '体验课表',
           },
           {
             key: '/cashflow/order-info',
-            label: user?.role === 'teacher' ? '我的成单' : '成单信息表',
+            label: normalizedRole === 'coach' ? '我的成单' : '成单信息表',
           },
           {
             key: '/students/renewal',
-            label: user?.role === 'teacher' ? '我的续费学员' : '续费管理',
+            label: normalizedRole === 'coach' ? '我的续费学员' : '续费管理',
           },
         ],
       });
     }
 
-    // 学员管理 - admin/manager/teacher 可见
-    if (permissions.canViewAllStudents || user?.role === 'teacher') {
-      console.log('✅ 添加"学员管理"菜单');
+    // 学员管理 - admin/manager/coach 可见
+    if (permissions.canViewAllStudents || normalizedRole === 'coach') {
       items.push({
         key: '/students',
         icon: <UserOutlined />,
-        label: user?.role === 'teacher' ? '我的学员' : '学员管理',
+        label: normalizedRole === 'coach' ? '我的学员' : '学员管理',
         children: [
           {
             key: '/students',
-            label: user?.role === 'teacher' ? '我的学员列表' : '学员列表/档案',
+            label: normalizedRole === 'coach' ? '我的学员列表' : '学员列表/档案',
           },
           ...(permissions.canViewAllStudents ? [{
             key: '/students/lost',
@@ -204,7 +215,7 @@ const Layout = () => {
     }
 
     // 工作人员管理 - admin/manager 可见，coach 只能看到教练员数据
-    if (permissions.canViewReports || user?.role === 'coach') {
+    if (permissions.canViewReports || normalizedRole === 'coach') {
       const menuItems = [];
       // 教练员数据 - admin/manager/coach 都可见
       menuItems.push({
@@ -221,7 +232,7 @@ const Layout = () => {
       items.push({
         key: '/teachers',
         icon: <UsergroupAddOutlined />,
-        label: user?.role === 'coach' ? '教练数据' : '工作人员管理',
+        label: normalizedRole === 'coach' ? '教练数据' : '工作人员管理',
         children: menuItems,
       });
     }
@@ -299,7 +310,6 @@ const Layout = () => {
       }
     }
 
-    console.log('🔍 菜单构建完成，总共', items.length, '个顶级菜单');
     return items;
   };
 

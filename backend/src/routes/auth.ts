@@ -158,3 +158,43 @@ authRoutes.post('/create-manager', authenticateMemFire, requireMemFireAdmin, aut
  */
 authRoutes.post('/create-staff', authenticateMemFire, requireMemFireAdminOrManager, authController.createStaff);
 
+/**
+ * @swagger
+ * /api/auth/create-parent:
+ *   post:
+ *     summary: 创建家长账号（与学员关联）
+ *     tags: [认证]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - name
+ *               - phone
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *                 description: 可选，默认为 123456
+ *               name:
+ *                 type: string
+ *                 description: 家长姓名
+ *               phone:
+ *                 type: string
+ *                 description: 家长电话（用于关联学员）
+ *               studentId:
+ *                 type: string
+ *                 description: 可选，关联的学员ID，会自动更新学员的parentPhone
+ *               organizationId:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: 家长账号创建成功
+ */
+authRoutes.post('/create-parent', authenticate, authController.createParent);

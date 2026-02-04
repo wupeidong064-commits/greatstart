@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert, Checkbox } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined, UserAddOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { useAuthStore } from '../store/authStore';
 import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
+import api from '../services/api';
 import dayjs from 'dayjs';
 
 const { Search } = Input;
@@ -42,6 +43,9 @@ const Students = () => {
   const [logFilters, setLogFilters] = useState<{ type?: string }>({});
   const [showUnscheduledOnly, setShowUnscheduledOnly] = useState(false);
   const { user } = useAuthStore();
+
+  // 创建家长账号选项
+  const [createParentAccount, setCreateParentAccount] = useState(false);
 
   // 权限检查
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
@@ -146,6 +150,7 @@ const Students = () => {
   const handleAdd = () => {
     setEditingStudent(null);
     form.resetFields();
+    setCreateParentAccount(false); // 重置选项
     fetchClasses(); // 获取班级列表用于选择
     setModalVisible(true);
   };
@@ -158,12 +163,13 @@ const Students = () => {
     // 获取当前学员的班级ID
     const activeEnrollment = record.enrollments?.find((e: any) => e.status === 'active');
     const classId = activeEnrollment?.class?.id;
-    
+
     form.setFieldsValue({
       ...record,
       classId: classId,
       birthDate: record.birthDate ? dayjs(record.birthDate) : null,
     });
+    setCreateParentAccount(false); // 编辑时不创建家长账号
     fetchClasses(); // 获取班级列表用于选择
     setModalVisible(true);
   };
@@ -188,18 +194,18 @@ const Students = () => {
   const handleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
-      const { classId, birthDate, ...restData } = values;
-      
+      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, ...restData } = values;
+
       // 处理出生日期格式
       const studentData = {
         ...restData,
         birthDate: birthDate ? birthDate.format('YYYY-MM-DD') : null,
       };
-      
+
       if (editingStudent) {
         // 更新学员信息
         await memfireDB.students.update(editingStudent.id, studentData);
-        
+
         // 如果选择了班级，处理班级关联
         if (classId) {
           // 检查是否需要更新班级
@@ -227,7 +233,7 @@ const Students = () => {
           status: 'active',
         };
         const newStudent = await memfireDB.students.create(newStudentData);
-        
+
         // 如果选择了班级，创建班级关联
         if (classId && newStudent?.id) {
           await memfireDB.enrollments.create({
@@ -236,7 +242,25 @@ const Students = () => {
             status: 'active',
           });
         }
-        message.success('创建成功');
+
+        // 如果选择了创建家长账号，同时创建家长账号
+        if (createParent && parentEmail && parentName && studentData.parentPhone) {
+          try {
+            await api.post('/auth/create-parent', {
+              email: parentEmail,
+              password: parentPassword || undefined,
+              name: parentName,
+              phone: studentData.parentPhone,
+              studentId: newStudent.id,
+            });
+            message.success('学员创建成功！家长账号也已创建，默认密码：' + (parentPassword || '123456'));
+          } catch (parentError: any) {
+            console.error('创建家长账号失败:', parentError);
+            message.warning('学员创建成功，但家长账号创建失败：' + (parentError.response?.data?.error?.message || parentError.message));
+          }
+        } else {
+          message.success('创建成功');
+        }
       }
       setModalVisible(false);
       fetchStudents();
@@ -912,7 +936,7 @@ const Students = () => {
       title: '操作',
       key: 'action',
       render: (_: any, record: any) => (
-        <Space>
+        <Space wrap>
           <Button type="link" icon={<PlusCircleOutlined />} onClick={() => handleAddLessons(record)}>
             增课
           </Button>
@@ -1327,6 +1351,63 @@ const Students = () => {
                 <Select.Option value="graduated">已毕业</Select.Option>
               </Select>
             </Form.Item>
+          )}
+
+          {/* 家长账号设置 - 仅新增学员时显示 */}
+          {!editingStudent && (
+            <div style={{ background: '#e6f7ff', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid #91d5ff' }}>
+              <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#1890ff' }}>
+                <UserAddOutlined style={{ marginRight: 8 }} />
+                家长账号设置
+              </div>
+
+              <Form.Item name="createParent" valuePropName="checked" style={{ marginBottom: 12 }}>
+                <Checkbox
+                  checked={createParentAccount}
+                  onChange={(e) => setCreateParentAccount(e.target.checked)}
+                >
+                  同时创建家长登录账号
+                </Checkbox>
+              </Form.Item>
+
+              {createParentAccount && (
+                <>
+                  <Alert
+                    message="创建家长账号后，家长可以使用邮箱和密码登录系统，查看学员的课表、出勤记录和缴费信息。"
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                  />
+
+                  <Form.Item
+                    name="parentName"
+                    label="家长姓名"
+                    rules={createParentAccount ? [{ required: true, message: '请输入家长姓名' }] : []}
+                  >
+                    <Input placeholder="请输入家长姓名" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="parentEmail"
+                    label="家长邮箱"
+                    rules={createParentAccount ? [
+                      { required: true, message: '请输入家长邮箱' },
+                      { type: 'email', message: '请输入有效的邮箱地址' },
+                    ] : []}
+                  >
+                    <Input placeholder="用于家长登录的邮箱地址" />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="parentPassword"
+                    label="登录密码"
+                    extra="留空则使用默认密码 123456"
+                  >
+                    <Input.Password placeholder="可选，留空使用默认密码 123456" />
+                  </Form.Item>
+                </>
+              )}
+            </div>
           )}
         </Form>
       </Modal>
