@@ -197,4 +197,4 @@ authRoutes.post('/create-staff', authenticateMemFire, requireMemFireAdminOrManag
  *       201:
  *         description: 家长账号创建成功
  */
-authRoutes.post('/create-parent', authenticate, authController.createParent);
+authRoutes.post('/create-parent', authenticateMemFire, authController.createParent);

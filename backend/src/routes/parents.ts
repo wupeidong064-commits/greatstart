@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticateMemFire } from '../middleware/auth';
 import { parentController } from '../controllers/parentController';
 
 const router = Router();
 
 // 所有路由都需要认证
-router.use(authenticate);
+router.use(authenticateMemFire);
 
 /**
  * @route   GET /api/parent/students

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert, Checkbox } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined, UserAddOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert, Checkbox, Radio } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined, UserAddOutlined, ImportOutlined } from '@ant-design/icons';
 import { memfireDB } from '../services/memfireDB';
 import { useAuthStore } from '../store/authStore';
 import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
@@ -44,8 +44,19 @@ const Students = () => {
   const [showUnscheduledOnly, setShowUnscheduledOnly] = useState(false);
   const { user } = useAuthStore();
 
-  // 创建家长账号选项
+  // 创建家长账号选项（新增学员时）
   const [createParentAccount, setCreateParentAccount] = useState(false);
+
+  // 为已有学员创建家长账号相关状态
+  const [parentAccountModalVisible, setParentAccountModalVisible] = useState(false);
+  const [parentAccountForm] = Form.useForm();
+  const [parentAccountStudent, setParentAccountStudent] = useState<any>(null);
+
+  // 从成单信息导入相关状态
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [conversionsList, setConversionsList] = useState<any[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [selectedConversion, setSelectedConversion] = useState<any>(null);
 
   // 权限检查
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
@@ -194,12 +205,15 @@ const Students = () => {
   const handleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
-      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, ...restData } = values;
+      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, remainingLessons, totalLessonsPurchased, courseType, phone, ...restData } = values;
 
       // 处理出生日期格式
       const studentData = {
         ...restData,
+        phone: phone || restData.contact, // 兼容成单信息导入
         birthDate: birthDate ? birthDate.format('YYYY-MM-DD') : null,
+        remainingLessons: remainingLessons || 0,
+        totalLessonsPurchased: totalLessonsPurchased || remainingLessons || 0,
       };
 
       if (editingStudent) {
@@ -241,6 +255,25 @@ const Students = () => {
             classId: classId,
             status: 'active',
           });
+        }
+
+        // 如果是从成单信息导入的，更新成单记录的 studentId
+        if (selectedConversion && newStudent?.id) {
+          try {
+            // 更新 conversions 表，关联学员ID
+            const { data: conversionData } = await memfireDB.conversions.list({ page: 1, pageSize: 1 });
+            // 直接更新数据库中的 conversion 记录
+            const updateData = {
+              studentId: newStudent.id,
+              studentName: newStudent.name,
+            };
+            // 使用 memfire 直接更新
+            await memfireDB.conversions.update(selectedConversion.id, updateData);
+            message.info('成单信息已关联到学员');
+          } catch (error) {
+            console.error('更新成单信息失败:', error);
+          }
+          setSelectedConversion(null);
         }
 
         // 如果选择了创建家长账号，同时创建家长账号
@@ -766,6 +799,89 @@ const Students = () => {
     fetchLessonLogs(page, size);
   };
 
+  // 从成单信息导入相关函数
+  const handleOpenImportModal = async () => {
+    setImportModalVisible(true);
+    setImportLoading(true);
+    try {
+      // 获取未关联学员的成单信息
+      const result = await memfireDB.conversions.list({
+        page: 1,
+        pageSize: 100,
+      });
+      // 过滤出还没有学员ID的成单记录
+      const unlinkedConversions = (result.data || []).filter((c: any) => !c.studentId);
+      setConversionsList(unlinkedConversions);
+    } catch (error: any) {
+      console.error('获取成单信息失败:', error);
+      message.error('获取成单信息失败');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleImportConversion = async (conversion: any) => {
+    try {
+      setSelectedConversion(conversion);
+      // 将成单信息填充到表单
+      form.setFieldsValue({
+        name: conversion.studentName,
+        gender: conversion.gender,
+        phone: conversion.contact,
+        parentPhone: conversion.contact,
+        parentName: conversion.parentName,
+        address: conversion.address,
+        // 课时信息
+        remainingLessons: conversion.totalLessons || 0,
+        totalLessonsPurchased: conversion.totalLessons || 0,
+        courseType: conversion.courseType,
+      });
+      // 关闭导入 Modal，打开新增学员 Modal
+      setImportModalVisible(false);
+      setModalVisible(true);
+      message.success('成单信息已加载，请确认后提交');
+    } catch (error: any) {
+      console.error('导入成单信息失败:', error);
+      message.error('导入成单信息失败');
+    }
+  };
+
+  // 为已有学员创建家长账号
+  const handleOpenParentAccountModal = (student: any) => {
+    setParentAccountStudent(student);
+    parentAccountForm.resetFields();
+    // 预填家长电话
+    parentAccountForm.setFieldsValue({
+      parentPhone: student.parentPhone || '',
+      parentName: student.parentName || '',
+    });
+    setParentAccountModalVisible(true);
+  };
+
+  const handleParentAccountSubmit = async (values: any) => {
+    try {
+      const { email, password, name, parentPhone } = values;
+
+      // 调用创建家长账号API
+      await api.post('/auth/create-parent', {
+        email,
+        password,
+        name,
+        phone: parentPhone,
+        studentId: parentAccountStudent.id,
+      });
+
+      message.success('家长账号创建成功！默认密码：' + (password || '123456'));
+      setParentAccountModalVisible(false);
+      parentAccountForm.resetFields();
+      setParentAccountStudent(null);
+    } catch (error: any) {
+      console.error('创建家长账号失败:', error);
+      const errorMsg = error.response?.data?.error?.message || error.message || '创建家长账号失败';
+      message.error(errorMsg);
+    }
+  };
+
   // 导出全部学员数据
   const handleExportAllStudents = async () => {
     try {
@@ -953,9 +1069,14 @@ const Students = () => {
               删除
             </Button>
           )}
+          {canManageStudents && record.parentPhone && (
+            <Button type="link" icon={<UserAddOutlined />} onClick={() => handleOpenParentAccountModal(record)}>
+              创建家长账号
+            </Button>
+          )}
         </Space>
       ),
-      width: 260,
+      width: 340,
     },
   ];
 
@@ -1056,6 +1177,11 @@ const Students = () => {
           {canManageStudents && (
             <Button type="primary" icon={<SwapOutlined />} onClick={handleTransfer}>
               调班
+            </Button>
+          )}
+          {canManageStudents && (
+            <Button type="default" icon={<ImportOutlined />} onClick={handleOpenImportModal}>
+              从成单信息导入
             </Button>
           )}
           {canManageStudents && (
@@ -1343,6 +1469,48 @@ const Students = () => {
           </Form.Item>
           </div>
 
+          {/* 课时登记 - 仅新增学员时显示 */}
+          {!editingStudent && (
+            <div style={{ background: '#fff7e6', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid #ffd591' }}>
+              <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#fa8c16' }}>
+                💰 课时登记
+              </div>
+              <div style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>
+                登记学员购买的课程信息
+              </div>
+
+              <Input.Group compact style={{ display: 'flex', gap: 12 }}>
+                <Form.Item
+                  name="remainingLessons"
+                  label="剩余课时"
+                  style={{ flex: 1, marginBottom: 0 }}
+                  initialValue={0}
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="剩余课时"
+                    style={{ width: '100%' }}
+                    addonAfter="节"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="totalLessonsPurchased"
+                  label="累计课时"
+                  style={{ flex: 1, marginBottom: 0 }}
+                  initialValue={0}
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="累计课时"
+                    style={{ width: '100%' }}
+                    addonAfter="节"
+                  />
+                </Form.Item>
+              </Input.Group>
+            </div>
+          )}
+
           {editingStudent && (
             <Form.Item name="status" label="状态">
               <Select placeholder="请选择状态">
@@ -1464,6 +1632,145 @@ const Students = () => {
 
           <Form.Item name="notes" label="备注">
             <Input.TextArea rows={3} placeholder="请输入调班备注（可选）" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 从成单信息导入 Modal */}
+      <Modal
+        title="从成单信息导入学员"
+        open={importModalVisible}
+        onCancel={() => setImportModalVisible(false)}
+        footer={null}
+        width={900}
+      >
+        <Alert
+          message="选择成单信息导入，导入后成单信息会与学员关联（不会删除原成单记录）"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Table
+          columns={[
+            {
+              title: '学员姓名',
+              dataIndex: 'studentName',
+              key: 'studentName',
+            },
+            {
+              title: '联系方式',
+              dataIndex: 'contact',
+              key: 'contact',
+            },
+            {
+              title: '课程类型',
+              dataIndex: 'courseType',
+              key: 'courseType',
+            },
+            {
+              title: '课时数',
+              dataIndex: 'totalLessons',
+              key: 'totalLessons',
+              render: (lessons: number) => lessons ? `${lessons} 节` : '-',
+            },
+            {
+              title: '金额',
+              dataIndex: 'price',
+              key: 'price',
+              render: (price: number) => price ? `¥${price}` : '-',
+            },
+            {
+              title: '成单日期',
+              dataIndex: 'conversionDate',
+              key: 'conversionDate',
+              render: (date: string) => date || '-',
+            },
+            {
+              title: '销售',
+              dataIndex: 'salesName',
+              key: 'salesName',
+              render: (name: string) => name || '-',
+            },
+            {
+              title: '操作',
+              key: 'action',
+              render: (_: any, record: any) => (
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<ImportOutlined />}
+                  onClick={() => handleImportConversion(record)}
+                >
+                  导入
+                </Button>
+              ),
+            },
+          ]}
+          dataSource={conversionsList}
+          loading={importLoading}
+          rowKey="id"
+          pagination={false}
+          locale={{
+            emptyText: importLoading ? '加载中...' : '暂无可导入的成单信息（所有成单已关联学员）',
+          }}
+        />
+      </Modal>
+
+      {/* 为已有学员创建家长账号 Modal */}
+      <Modal
+        title={`创建家长账号 - ${parentAccountStudent?.name || ''}`}
+        open={parentAccountModalVisible}
+        onCancel={() => {
+          setParentAccountModalVisible(false);
+          parentAccountForm.resetFields();
+          setParentAccountStudent(null);
+        }}
+        onOk={() => parentAccountForm.submit()}
+        width={500}
+      >
+        <Form form={parentAccountForm} onFinish={handleParentAccountSubmit} layout="vertical">
+          <Alert
+            message="提示"
+            description="创建家长账号后，家长可以使用邮箱和密码登录系统，查看学员的课表、出勤记录和缴费信息。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+
+          <Form.Item
+            name="name"
+            label="家长姓名"
+            rules={[{ required: true, message: '请输入家长姓名' }]}
+          >
+            <Input placeholder="请输入家长姓名" />
+          </Form.Item>
+
+          <Form.Item
+            name="email"
+            label="家长邮箱"
+            rules={[
+              { required: true, message: '请输入家长邮箱' },
+              { type: 'email', message: '请输入有效的邮箱地址' },
+            ]}
+          >
+            <Input placeholder="用于登录的邮箱地址" />
+          </Form.Item>
+
+          <Form.Item
+            name="parentPhone"
+            label="家长电话"
+            rules={[{ required: true, message: '请输入家长电话' }]}
+            extra="此电话将用于关联学员，需与学员的家长电话一致"
+          >
+            <Input placeholder="用于关联学员的电话号码" />
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            label="登录密码"
+            extra="留空则使用默认密码 123456"
+          >
+            <Input.Password placeholder="可选，留空使用默认密码 123456" />
           </Form.Item>
         </Form>
       </Modal>

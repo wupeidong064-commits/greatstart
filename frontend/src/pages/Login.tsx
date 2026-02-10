@@ -74,6 +74,8 @@ const Login = () => {
       const userRole = (profile && profile.role) || 'user';
       if (userRole === 'admin') {
         navigate('/organizations'); // 系统管理员跳转到机构管理
+      } else if (userRole === 'parent') {
+        navigate('/student/schedules'); // 学员跳转到我的课表
       } else {
         navigate('/operation/consumption'); // 其他角色跳转到运营数据
       }

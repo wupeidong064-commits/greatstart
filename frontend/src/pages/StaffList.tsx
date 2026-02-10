@@ -163,11 +163,13 @@ const StaffList = () => {
     message.success('分组添加成功');
   };
 
-  const handleSetAdmin = async (userId: string, isAdmin: boolean) => {
+  const handleSetAdmin = async (userId: string, currentRole: string) => {
     try {
-      const newRole = isAdmin ? 'admin' : 'coach';
+      // 如果当前是管理员角色（admin 或 manager），取消管理员身份，恢复为 coach
+      // 如果不是管理员角色，设为 manager（校区管理员）
+      const newRole = (currentRole === 'admin' || currentRole === 'manager') ? 'coach' : 'manager';
       await memfireDB.users.update(userId, { role: newRole });
-      message.success(isAdmin ? '已设为管理' : '已取消管理');
+      message.success(newRole === 'manager' ? '已设为校区管理员' : '已取消管理员身份');
       fetchStaffList();
     } catch (error: any) {
       console.error('设置管理失败:', error);
@@ -252,9 +254,9 @@ const StaffList = () => {
             <Button
               type="link"
               size="small"
-              onClick={() => handleSetAdmin(record.id, record.role !== 'admin')}
+              onClick={() => handleSetAdmin(record.id, record.role)}
             >
-              {record.role === 'admin' ? '取消管理' : '设为管理'}
+              {record.role === 'admin' || record.role === 'manager' ? '取消管理' : '设为管理'}
             </Button>
           )}
         </Space>
@@ -392,11 +394,9 @@ const StaffList = () => {
               rules={[{ required: true, message: '请选择角色' }]}
             >
               <Select placeholder="请选择角色">
-                <Option value="coach">教练</Option>
+                <Option value="manager">经理</Option>
                 <Option value="sales">销售</Option>
-                <Option value="admin">管理</Option>
-                <Option value="finance">财务</Option>
-                <Option value="super_admin">超级管理</Option>
+                <Option value="coach">教练</Option>
               </Select>
             </Form.Item>
 

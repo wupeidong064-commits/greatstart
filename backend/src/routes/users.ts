@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticateMemFire } from '../middleware/auth';
 import { requireRole, requireMinRole } from '../middleware/rbac';
 import { userController } from '../controllers/userController';
 
 export const userRoutes = Router();
 
 // 所有路由需要认证
-userRoutes.use(authenticate);
+userRoutes.use(authenticateMemFire);
 
 /**
  * @swagger

@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticateMemFire } from '../middleware/auth';
 import { requireOrganizationAccess } from '../middleware/rbac';
 import { studentController } from '../controllers/studentController';
 
 export const studentRoutes = Router();
 
-studentRoutes.use(authenticate);
+studentRoutes.use(authenticateMemFire);
 studentRoutes.use(requireOrganizationAccess());
 
 studentRoutes.get('/', studentController.getStudents);

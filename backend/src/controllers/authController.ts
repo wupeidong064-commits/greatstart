@@ -268,7 +268,6 @@ export const authController = {
           id: authData.user.id,
           email: authData.user.email,
           name,
-          password: 'memfire_auth', // 占位值，实际密码由 MemFire Auth 管理
           role: 'manager',
           organizationId,
         });
@@ -373,7 +372,6 @@ export const authController = {
           id: authData.user.id,
           email: authData.user.email,
           name,
-          password: 'memfire_auth', // 占位值，实际密码由 MemFire Auth 管理
           role,
           organizationId: finalOrganizationId,
           campusId: campusId || null,
@@ -408,97 +406,156 @@ export const authController = {
     }
   },
 
-  // 创建家长/学员账号（与学员关联）
+  // 创建家长/学员账号（与学员关联），使用 MemFire Auth
   createParent: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { email, password, name, phone, studentId, organizationId } = req.body;
 
+      console.log('[createParent] 收到创建家长账号请求:', { email, name, phone, studentId, organizationId });
+
       // 验证必填字段
       if (!email || !name || !phone) {
+        console.log('[createParent] 缺少必填字段');
         return next(new ApiError('缺少必填字段（邮箱、姓名、电话）', 400, 'MISSING_FIELDS'));
       }
 
       // 如果未提供密码，生成默认密码
       const finalPassword = password || '123456';
 
-      // 如果未指定 organizationId，使用当前用户的
-      const finalOrganizationId = organizationId || req.body.organizationId;
+      // 从认证用户信息中获取 organizationId（使用 memfireUser）
+      const finalOrganizationId = organizationId || req.memfireUser?.organizationId;
       if (!finalOrganizationId) {
+        console.log('[createParent] 缺少机构信息');
         return next(new ApiError('缺少机构信息', 400, 'MISSING_ORGANIZATION'));
       }
 
-      // 验证机构是否存在
-      const org = await prisma.organization.findUnique({
-        where: { id: finalOrganizationId },
-      });
+      console.log('[createParent] 使用机构ID:', finalOrganizationId);
 
-      if (!org) {
+      // 验证机构是否存在（从 MemFire 查询）
+      const { data: org, error: orgError } = await memfireAdmin
+        .from('organizations')
+        .select('id')
+        .eq('id', finalOrganizationId)
+        .maybeSingle();
+
+      if (orgError || !org) {
+        console.log('[createParent] 机构不存在或查询失败:', orgError);
         return next(new ApiError('机构不存在', 400, 'ORGANIZATION_NOT_FOUND'));
       }
 
+      console.log('[createParent] 机构验证通过');
+
       // 如果指定了 studentId，验证学员是否存在且属于该机构
       if (studentId) {
-        const student = await prisma.student.findFirst({
-          where: {
-            id: studentId,
-            organizationId: finalOrganizationId,
-          },
-        });
+        const { data: student } = await memfireAdmin
+          .from('students')
+          .select('*')
+          .eq('id', studentId)
+          .eq('organizationId', finalOrganizationId)
+          .maybeSingle();
 
         if (!student) {
+          console.log('[createParent] 学员不存在');
           return next(new ApiError('学员不存在或不属于该机构', 400, 'STUDENT_NOT_FOUND'));
         }
 
         // 更新学员的家长电话，确保关联
-        await prisma.student.update({
-          where: { id: studentId },
-          data: { parentPhone: phone },
-        });
+        console.log('[createParent] 更新学员家长电话');
+        await memfireAdmin
+          .from('students')
+          .update({ parentPhone: phone })
+          .eq('id', studentId);
       }
 
-      // 加密密码
-      const hashedPassword = await bcrypt.hash(finalPassword, 10);
-
-      // 检查邮箱是否已存在
-      const existingUser = await prisma.user.findUnique({
-        where: { email },
+      // 1. 使用 MemFire Admin API 创建用户（自动确认邮箱）
+      console.log('[createParent] 开始在 MemFire Auth 创建用户...');
+      const { data: authData, error: authError } = await memfireAdmin.auth.admin.createUser({
+        email,
+        password: finalPassword,
+        email_confirm: true, // 自动确认邮箱
+        user_metadata: {
+          name,
+          phone,
+        },
       });
 
-      if (existingUser) {
-        return next(new ApiError('邮箱已被注册', 400, 'EMAIL_EXISTS'));
+      if (authError) {
+        console.log('[createParent] MemFire Auth 创建用户失败:', authError);
+        // 邮箱已存在
+        if (authError.message.includes('already exists') || authError.message.includes('already been registered')) {
+          return next(new ApiError('邮箱已被注册', 400, 'EMAIL_EXISTS'));
+        }
+        return next(new ApiError(authError.message, 400, 'AUTH_ERROR'));
       }
 
-      // 创建用户（角色为 parent）
-      const user = await prisma.user.create({
-        data: {
-          email,
-          password: hashedPassword,
+      console.log('[createParent] MemFire Auth 用户创建成功:', authData.user.id);
+
+      // 2. 在 users 表中创建记录（角色为 parent）
+      console.log('[createParent] 开始在 users 表创建记录...');
+
+      // 优先使用 Prisma（如果配置了 DATABASE_URL），因为 Supabase 客户端会过滤 password 字段
+      if (process.env.DATABASE_URL && prisma) {
+        console.log('[createParent] 使用 Prisma 创建用户记录...');
+        try {
+          await prisma.user.create({
+            data: {
+              id: authData.user.id,
+              email: authData.user.email,
+              password: 'memfire_auth', // 占位值，实际密码由 MemFire Auth 管理
+              name,
+              phone,
+              role: 'parent',
+              organizationId: finalOrganizationId,
+            },
+          });
+          var userError = null;
+          console.log('[createParent] Prisma 创建用户成功');
+        } catch (err: any) {
+          userError = { message: err.message };
+          console.log('[createParent] Prisma 创建失败:', err.message);
+        }
+      } else {
+        console.log('[createParent] DATABASE_URL 未配置，使用 Supabase 客户端...');
+        // Supabase 客户端会过滤 password 字段，需要在 MemFire 控制台修改表结构：
+        // ALTER TABLE users ALTER COLUMN password SET DEFAULT 'memfire_auth';
+        // ALTER TABLE users ALTER COLUMN password DROP NOT NULL;
+        const { error: insertError } = await memfireAdmin
+          .from('users')
+          .insert({
+            id: authData.user.id,
+            email: authData.user.email,
+            name,
+            phone,
+            role: 'parent',
+            organizationId: finalOrganizationId,
+          });
+        userError = insertError;
+      }
+
+      if (userError) {
+        console.log('[createParent] users 表创建记录失败:', userError);
+        // 如果 users 表操作失败，尝试回滚 MemFire Auth 用户
+        await memfireAdmin.auth.admin.deleteUser(authData.user.id);
+        return next(new ApiError('创建用户失败: ' + userError.message, 500, 'USER_CREATE_ERROR'));
+      }
+
+      console.log('[createParent] 家长账号创建完成');
+      sendSuccess(
+        res,
+        {
+          id: authData.user.id,
+          email: authData.user.email,
           name,
           role: 'parent',
           phone,
           organizationId: finalOrganizationId,
-          isActive: true,
-        },
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          role: true,
-          phone: true,
-          organizationId: true,
-        },
-      });
-
-      sendSuccess(
-        res,
-        {
-          ...user,
           defaultPassword: finalPassword,
         },
         '家长账号创建成功',
         201
       );
     } catch (error) {
+      console.log('[createParent] 未捕获的异常:', error);
       next(error);
     }
   },

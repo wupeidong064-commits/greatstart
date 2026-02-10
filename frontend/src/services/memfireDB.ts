@@ -4549,6 +4549,7 @@ export const conversionsDB = {
    */
   async update(id: string, data: {
     studentName?: string;
+    studentId?: string;
     age?: number;
     gender?: string;
     contact?: string;

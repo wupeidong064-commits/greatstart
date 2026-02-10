@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/auth';
+import { authenticateMemFire } from '../middleware/auth';
 import { requireMinRole } from '../middleware/rbac';
 import { campusController } from '../controllers/campusController';
 
 export const campusRoutes = Router();
 
-campusRoutes.use(authenticate);
+campusRoutes.use(authenticateMemFire);
 
 campusRoutes.get('/', campusController.getCampuses);
 campusRoutes.get('/:id', campusController.getCampusById);
