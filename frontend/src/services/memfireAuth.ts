@@ -9,7 +9,6 @@ if (!memfire) {
 export interface MemfireProfile {
   id: string;
   email: string | null;
-  phone?: string | null;
   name?: string | null;
   role?: string | null;
   organizationId?: string | null;
@@ -115,7 +114,7 @@ export const memfireAuth = {
     }
   },
 
-  // 创建机构管理者（邮箱）
+  // 创建机构管理者
   async createManager(email: string, password: string, name: string, organizationId: string) {
     // 调用后端 API，使用 MemFire Admin API 创建用户（自动确认邮箱）
     const response = await api.post('/auth/create-manager', {
@@ -128,44 +127,15 @@ export const memfireAuth = {
     return response;
   },
 
-  // 创建机构管理者（手机号）
-  async createManagerByPhone(phone: string, password: string, name: string, organizationId: string) {
-    const response = await api.post('/auth/create-manager-phone', {
-      phone,
-      password,
-      name,
-      organizationId,
-    });
-
-    return response;
-  },
-
   // 修改密码（使用原密码验证）
   async changePassword(oldPassword: string, newPassword: string) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
-    const currentUser = await this.getCurrentUser();
-    if (!currentUser) {
-      return { success: false, error: '用户未登录' };
-    }
-
-    // 首先验证原密码是否正确（支持邮箱或手机号）
-    let signInError;
-    if (currentUser.email) {
-      const result = await memfire.auth.signInWithPassword({
-        email: currentUser.email,
-        password: oldPassword,
-      });
-      signInError = result.error;
-    } else if (currentUser.phone) {
-      const result = await memfire.auth.signInWithPassword({
-        phone: currentUser.phone,
-        password: oldPassword,
-      });
-      signInError = result.error;
-    } else {
-      return { success: false, error: '用户信息不完整' };
-    }
+    // 首先验证原密码是否正确
+    const { data: { user: _user }, error: signInError } = await memfire.auth.signInWithPassword({
+      email: (await this.getCurrentUser())?.email || '',
+      password: oldPassword,
+    });
 
     if (signInError) {
       return { success: false, error: '原密码错误' };
