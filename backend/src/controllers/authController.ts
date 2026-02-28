@@ -808,6 +808,8 @@ export const authController = {
           name,
           role: 'manager',
           organizationId,
+          isActive: true,
+          isPhoneUser: true,
         });
 
       if (userError) {
