@@ -1,7 +1,8 @@
 import { Card, Table, Tag, message, Button, Space, Modal, Form, Input, DatePicker } from 'antd';
 import { UserAddOutlined, FileExcelOutlined, DeleteOutlined, UsergroupAddOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
-import memfireDB from '../services/memfireDB';
+import api from '../services/api';
+import { dataService } from '../services/dataService';
 import { useAuthStore } from '../store/authStore';
 import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
@@ -12,7 +13,7 @@ const TeacherDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [salesData, setSalesData] = useState([]);
   const [managementModalVisible, setManagementModalVisible] = useState(false);
-  const [teachers, setTeachers] = useState([]);
+  const [teachers, setTeachers] = useState<any[]>([]);
   const [teachersLoading, setTeachersLoading] = useState(false);
   const [addForm] = Form.useForm();
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
@@ -40,7 +41,8 @@ const TeacherDashboard = () => {
         params.startDate = dateRange[0].format('YYYY-MM-DD');
         params.endDate = dateRange[1].format('YYYY-MM-DD');
       }
-      const data = await memfireDB.users.getSalesStatistics(params);
+      const response = await api.get('/users/sales-statistics', { params });
+      const data = response.data || [];
 
       // 对于 coach 角色，只显示自己的数据
       if (normalizedRole === 'coach' && user?.id) {
@@ -61,9 +63,9 @@ const TeacherDashboard = () => {
   const fetchTeachers = async () => {
     setTeachersLoading(true);
     try {
-      const data = await memfireDB.users.listTeachers();
+      const data = await dataService.getTeachers();
       // 过滤只显示销售人员（teacher、sales 或 coach 角色）
-      const salesStaff = data.filter((user: any) => 
+      const salesStaff = data.filter((user: any) =>
         user.role === 'teacher' || user.role === 'sales' || user.role === 'coach'
       );
       setTeachers(salesStaff || []);
@@ -80,8 +82,8 @@ const TeacherDashboard = () => {
     try {
       // 将销售数据导出为 CSV
       const csvHeader = '销售姓名,添加数,邀约数,到场数,成单数,成单金额,新签成单数,新签金额,续费成单数,续费金额\n';
-      const csvContent = salesData.map((item: any) => 
-        `${item.teacherName},${item.addedCount},${item.invitationCount},${item.attendanceCount},${item.orderCount},${item.orderAmount.toFixed(2)},${item.newOrderCount || 0},${(item.newOrderAmount || 0).toFixed(2)},${item.renewalOrderCount || 0},${(item.renewalOrderAmount || 0).toFixed(2)}`
+      const csvContent = salesData.map((item: any) =>
+        `${item.teacherName},${item.addedCount},${item.invitationCount},${item.attendanceCount || 0},${item.orderCount},${item.orderAmount.toFixed(2)},${item.newOrderCount || 0},${(item.newOrderAmount || 0).toFixed(2)},${item.renewalOrderCount || 0},${(item.renewalOrderAmount || 0).toFixed(2)}`
       ).join('\n');
       
       const csv = csvHeader + csvContent;
@@ -104,11 +106,14 @@ const TeacherDashboard = () => {
 
   const handleAddSales = async (values: any) => {
     try {
-      await memfireDB.users.create({
+      const response = await api.post('/auth/create-staff', {
         ...values,
         role: 'sales', // 销售角色
       });
-      message.success('添加销售成功');
+      const { defaultPassword } = response.data || {};
+      message.success(
+        `添加销售成功${defaultPassword ? `，默认密码：${defaultPassword}` : ''}`
+      );
       addForm.resetFields();
       fetchTeachers();
       fetchSalesData(); // 刷新销售数据
@@ -127,7 +132,7 @@ const TeacherDashboard = () => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          await memfireDB.users.delete(teacherId);
+          await api.delete(`/users/${teacherId}`);
           message.success('删除成功');
           fetchTeachers();
           fetchSalesData(); // 刷新销售数据
@@ -291,7 +296,7 @@ const TeacherDashboard = () => {
           <span>时间筛选：</span>
           <RangePicker
             value={dateRange}
-            onChange={(dates) => setDateRange(dates)}
+            onChange={(dates) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
             format="YYYY-MM-DD"
             allowClear
             placeholder={['开始日期', '结束日期']}

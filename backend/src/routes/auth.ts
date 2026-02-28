@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authController, registerValidation, loginValidation } from '../controllers/authController';
+import { authController, registerValidation, loginValidation, sendOtpValidation, verifyOtpValidation, loginByPhoneValidation, registerByPhoneValidation, resetPasswordValidation } from '../controllers/authController';
 import { authenticate, authenticateMemFire, requireMemFireAdmin, requireMemFireAdminOrManager } from '../middleware/auth';
 
 export const authRoutes = Router();
@@ -113,7 +113,7 @@ authRoutes.get('/me', authenticate, authController.getMe);
  *       201:
  *         description: 管理者创建成功
  */
-authRoutes.post('/create-manager', authenticateMemFire, requireMemFireAdmin, authController.createManager);
+authRoutes.post('/create-manager', authenticate, requireMemFireAdmin, authController.createManager);
 
 /**
  * @swagger
@@ -156,7 +156,7 @@ authRoutes.post('/create-manager', authenticateMemFire, requireMemFireAdmin, aut
  *       201:
  *         description: 工作人员创建成功
  */
-authRoutes.post('/create-staff', authenticateMemFire, requireMemFireAdminOrManager, authController.createStaff);
+authRoutes.post('/create-staff', authenticate, requireMemFireAdminOrManager, authController.createStaff);
 
 /**
  * @swagger
@@ -197,4 +197,151 @@ authRoutes.post('/create-staff', authenticateMemFire, requireMemFireAdminOrManag
  *       201:
  *         description: 家长账号创建成功
  */
-authRoutes.post('/create-parent', authenticateMemFire, authController.createParent);
+authRoutes.post('/create-parent', authenticate, authController.createParent);
+
+/**
+ * @swagger
+ * /api/auth/send-otp:
+ *   post:
+ *     summary: 发送手机验证码
+ *     tags: [认证]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 description: 中国大陆手机号
+ *     responses:
+ *       200:
+ *         description: 验证码已发送
+ */
+authRoutes.post('/send-otp', sendOtpValidation, authController.sendOtp);
+
+/**
+ * @swagger
+ * /api/auth/verify-otp:
+ *   post:
+ *     summary: 验证码登录（手机号）
+ *     tags: [认证]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *               - token
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 description: 中国大陆手机号
+ *               token:
+ *                 type: string
+ *                 description: 短信验证码
+ *     responses:
+ *       200:
+ *         description: 登录成功
+ */
+authRoutes.post('/verify-otp', verifyOtpValidation, authController.verifyOtpLogin);
+
+/**
+ * @swagger
+ * /api/auth/login-phone:
+ *   post:
+ *     summary: 手机号+密码登录
+ *     tags: [认证]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *               - password
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 description: 中国大陆手机号
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: 登录成功
+ */
+authRoutes.post('/login-phone', loginByPhoneValidation, authController.loginByPhone);
+
+/**
+ * @swagger
+ * /api/auth/register-phone:
+ *   post:
+ *     summary: 手机号+密码注册
+ *     tags: [认证]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *               - password
+ *               - name
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 description: 中国大陆手机号
+ *               password:
+ *                 type: string
+ *                 description: 至少6位
+ *               name:
+ *                 type: string
+ *               smsCode:
+ *                 type: string
+ *                 description: 短信验证码（可选）
+ *               organizationId:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: 注册成功
+ */
+authRoutes.post('/register-phone', registerByPhoneValidation, authController.registerByPhone);
+
+/**
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     summary: 重置密码（通过手机验证码）
+ *     tags: [认证]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *               - token
+ *               - newPassword
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 description: 中国大陆手机号
+ *               token:
+ *                 type: string
+ *                 description: 短信验证码
+ *               newPassword:
+ *                 type: string
+ *                 description: 新密码（至少6位）
+ *     responses:
+ *       200:
+ *         description: 密码重置成功
+ */
+authRoutes.post('/reset-password', resetPasswordValidation, authController.resetPassword);

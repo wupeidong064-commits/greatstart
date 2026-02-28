@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, Table, DatePicker, Button, message, Progress } from 'antd';
+import { Card, Row, Col, Statistic, Table, DatePicker, Button, message, Progress, Tag } from 'antd';
 import {
   UserOutlined,
   TeamOutlined,
@@ -8,7 +8,10 @@ import {
   CalendarOutlined,
   RiseOutlined,
   FallOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
 } from '@ant-design/icons';
+import { Line, Column, Pie } from '@ant-design/charts';
 import dayjs from 'dayjs';
 import api from '../services/api';
 
@@ -99,11 +102,23 @@ const MonthlySummary = () => {
       title: '本月',
       dataIndex: 'current',
       key: 'current',
+      render: (value: number, record: any) => {
+        if (record.name === '总收入') {
+          return `¥${value?.toFixed(2) || '0.00'}`;
+        }
+        return value;
+      },
     },
     {
       title: '上月',
       dataIndex: 'last',
       key: 'last',
+      render: (value: number, record: any) => {
+        if (record.name === '总收入') {
+          return `¥${value?.toFixed(2) || '0.00'}`;
+        }
+        return value;
+      },
     },
     {
       title: '变化',
@@ -117,6 +132,123 @@ const MonthlySummary = () => {
       ),
     },
   ];
+
+  // 图表配置：周趋势图
+  const weeklyTrendData = (summary.weeklyData || []).map((week: any) => ({
+    week: week.week,
+    收入: week.revenue || 0,
+    新增学员: week.newStudents || 0,
+    新增报名: week.newEnrollments || 0,
+  }));
+
+  const weeklyTrendConfig = {
+    data: weeklyTrendData,
+    xField: 'week',
+    yField: '收入',
+    colorField: 'type',
+    point: {
+      shapeField: 'circle',
+      sizeField: 4,
+    },
+    interaction: {
+      tooltip: {
+        marker: false,
+      },
+    },
+    style: {
+      lineWidth: 2,
+    },
+    smooth: true,
+    color: '#1890ff',
+    axis: {
+      y: {
+        title: '收入 (¥)',
+        labelFormatter: (v: string) => `¥${Number(v).toFixed(0)}`,
+      },
+    },
+  };
+
+  // 图表配置：新增学员/报名趋势
+  const enrollmentTrendData: any[] = [];
+  (summary.weeklyData || []).forEach((week: any) => {
+    enrollmentTrendData.push({ week: week.week, type: '新增学员', value: week.newStudents || 0 });
+    enrollmentTrendData.push({ week: week.week, type: '新增报名', value: week.newEnrollments || 0 });
+  });
+
+  const enrollmentTrendConfig = {
+    data: enrollmentTrendData,
+    xField: 'week',
+    yField: 'value',
+    colorField: 'type',
+    group: true,
+    style: {
+      maxWidth: 40,
+    },
+    axis: {
+      y: {
+        title: '人数',
+      },
+    },
+    legend: {
+      position: 'top' as const,
+    },
+  };
+
+  // 图表配置：同比对比图
+  const comparisonData = (summary.trends || []).map((trend: any) => ({
+    name: trend.name,
+    type: '本月',
+    value: trend.current,
+  })).concat((summary.trends || []).map((trend: any) => ({
+    name: trend.name,
+    type: '上月',
+    value: trend.last,
+  })));
+
+  const comparisonConfig = {
+    data: comparisonData,
+    xField: 'name',
+    yField: 'value',
+    colorField: 'type',
+    group: true,
+    style: {
+      maxWidth: 60,
+    },
+    axis: {
+      y: {
+        title: '数值',
+      },
+    },
+    legend: {
+      position: 'top' as const,
+    },
+  };
+
+  // 图表配置：各周收入占比饼图
+  const pieData = (summary.weeklyData || []).map((week: any) => ({
+    week: week.week,
+    value: week.revenue || 0,
+  }));
+
+  const pieConfig = {
+    data: pieData,
+    angleField: 'value',
+    colorField: 'week',
+    innerRadius: 0.6,
+    label: {
+      text: 'week',
+      position: 'outside' as const,
+    },
+    legend: {
+      position: 'right' as const,
+    },
+  };
+
+  // 计算变化趋势
+  const getTrend = (trends: any[], name: string) => {
+    const trend = (trends || []).find((t: any) => t.name === name);
+    return trend?.change || 0;
+  };
 
   return (
     <div>
@@ -135,19 +267,26 @@ const MonthlySummary = () => {
           </div>
         </div>
 
+        {/* 关键指标卡片 */}
         <Row gutter={16} style={{ marginBottom: 24 }}>
           <Col span={6}>
-            <Card>
+            <Card loading={loading}>
               <Statistic
                 title="新增学员"
                 value={summary.totalNewStudents || 0}
                 prefix={<UserOutlined />}
                 valueStyle={{ color: '#3f8600' }}
+                suffix={
+                  <Tag color={getTrend(summary.trends, '新增学员') >= 0 ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                    {getTrend(summary.trends, '新增学员') >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                    {Math.abs(getTrend(summary.trends, '新增学员'))}%
+                  </Tag>
+                }
               />
             </Card>
           </Col>
           <Col span={6}>
-            <Card>
+            <Card loading={loading}>
               <Statistic
                 title="新增报名"
                 value={summary.totalNewEnrollments || 0}
@@ -157,42 +296,56 @@ const MonthlySummary = () => {
             </Card>
           </Col>
           <Col span={6}>
-            <Card>
-              <Statistic
-                title="总出勤人次"
-                value={summary.totalAttendance || 0}
-                prefix={<CheckCircleOutlined />}
-                valueStyle={{ color: '#722ed1' }}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="平均出勤率"
-                value={summary.avgAttendanceRate || 0}
-                suffix="%"
-                prefix={<CalendarOutlined />}
-                valueStyle={{ color: '#eb2f96' }}
-              />
-            </Card>
-          </Col>
-        </Row>
-
-        <Row gutter={16} style={{ marginBottom: 24 }}>
-          <Col span={6}>
-            <Card>
+            <Card loading={loading}>
               <Statistic
                 title="总收入"
                 value={summary.totalRevenue || 0}
                 prefix={<DollarOutlined />}
                 precision={2}
                 valueStyle={{ color: '#52c41a' }}
+                suffix={
+                  <Tag color={getTrend(summary.trends, '总收入') >= 0 ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                    {getTrend(summary.trends, '总收入') >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                    {Math.abs(getTrend(summary.trends, '总收入'))}%
+                  </Tag>
+                }
               />
             </Card>
           </Col>
           <Col span={6}>
-            <Card>
+            <Card loading={loading}>
+              <Statistic
+                title="平均出勤率"
+                value={summary.avgAttendanceRate || 0}
+                suffix={
+                  <>
+                    %
+                    <Tag color={getTrend(summary.trends, '出勤人次') >= 0 ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                      {getTrend(summary.trends, '出勤人次') >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                      {Math.abs(getTrend(summary.trends, '出勤人次'))}%
+                    </Tag>
+                  </>
+                }
+                prefix={<CalendarOutlined />}
+                valueStyle={{ color: '#722ed1' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+
+        {/* 第二行指标卡片 */}
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={6}>
+            <Card loading={loading}>
+              <Statistic
+                title="总出勤人次"
+                value={summary.totalAttendance || 0}
+                prefix={<CheckCircleOutlined />}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card loading={loading}>
               <Statistic
                 title="新增班级"
                 value={summary.newClasses || 0}
@@ -201,7 +354,7 @@ const MonthlySummary = () => {
             </Card>
           </Col>
           <Col span={6}>
-            <Card>
+            <Card loading={loading}>
               <Statistic
                 title="活跃学员数"
                 value={summary.activeStudents || 0}
@@ -210,7 +363,7 @@ const MonthlySummary = () => {
             </Card>
           </Col>
           <Col span={6}>
-            <Card>
+            <Card loading={loading}>
               <Statistic
                 title="续费率"
                 value={summary.renewalRate || 0}
@@ -221,6 +374,58 @@ const MonthlySummary = () => {
           </Col>
         </Row>
 
+        {/* 图表区域 */}
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={12}>
+            <Card title="周收入趋势" loading={loading}>
+              {weeklyTrendData.length > 0 ? (
+                <Line {...weeklyTrendConfig} height={200} />
+              ) : (
+                <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                  暂无数据
+                </div>
+              )}
+            </Card>
+          </Col>
+          <Col span={12}>
+            <Card title="新增学员/报名趋势" loading={loading}>
+              {enrollmentTrendData.length > 0 ? (
+                <Column {...enrollmentTrendConfig} height={200} />
+              ) : (
+                <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                  暂无数据
+                </div>
+              )}
+            </Card>
+          </Col>
+        </Row>
+
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={12}>
+            <Card title="本月 vs 上月对比" loading={loading}>
+              {comparisonData.length > 0 ? (
+                <Column {...comparisonConfig} height={200} />
+              ) : (
+                <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                  暂无数据
+                </div>
+              )}
+            </Card>
+          </Col>
+          <Col span={12}>
+            <Card title="各周收入占比" loading={loading}>
+              {pieData.length > 0 ? (
+                <Pie {...pieConfig} height={200} />
+              ) : (
+                <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                  暂无数据
+                </div>
+              )}
+            </Card>
+          </Col>
+        </Row>
+
+        {/* 数据表格 */}
         <Row gutter={16} style={{ marginBottom: 24 }}>
           <Col span={12}>
             <Card title="每周数据明细" loading={loading}>
@@ -229,6 +434,7 @@ const MonthlySummary = () => {
                 dataSource={summary.weeklyData || []}
                 rowKey="week"
                 pagination={false}
+                size="small"
               />
             </Card>
           </Col>
@@ -239,6 +445,7 @@ const MonthlySummary = () => {
                 dataSource={summary.trends || []}
                 rowKey="name"
                 pagination={false}
+                size="small"
               />
             </Card>
           </Col>
@@ -259,4 +466,3 @@ const MonthlySummary = () => {
 };
 
 export default MonthlySummary;
-

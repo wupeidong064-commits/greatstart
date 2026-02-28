@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { authenticateMemFire } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { requireOrganizationAccess } from '../middleware/rbac';
 import { statisticsController } from '../controllers/statisticsController';
 
 export const statisticsRoutes = Router();
 
-// 使用 MemFire 认证而不是旧的 JWT 认证
-statisticsRoutes.use(authenticateMemFire);
+// 使用 JWT 认证
+statisticsRoutes.use(authenticate);
 statisticsRoutes.use(requireOrganizationAccess());
 
 statisticsRoutes.get('/students', statisticsController.getStudentStatistics);

@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { authenticateMemFire } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { requireOrganizationAccess } from '../middleware/rbac';
 import { enrollmentController } from '../controllers/enrollmentController';
 
 export const enrollmentRoutes = Router();
 
-enrollmentRoutes.use(authenticateMemFire);
+enrollmentRoutes.use(authenticate);
 enrollmentRoutes.use(requireOrganizationAccess());
 
 enrollmentRoutes.get('/', enrollmentController.getEnrollments);

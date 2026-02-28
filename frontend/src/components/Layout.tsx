@@ -2,26 +2,13 @@ import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout as AntLayout, Menu, Avatar, Dropdown, message } from 'antd';
 import {
-  DashboardOutlined,
   UserOutlined,
-  TeamOutlined,
-  CalendarOutlined,
-  CheckCircleOutlined,
   BarChartOutlined,
-  BankOutlined,
   SettingOutlined,
   LogoutOutlined,
-  FileTextOutlined,
   DollarOutlined,
-  ShopOutlined,
-  UserDeleteOutlined,
   UsergroupAddOutlined,
-  LineChartOutlined,
-  WalletOutlined,
-  FileSearchOutlined,
   AppstoreOutlined,
-  FundProjectionScreenOutlined,
-  KeyOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { getUserMenuPermissions, normalizeRole } from '../utils/dataFilter';
@@ -58,10 +45,12 @@ const Layout = () => {
       keys.push('/students');
     }
     if (path.startsWith('/teachers')) {
-      keys.push('/teachers');
-    }
-    if (path.startsWith('/finance')) {
-      keys.push('/finance');
+      keys.push('/staff-management');
+      if (path === '/teachers') {
+        keys.push('/teachers');
+      } else if (path.startsWith('/teachers/dashboard')) {
+        keys.push('/teachers/dashboard');
+      }
     }
     if (path.startsWith('/analytics')) {
       keys.push('/analytics');
@@ -230,33 +219,14 @@ const Layout = () => {
         });
       }
       items.push({
-        key: '/teachers',
+        key: '/staff-management',
         icon: <UsergroupAddOutlined />,
         label: normalizedRole === 'coach' ? '教练数据' : '工作人员管理',
         children: menuItems,
       });
     }
 
-    // 财务管理 - admin/manager 可见
-    if (permissions.canViewReports) {
-      items.push({
-        key: '/finance',
-        icon: <WalletOutlined />,
-        label: '财务管理',
-        children: [
-          {
-            key: '/finance/expenses',
-            label: '支出与报表',
-          },
-          {
-            key: '/finance/staff-salary',
-            label: '人员工资',
-          },
-        ],
-      });
-    }
-
-    // 数据统计与分析 - admin/manager 可见
+// 数据统计与分析 - admin/manager 可见
     if (permissions.canViewReports) {
       items.push({
         key: '/analytics',
@@ -266,10 +236,6 @@ const Layout = () => {
           {
             key: '/summary/weekly',
             label: '周总结',
-          },
-          {
-            key: '/analytics/special',
-            label: '季度总结',
           },
         ],
       });
@@ -283,6 +249,10 @@ const Layout = () => {
         systemChildren.push({
           key: '/system/staff-list',
           label: '工作人员列表',
+        });
+        systemChildren.push({
+          key: '/system/resource-transfer',
+          label: '资源交接',
         });
       }
       
@@ -316,17 +286,6 @@ const Layout = () => {
   const menuItems = buildMenuItems();
 
   const userMenuItems: MenuProps['items'] = [
-    {
-      key: 'change-password',
-      icon: <KeyOutlined />,
-      label: '修改密码',
-      onClick: () => {
-        navigate('/change-password');
-      },
-    },
-    {
-      type: 'divider',
-    },
     {
       key: 'logout',
       icon: <LogoutOutlined />,

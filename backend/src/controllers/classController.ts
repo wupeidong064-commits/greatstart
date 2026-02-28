@@ -2,7 +2,12 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { sendSuccess, sendPaginated } from '../utils/response';
-import prisma from '../config/database';
+import { memfireAdmin } from '../config/memfire';
+
+// 辅助函数：获取当前用户信息（兼容 req.user 和 req.memfireUser）
+const getCurrentUser = (req: AuthRequest) => {
+  return req.user || req.memfireUser;
+};
 
 export const classController = {
   getClasses: async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -13,66 +18,105 @@ export const classController = {
       const status = req.query.status as string;
       const campusId = req.query.campusId as string;
       const teacherId = req.query.teacherId as string;
+      const currentUser = getCurrentUser(req);
 
-      const where: any = {
-        organizationId: req.body.organizationId,
-      };
+      // 数据隔离：使用用户自己的机构ID，admin可以看到所有数据
+      const targetOrgId = currentUser?.organizationId;
+
+      let query = memfireAdmin
+        .from('classes')
+        .select('*, teacher:users(id, name)')
+        .order('createdAt', { ascending: false });
+
+      // Admin without orgId can see all classes, otherwise filter by orgId
+      if (targetOrgId) {
+        query = query.eq('organizationId', targetOrgId);
+      }
+
+      // 校区过滤
+      if (campusId) {
+        query = query.eq('campusId', campusId);
+      } else if (currentUser?.campusId && targetOrgId) {
+        query = query.eq('campusId', currentUser.campusId);
+      }
+
+      // 状态过滤
+      if (status) {
+        query = query.eq('status', status);
+      }
+
+      // 教练过滤
+      if (teacherId) {
+        query = query.eq('teacherId', teacherId);
+      }
+
+      // 分页
+      query = query.range((page - 1) * pageSize, (page - 1) * pageSize + pageSize - 1);
+
+      const { data: classes, error } = await query;
+
+      if (error) {
+        console.error('获取班级列表错误:', error);
+        return next(new ApiError('获取班级列表失败', 500, 'QUERY_ERROR'));
+      }
+
+      // 获取总数
+      let countQuery = memfireAdmin
+        .from('classes')
+        .select('*', { count: 'exact', head: true });
+
+      // Apply same filters as the main query
+      if (targetOrgId) {
+        countQuery = countQuery.eq('organizationId', targetOrgId);
+      }
 
       if (campusId) {
-        where.campusId = campusId;
-      } else if (req.user?.campusId) {
-        where.campusId = req.user.campusId;
+        countQuery = countQuery.eq('campusId', campusId);
+      } else if (currentUser?.campusId && targetOrgId) {
+        countQuery = countQuery.eq('campusId', currentUser.campusId);
       }
 
       if (status) {
-        where.status = status;
+        countQuery = countQuery.eq('status', status);
       }
 
       if (teacherId) {
-        where.teacherId = teacherId;
+        countQuery = countQuery.eq('teacherId', teacherId);
       }
 
+      const { count } = await countQuery;
+
+      // 客户端搜索过滤
+      let filteredClasses = classes || [];
       if (search) {
-        where.OR = [
-          { name: { contains: search, mode: 'insensitive' } },
-          { code: { contains: search, mode: 'insensitive' } },
-        ];
+        const searchLower = search.toLowerCase();
+        filteredClasses = filteredClasses.filter((c: any) =>
+          (c.name && c.name.toLowerCase().includes(searchLower)) ||
+          (c.code && c.code.toLowerCase().includes(searchLower))
+        );
       }
 
-      const [classes, total] = await Promise.all([
-        prisma.class.findMany({
-          where,
-          include: {
-            campus: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-              },
-            },
-            teacher: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
-            },
-            _count: {
-              select: {
-                enrollments: true,
-                schedules: true,
-              },
-            },
-          },
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-          orderBy: { createdAt: 'desc' },
-        }),
-        prisma.class.count({ where }),
-      ]);
+      // 获取每个班级的学员数量
+      const classesWithCounts = await Promise.all(
+        filteredClasses.map(async (cls: any) => {
+          const { count } = await memfireAdmin
+            .from('enrollments')
+            .select('*', { count: 'exact', head: true })
+            .eq('classId', cls.id)
+            .eq('status', 'active');
 
-      sendPaginated(res, classes, page, pageSize, total);
+          return {
+            ...cls,
+            _count: {
+              enrollments: count || 0,
+            },
+          };
+        })
+      );
+
+      sendPaginated(res, classesWithCounts, page, pageSize, count || 0);
     } catch (error) {
+      console.error('获取班级列表异常:', error);
       next(error);
     }
   },
@@ -80,53 +124,20 @@ export const classController = {
   getClassById: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const classData = await prisma.class.findUnique({
-        where: { id },
-        include: {
-          organization: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          campus: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          teacher: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-            },
-          },
-          enrollments: {
-            include: {
-              student: {
-                select: {
-                  id: true,
-                  name: true,
-                  phone: true,
-                  parentPhone: true,
-                },
-              },
-            },
-          },
-          schedules: {
-            orderBy: { startTime: 'asc' },
-          },
-        },
-      });
+      const { data: classData, error } = await memfireAdmin
+        .from('classes')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
-      if (!classData) {
+      if (error || !classData) {
         return next(new ApiError('班级不存在', 404, 'CLASS_NOT_FOUND'));
       }
 
-      if (classData.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && classData.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权访问', 403, 'FORBIDDEN'));
       }
 
@@ -151,16 +162,21 @@ export const classController = {
         campusId,
       } = req.body;
 
-      const organizationId = req.body.organizationId;
-      const targetCampusId = campusId || req.user?.campusId;
+      const currentUser = getCurrentUser(req);
+      const organizationId = req.body.organizationId || currentUser?.organizationId;
+      const targetCampusId = campusId || currentUser?.campusId;
+
+      if (!organizationId) {
+        return next(new ApiError('必须指定机构', 400, 'MISSING_ORGANIZATION'));
+      }
 
       // 检查代码是否已存在
-      const existing = await prisma.class.findFirst({
-        where: {
-          organizationId,
-          code,
-        },
-      });
+      const { data: existing } = await memfireAdmin
+        .from('classes')
+        .select('id')
+        .eq('organizationId', organizationId)
+        .eq('code', code)
+        .maybeSingle();
 
       if (existing) {
         return next(new ApiError('班级代码已存在', 400, 'CODE_EXISTS'));
@@ -168,9 +184,12 @@ export const classController = {
 
       // 验证校区
       if (targetCampusId) {
-        const campus = await prisma.campus.findUnique({
-          where: { id: targetCampusId },
-        });
+        const { data: campus } = await memfireAdmin
+          .from('campuses')
+          .select('id, organizationId')
+          .eq('id', targetCampusId)
+          .maybeSingle();
+
         if (!campus || campus.organizationId !== organizationId) {
           return next(new ApiError('校区不存在或不属于该机构', 400, 'CAMPUS_NOT_FOUND'));
         }
@@ -178,16 +197,20 @@ export const classController = {
 
       // 验证教练
       if (teacherId) {
-        const teacher = await prisma.user.findUnique({
-          where: { id: teacherId },
-        });
+        const { data: teacher } = await memfireAdmin
+          .from('users')
+          .select('id, organizationId')
+          .eq('id', teacherId)
+          .maybeSingle();
+
         if (!teacher || teacher.organizationId !== organizationId) {
           return next(new ApiError('教练不存在或不属于该机构', 400, 'TEACHER_NOT_FOUND'));
         }
       }
 
-      const classData = await prisma.class.create({
-        data: {
+      const { data: newClass, error } = await memfireAdmin
+        .from('classes')
+        .insert({
           organizationId,
           campusId: targetCampusId,
           name,
@@ -196,13 +219,18 @@ export const classController = {
           level,
           capacity,
           teacherId,
-          startDate: startDate ? new Date(startDate) : null,
-          endDate: endDate ? new Date(endDate) : null,
+          startDate,
+          endDate,
           description,
-        },
-      });
+        })
+        .select()
+        .single();
 
-      sendSuccess(res, classData, '班级创建成功', 201);
+      if (error) {
+        return next(new ApiError('创建班级失败', 500, 'CREATE_ERROR'));
+      }
+
+      sendSuccess(res, newClass, '班级创建成功', 201);
     } catch (error) {
       next(error);
     }
@@ -213,6 +241,7 @@ export const classController = {
       const { id } = req.params;
       const {
         name,
+        code,
         courseType,
         level,
         capacity,
@@ -222,48 +251,67 @@ export const classController = {
         description,
         status,
         campusId,
+        scheduleRule,
       } = req.body;
+      const currentUser = getCurrentUser(req);
 
-      const classData = await prisma.class.findUnique({
-        where: { id },
-      });
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
       if (!classData) {
         return next(new ApiError('班级不存在', 404, 'CLASS_NOT_FOUND'));
       }
 
-      if (classData.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && classData.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权修改该班级', 403, 'FORBIDDEN'));
       }
 
       const updateData: any = {};
       if (name) updateData.name = name;
+      if (code !== undefined) updateData.code = code;
       if (courseType) updateData.courseType = courseType;
       if (level !== undefined) updateData.level = level;
       if (capacity) updateData.capacity = capacity;
       if (teacherId !== undefined) updateData.teacherId = teacherId;
-      if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null;
-      if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null;
+      if (startDate !== undefined) updateData.startDate = startDate;
+      if (endDate !== undefined) updateData.endDate = endDate;
       if (description !== undefined) updateData.description = description;
       if (status) updateData.status = status;
+      if (scheduleRule !== undefined) updateData.scheduleRule = scheduleRule;
 
       if (campusId) {
-        const campus = await prisma.campus.findUnique({
-          where: { id: campusId },
-        });
+        const { data: campus } = await memfireAdmin
+          .from('campuses')
+          .select('id, organizationId')
+          .eq('id', campusId)
+          .maybeSingle();
+
         if (!campus || campus.organizationId !== classData.organizationId) {
           return next(new ApiError('校区不存在或不属于该机构', 400, 'CAMPUS_NOT_FOUND'));
         }
         updateData.campusId = campusId;
       }
 
-      const updated = await prisma.class.update({
-        where: { id },
-        data: updateData,
-      });
+      const { data: updated, error } = await memfireAdmin
+        .from('classes')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('更新班级错误:', JSON.stringify(error, null, 2));
+        console.error('updateData:', JSON.stringify(updateData, null, 2));
+        return next(new ApiError(`更新班级失败: ${error.message || JSON.stringify(error)}`, 500, 'UPDATE_ERROR'));
+      }
 
       sendSuccess(res, updated, '班级更新成功');
     } catch (error) {
+      console.error('更新班级异常:', error);
       next(error);
     }
   },
@@ -271,22 +319,31 @@ export const classController = {
   deleteClass: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const classData = await prisma.class.findUnique({
-        where: { id },
-      });
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
       if (!classData) {
         return next(new ApiError('班级不存在', 404, 'CLASS_NOT_FOUND'));
       }
 
-      if (classData.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && classData.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权删除该班级', 403, 'FORBIDDEN'));
       }
 
-      await prisma.class.delete({
-        where: { id },
-      });
+      const { error } = await memfireAdmin
+        .from('classes')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        return next(new ApiError('删除班级失败', 500, 'DELETE_ERROR'));
+      }
 
       sendSuccess(res, null, '班级删除成功');
     } catch (error) {
@@ -296,60 +353,114 @@ export const classController = {
 
   getExperiencePriorityClasses: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const organizationId = req.body.organizationId;
+      const currentUser = getCurrentUser(req);
+      const targetOrgId = currentUser?.organizationId;
+
+      if (!targetOrgId) {
+        return next(new ApiError('未分配机构', 403, 'FORBIDDEN'));
+      }
 
       // 获取所有活跃班级
-      const allClasses = await prisma.class.findMany({
-        where: {
-          organizationId,
-          status: 'active',
-        },
-        include: {
-          teacher: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
+      const { data: allClasses } = await memfireAdmin
+        .from('classes')
+        .select('*, teacher:users(id, name)')
+        .eq('organizationId', targetOrgId)
+        .eq('status', 'active')
+        .order('createdAt', { ascending: false });
+
+      // 获取每个班级的学员数量
+      const classesWithCounts = await Promise.all(
+        (allClasses || []).map(async (cls: any) => {
+          const { count } = await memfireAdmin
+            .from('enrollments')
+            .select('*', { count: 'exact', head: true })
+            .eq('classId', cls.id)
+            .eq('status', 'active');
+
+          const currentStudents = count || 0;
+          const availableSlots = Math.max(0, (cls.capacity || 0) - currentStudents);
+          const fillRate = cls.capacity > 0 ? Math.round((currentStudents / cls.capacity) * 100) : 0;
+
+          return {
+            ...cls,
+            currentStudents,
+            availableSlots,
+            fillRate,
+            _count: {
+              enrollments: currentStudents,
             },
-          },
-          enrollments: {
-            where: { status: 'active' },
-            select: { studentId: true },
-          },
-          schedules: {
-            where: {
-              startTime: { gte: new Date() }, // 未来的排课
-            },
-            select: { id: true },
-          },
-          _count: {
-            select: {
-              enrollments: true,
-              schedules: true,
-            },
-          },
-        },
-      });
+          };
+        })
+      );
 
-      // 筛选需要优先安排体验课的班级：
-      // 1. 新创建的班级（创建时间在30天内）且没有排课
-      // 2. 学员数少于5人的班级
-      // 3. 没有未来排课的班级
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      // 按空位数排序（空位多的排前面）
+      classesWithCounts.sort((a, b) => b.availableSlots - a.availableSlots);
 
-      const experiencePriorityClasses = allClasses.filter((classData) => {
-        const isNewClass = classData.createdAt >= thirtyDaysAgo;
-        const hasFewStudents = classData.enrollments.length < 5;
-        const hasNoFutureSchedules = classData.schedules.length === 0;
+      sendSuccess(res, classesWithCounts);
+    } catch (error) {
+      next(error);
+    }
+  },
 
-        return (isNewClass && hasNoFutureSchedules) || hasFewStudents || hasNoFutureSchedules;
-      });
+  // 获取班级学员列表
+  getClassStudents: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      sendSuccess(res, experiencePriorityClasses);
+      // 先验证班级存在且有权限
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (!classData) {
+        return next(new ApiError('班级不存在', 404, 'CLASS_NOT_FOUND'));
+      }
+
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && classData.organizationId !== currentUser?.organizationId) {
+        return next(new ApiError('无权访问', 403, 'FORBIDDEN'));
+      }
+
+      // 获取班级的报名记录，包含学员信息
+      const { data: enrollments, error } = await memfireAdmin
+        .from('enrollments')
+        .select(`
+          id,
+          status,
+          enrolledAt,
+          notes,
+          student:students (
+            id,
+            name,
+            gender,
+            phone,
+            parentPhone,
+            parentName,
+            status
+          )
+        `)
+        .eq('classId', id)
+        .eq('status', 'active');
+
+      if (error) {
+        return next(new ApiError('获取班级学员失败', 500, 'QUERY_ERROR'));
+      }
+
+      // 格式化返回数据
+      const students = (enrollments || []).map((e: any) => ({
+        ...e.student,
+        enrollmentId: e.id,
+        enrollmentStatus: e.status,
+        enrollmentDate: e.enrolledAt,
+        enrollmentNotes: e.notes,
+      }));
+
+      sendSuccess(res, students);
     } catch (error) {
       next(error);
     }
   },
 };
-

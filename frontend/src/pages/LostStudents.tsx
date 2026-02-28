@@ -1,8 +1,9 @@
 import { Card, Table, Input, Space, Tag, message, Select, DatePicker, Button, Modal, Form } from 'antd';
 import { SearchOutlined, PlusOutlined, FilterOutlined, UserOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
-import { memfireDB } from '../services/memfireDB';
-import { useAuthStore } from '../store/authStore';
+import api from '../services/api';
+import { dataService } from '../services/dataService';
+import { getDataScopeFilter } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 interface StaffUser {
@@ -26,7 +27,6 @@ const LostStudents = () => {
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [teacherList, setTeacherList] = useState<StaffUser[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<string | null>(null);
-  const { user } = useAuthStore();
 
   useEffect(() => {
     fetchLostStudents();
@@ -39,31 +39,42 @@ const LostStudents = () => {
   const fetchLostStudents = async () => {
     setLoading(true);
     try {
-      const response = await memfireDB.lostStudents.list({
+      const params: any = {
         page: pagination.current,
         pageSize: pagination.pageSize,
-        keyword: searchText || undefined,
-        teacherId: selectedTeacher || undefined,
-      });
-      
+        search: searchText || undefined,
+        status: 'lost',
+      };
+
+      // 应用角色过滤：coach 角色只看自己的流失学员
+      const filter = getDataScopeFilter('students');
+      Object.assign(params, filter);
+
+      // 如果有手动选择的教练筛选（admin/manager 使用）
+      if (selectedTeacher) {
+        params.teacherId = selectedTeacher;
+      }
+
+      const response = await api.get('/students', { params });
+
       // 解析notes中的删除原因和召回时间
-      let processedData = response.data.map((student: any) => {
+      let processedData = (response.data || []).map((student: any) => {
         const notes = student.notes || '';
         let deleteReason = '';
         let expectedRecallDate = null;
-        
+
         // 解析删除原因
         const reasonMatch = notes.match(/删除原因:([^,]*)/);
         if (reasonMatch) {
           deleteReason = reasonMatch[1];
         }
-        
+
         // 解析预计召回时间
         const dateMatch = notes.match(/预计召回时间:([^,]*)/);
         if (dateMatch) {
           expectedRecallDate = dateMatch[1];
         }
-        
+
         return {
           ...student,
           deleteReason,
@@ -82,11 +93,11 @@ const LostStudents = () => {
           return recallDate.isBefore(dayjs().add(7, 'day'));
         });
       }
-      
+
       setData(processedData);
       setPagination({
         ...pagination,
-        total: response.pagination.total,
+        total: response.pagination?.total || 0,
       });
     } catch (error: any) {
       console.error('获取流失学员失败:', error);
@@ -98,8 +109,7 @@ const LostStudents = () => {
 
   const handleDeleteReasonChange = async (studentId: string, deleteReason: string) => {
     try {
-      const updateData: any = { deleteReason };
-      await memfireDB.lostStudents.updateLostInfo(studentId, updateData);
+      await api.put(`/students/${studentId}`, { deleteReason });
       message.success('更新成功');
       fetchLostStudents();
     } catch (error: any) {
@@ -109,7 +119,7 @@ const LostStudents = () => {
 
   const handleRecallDateChange = async (studentId: string, date: dayjs.Dayjs | null) => {
     try {
-      await memfireDB.lostStudents.updateLostInfo(studentId, {
+      await api.put(`/students/${studentId}`, {
         expectedRecallDate: date ? date.format('YYYY-MM-DD') : null,
       });
       message.success('更新成功');
@@ -125,7 +135,7 @@ const LostStudents = () => {
       content: '确定要将该学员召回吗？召回后学员状态将变为活跃。',
       onOk: async () => {
         try {
-          await memfireDB.lostStudents.recall(studentId);
+          await api.put(`/students/${studentId}`, { status: 'active' });
           message.success('召回成功');
           fetchLostStudents();
         } catch (error: any) {
@@ -138,10 +148,12 @@ const LostStudents = () => {
   // 获取活跃学员列表
   const fetchActiveStudents = async () => {
     try {
-      const response = await memfireDB.students.list({ pageSize: 1000 });
-      // 只获取活跃状态的学员
-      const active = (response.data || []).filter((s: any) => s.status === 'active');
-      setActiveStudents(active);
+      const params: any = { pageSize: 1000, status: 'active' };
+      // 应用角色过滤：coach 角色只看自己的学员
+      const filter = getDataScopeFilter('students');
+      Object.assign(params, filter);
+      const response = await api.get('/students', { params });
+      setActiveStudents(response.data || []);
     } catch (error: any) {
       console.error('获取活跃学员失败:', error);
     }
@@ -162,8 +174,8 @@ const LostStudents = () => {
 
   const fetchTeacherList = async () => {
     try {
-      const users = await memfireDB.users.listTeachers();
-      setTeacherList(users || []);
+      const data = await dataService.getTeachers();
+      setTeacherList(data);
     } catch (error: any) {
       console.error('获取教练列表失败:', error);
     }
@@ -181,13 +193,13 @@ const LostStudents = () => {
         return;
       }
 
-      await memfireDB.lostStudents.markAsLost({
-        studentId: values.studentId,
+      await api.put(`/students/${values.studentId}`, {
+        status: 'lost',
         deleteReason: values.deleteReason,
         expectedRecallDate: values.expectedRecallDate?.format('YYYY-MM-DD'),
       });
-      
-      message.success('已将学员标记为流失，并从班级中移除');
+
+      message.success('已将学员标记为流失');
       setModalVisible(false);
       form.resetFields();
       setSelectedStudent(null);

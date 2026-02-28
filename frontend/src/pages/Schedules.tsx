@@ -15,7 +15,7 @@ const Schedules = () => {
     setLoading(true);
     try {
       const response = await api.get('/schedules');
-      setSchedules(response.data.data || []);
+      setSchedules(response.data || []);
     } catch (error) {
       message.error('获取排课列表失败');
     } finally {

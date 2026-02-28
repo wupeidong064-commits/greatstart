@@ -27,8 +27,8 @@ function getMemfireAdmin() {
 
 // 导出一个 getter，延迟初始化
 export const memfireAdmin = new Proxy({} as any, {
-  get(target, prop) {
+  get(_target, prop) {
     const client = getMemfireAdmin();
-    return client[prop];
+    return (client as any)[prop];
   },
 });

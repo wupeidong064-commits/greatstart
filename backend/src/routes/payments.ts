@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { authenticateMemFire } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { requireOrganizationAccess } from '../middleware/rbac';
 import { paymentController } from '../controllers/paymentController';
 
 export const paymentRoutes = Router();
 
-paymentRoutes.use(authenticateMemFire);
+paymentRoutes.use(authenticate);
 paymentRoutes.use(requireOrganizationAccess());
 
 paymentRoutes.get('/', paymentController.getPayments);

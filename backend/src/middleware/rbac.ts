@@ -23,14 +23,14 @@ export const normalizeRole = (role: string): Role => {
 };
 
 export const requireRole = (...allowedRoles: Role[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
     // 支持 req.user（旧认证）和 req.memfireUser（MemFire 认证）
     const user = req.user || req.memfireUser;
     if (!user) {
       return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
     }
 
-    const normalizedRole = normalizeRole(user.role);
+    const normalizedRole = normalizeRole(user.role || '');
     if (!allowedRoles.includes(normalizedRole)) {
       return next(
         new ApiError('权限不足', 403, 'FORBIDDEN')
@@ -42,14 +42,14 @@ export const requireRole = (...allowedRoles: Role[]) => {
 };
 
 export const requireMinRole = (minRole: Role) => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
     // 支持 req.user（旧认证）和 req.memfireUser（MemFire 认证）
     const user = req.user || req.memfireUser;
     if (!user) {
       return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
     }
 
-    const normalizedRole = normalizeRole(user.role);
+    const normalizedRole = normalizeRole(user.role || '');
     const userRoleLevel = roleHierarchy[normalizedRole] || 0;
     const minRoleLevel = roleHierarchy[minRole];
 
@@ -63,14 +63,14 @@ export const requireMinRole = (minRole: Role) => {
 
 // 数据隔离中间件：确保用户只能访问自己机构/校区的数据
 export const requireOrganizationAccess = () => {
-  return async (req: AuthRequest, res: Response, next: NextFunction) => {
+  return async (req: AuthRequest, _res: Response, next: NextFunction) => {
     // 支持 req.user（旧认证）和 req.memfireUser（MemFire 认证）
     const user = req.user || req.memfireUser;
     if (!user) {
       return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
     }
 
-    const normalizedRole = normalizeRole(user.role);
+    const normalizedRole = normalizeRole(user.role || '');
 
     // 所有 admin 角色可以访问所有数据
     if (normalizedRole === 'admin') {

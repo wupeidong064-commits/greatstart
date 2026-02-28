@@ -148,15 +148,19 @@ export const getDataScopeFilter = (pageType: PageType): DataScopeFilter => {
   if (normalizedRole === 'sales') {
     // 销售相关（鱼池、体验课、成单信息）- 按销售ID过滤
     if (['sales', 'leads', 'experiences'].includes(pageType)) {
-      return { 
+      return {
         salesId: user.id,
         assigneeId: user.id
       };
     }
-    
+
     // 班级、学员、排课、出勤相关 - 查看权限，无操作权限
+    // 如果有 campusId 则按校区过滤，否则不过滤（查看所有）
     if (['classes', 'students', 'schedules', 'attendances'].includes(pageType)) {
-      return { campusId: user.campusId };
+      if (user.campusId) {
+        return { campusId: user.campusId };
+      }
+      return {}; // 无校区则不限制
     }
   }
   
@@ -232,13 +236,13 @@ export const getUserMenuPermissions = () => {
     };
   }
 
-  // 销售 - 可以查看所有表格，但只有查看权限，无法操作
+  // 销售 - 可以查看班级、销售数据和报表，但不能查看学员管理
   if (normalizedRole === 'sales') {
     return {
       canViewOrganizations: false,
       canViewUsers: false,
       canViewAllClasses: true,  // 可以查看所有班级信息
-      canViewAllStudents: true,  // 可以查看所有学员列表
+      canViewAllStudents: false,  // 不查看学员管理界面
       canViewSalesData: true,  // 可以看销售数据
       canViewReports: true,  // 可以查看报表
       canViewSettings: false,

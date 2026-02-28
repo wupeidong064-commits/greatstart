@@ -18,7 +18,7 @@ import {
   RiseOutlined,
   DownloadOutlined,
 } from '@ant-design/icons';
-import { memfireDB } from '../services/memfireDB';
+import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
@@ -71,13 +71,37 @@ const ConsumptionAndRevenue = () => {
     totalNewAdded: 0,
     netChange: 0,
   });
+  const [lostStudents, setLostStudents] = useState<any[]>([]);
   const [showDecreasedOnly, setShowDecreasedOnly] = useState(false);
+  const [lostStudentsModalVisible, setLostStudentsModalVisible] = useState(false);
 
   useEffect(() => {
     fetchStatistics();
     fetchClassChanges();
     fetchMaxClasses();
   }, [dateRange]);
+
+  // 当 maxClasses 或 statistics.classCount 变化时重新计算场地使用率
+  useEffect(() => {
+    const classCount = statistics.classCount;
+    console.log('📊 场地使用率计算:', { maxClasses, classCount });
+    if (maxClasses > 0 && classCount > 0) {
+      const rate = Math.round((classCount / maxClasses) * 100 * 10) / 10;
+      console.log('✅ 计算结果:', rate + '%');
+      // 使用 setTimeout 确保在 fetchStatistics 的 setStatistics 之后执行
+      setTimeout(() => {
+        setStatistics(prev => {
+          // 只有当前值与计算值不同时才更新
+          if (prev.venueUtilizationRate !== rate) {
+            return { ...prev, venueUtilizationRate: rate };
+          }
+          return prev;
+        });
+      }, 0);
+    } else {
+      console.log('⚠️ 条件不满足，设为 0');
+    }
+  }, [maxClasses, statistics.classCount]);
 
   const fetchStatistics = async () => {
     setLoading(true);
@@ -87,9 +111,14 @@ const ConsumptionAndRevenue = () => {
         params.startDate = dateRange[0].startOf('day').toISOString();
         params.endDate = dateRange[1].endOf('day').toISOString();
       }
-      
-      const stats = await memfireDB.consumption.getStatistics(params);
-      setStatistics(stats);
+
+      const response = await api.get('/consumption/statistics', { params });
+      const stats = response.data || {};
+      // 场地使用率由 useEffect 根据 maxClasses 和 classCount 计算，这里不设置
+      setStatistics(prev => ({
+        ...stats,
+        venueUtilizationRate: prev.venueUtilizationRate, // 保留之前计算的值
+      }));
     } catch (error: any) {
       console.error('获取统计数据失败:', error);
       message.error(error.message || '获取统计数据失败');
@@ -106,12 +135,26 @@ const ConsumptionAndRevenue = () => {
         params.startDate = dateRange[0].startOf('day').toISOString();
         params.endDate = dateRange[1].endOf('day').toISOString();
       }
-      
-      const result = await memfireDB.consumption.getClassStudentChanges(params);
-      setClassChanges(result.classes);
-      setClassChangeStats(result.stats);
+
+      console.log('[班级学员变化] 请求参数:', params);
+      const response = await api.get('/consumption/class-student-changes', { params });
+      console.log('[班级学员变化] API响应:', response);
+      // axios拦截器返回response.data，后端sendSuccess包装在data字段中
+      const result = response?.data || response || {};
+      console.log('[班级学员变化] 班级数量:', result.classes?.length);
+      setClassChanges(result.classes || []);
+      setClassChangeStats(result.stats || {
+        totalClasses: 0,
+        decreasedClasses: 0,
+        increasedClasses: 0,
+        unchangedClasses: 0,
+        totalLost: 0,
+        totalNewAdded: 0,
+        netChange: 0,
+      });
+      setLostStudents(result.lostStudents || []);
     } catch (error: any) {
-      console.error('获取班级人数变化失败:', error?.message || error);
+      console.error('[班级学员变化] 获取失败:', error?.message || error);
       // 如果出错，设置默认值
       setClassChanges([]);
       setClassChangeStats({
@@ -123,6 +166,7 @@ const ConsumptionAndRevenue = () => {
         totalNewAdded: 0,
         netChange: 0,
       });
+      setLostStudents([]);
     } finally {
       setClassChangesLoading(false);
     }
@@ -132,10 +176,15 @@ const ConsumptionAndRevenue = () => {
   const fetchMaxClasses = async () => {
     try {
       console.log('🔍 正在获取最大开班数配置...');
-      const config = await memfireDB.settings.get('maxClasses');
-      console.log('✅ 获取到配置:', config);
+      const response = await api.get('/settings/maxClasses');
+      console.log('✅ 获取到响应:', response);
+      // response 已经是 {success, data} 格式（axios 拦截器返回 response.data）
+      const config = response.data || response;
+      console.log('📦 config:', config);
       if (config && config.value) {
-        setMaxClasses(Number(config.value));
+        const value = Number(config.value);
+        console.log('🎯 设置 maxClasses:', value);
+        setMaxClasses(value);
       } else {
         console.log('⚠️ 未找到配置，使用默认值 0');
         setMaxClasses(0);
@@ -157,7 +206,7 @@ const ConsumptionAndRevenue = () => {
   const handleSaveMaxClasses = async (values: any) => {
     try {
       console.log('💾 正在保存最大开班数:', values.maxClasses);
-      await memfireDB.settings.set('maxClasses', values.maxClasses.toString());
+      await api.put('/settings/maxClasses', { value: values.maxClasses.toString() });
       console.log('✅ 保存成功');
       setMaxClasses(values.maxClasses);
       message.success('最大开班数设置成功');
@@ -258,14 +307,14 @@ const ConsumptionAndRevenue = () => {
         <Space>
           <RangePicker
             value={dateRange}
-            onChange={handleDateRangeChange}
+            onChange={(dates) => handleDateRangeChange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
             format="YYYY-MM-DD"
             allowClear
             presets={[
               { label: '本周', value: [dayjs().startOf('week'), dayjs().endOf('week')] },
               { label: '本月', value: [dayjs().startOf('month'), dayjs().endOf('month')] },
               { label: '上月', value: [dayjs().subtract(1, 'month').startOf('month'), dayjs().subtract(1, 'month').endOf('month')] },
-              { label: '本季度', value: [dayjs().startOf('quarter'), dayjs().endOf('quarter')] },
+              { label: '本季度', value: [dayjs().startOf('quarter' as any), dayjs().endOf('quarter' as any)] },
             ]}
           />
         </Space>

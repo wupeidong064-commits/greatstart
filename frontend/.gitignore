@@ -10,7 +10,15 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
-*.local
+
+# Environment variables - 重要：防止敏感信息泄露
+.env
+.env.local
+.env.*.local
+
+# 但保留模板文件
+!.env.example
+!.env.template
 
 # Editor directories and files
 .vscode/*
@@ -22,4 +30,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Test coverage
+coverage/
+
+# E2E test results
+playwright-report/
+test-results/
+blob-report/
 

@@ -42,7 +42,7 @@ const Register = () => {
       <Card
         title="注册账号"
         style={{ width: 420 }}
-        headStyle={{ textAlign: 'center', fontSize: '24px', fontWeight: 'bold' }}
+        styles={{ header: { textAlign: 'center', fontSize: '24px', fontWeight: 'bold' } }}
       >
         <Form name="register" onFinish={onFinish} autoComplete="off" size="large" layout="vertical">
           <Form.Item

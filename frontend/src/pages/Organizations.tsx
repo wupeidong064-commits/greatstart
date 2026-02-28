@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, message, Modal, Form, Input, Popconfirm, Space, DatePicker, Select } from 'antd';
+import { Table, Button, message, Modal, Form, Input, Popconfirm, Space, DatePicker } from 'antd';
 import { PlusOutlined, DeleteOutlined, UserAddOutlined, BankOutlined } from '@ant-design/icons';
-import { memfireDB } from '../services/memfireDB';
+import api from '../services/api';
 import { memfireAuth } from '../services/memfireAuth';
 import dayjs from 'dayjs';
-
-const { Option } = Select;
 
 interface Organization {
   id: string;
@@ -44,12 +42,16 @@ const Organizations = () => {
   const fetchOrganizations = async () => {
     setLoading(true);
     try {
-      const result = await memfireDB.organizations.list({
-        page: pagination.current,
-        pageSize: pagination.pageSize,
+      const response = await api.get('/organizations', {
+        params: {
+          page: pagination.current,
+          pageSize: pagination.pageSize,
+        }
       });
-      setOrganizations(result.data);
-      setPagination(prev => ({ ...prev, total: result.total }));
+      // api 拦截器已经返回 response.data，所以 response 就是 { success, data, pagination }
+      const result = response || {};
+      setOrganizations(result.data || []);
+      setPagination(prev => ({ ...prev, total: result.pagination?.total || 0 }));
     } catch (error: any) {
       message.error(error.message || '获取机构列表失败');
     } finally {
@@ -62,7 +64,7 @@ const Organizations = () => {
       const values = await form.validateFields();
       setSubmitting(true);
 
-      await memfireDB.organizations.create({
+      await api.post('/organizations', {
         name: values.name,
         code: values.code,
         address: values.address,
@@ -88,7 +90,7 @@ const Organizations = () => {
 
   const handleDeleteOrganization = async (id: string) => {
     try {
-      await memfireDB.organizations.delete(id);
+      await api.delete(`/organizations/${id}`);
       message.success('机构删除成功');
       fetchOrganizations();
     } catch (error: any) {
@@ -151,8 +153,11 @@ const Organizations = () => {
   const fetchCampuses = async (orgId: string) => {
     setCampusLoading(true);
     try {
-      const result = await memfireDB.campuses.list({ organizationId: orgId });
-      setCampuses(result.data);
+      const response = await api.get('/campuses', {
+        params: { organizationId: orgId }
+      });
+      const result = response || {};
+      setCampuses(result.data || []);
     } catch (error: any) {
       message.error(error.message || '获取校区列表失败');
     } finally {
@@ -166,7 +171,7 @@ const Organizations = () => {
       const values = await campusForm.validateFields();
       setCampusSubmitting(true);
 
-      await memfireDB.campuses.create({
+      await api.post('/campuses', {
         organizationId: selectedOrg!.id,
         name: values.name,
         code: values.code,
@@ -190,7 +195,7 @@ const Organizations = () => {
   // 删除校区
   const handleDeleteCampus = async (campusId: string) => {
     try {
-      await memfireDB.campuses.delete(campusId);
+      await api.delete(`/campuses/${campusId}`);
       message.success('校区删除成功');
       await fetchCampuses(selectedOrg!.id);
     } catch (error: any) {

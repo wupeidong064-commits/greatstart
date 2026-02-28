@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert, Checkbox, Radio } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined, UserAddOutlined, ImportOutlined } from '@ant-design/icons';
-import { memfireDB } from '../services/memfireDB';
+import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert, Checkbox } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined, UserAddOutlined, ImportOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
-import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
+import { normalizeRole } from '../utils/dataFilter';
 import api from '../services/api';
 import dayjs from 'dayjs';
+import ImportModal from '../components/ImportModal';
 
 const { Search } = Input;
 const { RangePicker } = DatePicker;
@@ -27,7 +27,6 @@ const Students = () => {
   const [classesList, setClassesList] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [currentClass, setCurrentClass] = useState<any>(null);
-  const [teachers, setTeachers] = useState<any[]>([]);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [deductLessonModalVisible, setDeductLessonModalVisible] = useState(false);
   const [deductLessonForm] = Form.useForm();
@@ -57,6 +56,9 @@ const Students = () => {
   const [conversionsList, setConversionsList] = useState<any[]>([]);
   const [importLoading, setImportLoading] = useState(false);
   const [selectedConversion, setSelectedConversion] = useState<any>(null);
+
+  // 批量导入相关状态
+  const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
 
   // 权限检查
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
@@ -88,20 +90,6 @@ const Students = () => {
     }
   }, [transferModalVisible]);
 
-  // 获取教练员列表
-  useEffect(() => {
-    fetchTeachers();
-  }, []);
-
-  const fetchTeachers = async () => {
-    try {
-      const data = await memfireDB.users.listTeachers();
-      setTeachers(data || []);
-    } catch (error: any) {
-      console.error('获取教练员列表失败:', error);
-    }
-  };
-
   const fetchStudents = async (keyword?: string) => {
     setLoading(true);
     try {
@@ -112,19 +100,20 @@ const Students = () => {
 
       // 如果有搜索关键词
       if (keyword !== undefined ? keyword : searchKeyword) {
-        params.keyword = keyword !== undefined ? keyword : searchKeyword;
+        params.search = keyword !== undefined ? keyword : searchKeyword;
       }
 
       // 如果筛选未排课学员
       if (showUnscheduledOnly) {
         params.unscheduledOnly = true;
       }
-      
-      // 应用数据过滤：teacher 角色只看自己班级的学员
-      const filter = getDataScopeFilter('students');
-      Object.assign(params, filter);
-      
-      const response = await memfireDB.students.list(params);
+
+      console.log('[DEBUG fetchStudents] 请求参数:', params);
+      // 通过后端 API 获取学员列表（绕过 RLS）
+      const response = await api.get('/students', { params });
+      console.log('[DEBUG fetchStudents] 返回数据:', response.data);
+      console.log('[DEBUG fetchStudents] 第一个学员的 enrollments:', response.data?.[0]?.enrollments);
+
       setStudents(response.data || []);
       if (response.pagination) {
         setPagination({
@@ -191,7 +180,7 @@ const Students = () => {
       content: '确定要删除该学员吗？',
       onOk: async () => {
         try {
-          await memfireDB.students.delete(id);
+          await api.delete(`/students/${id}`);
           message.success('删除成功');
           fetchStudents();
         } catch (error: any) {
@@ -205,20 +194,45 @@ const Students = () => {
   const handleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
-      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, remainingLessons, totalLessonsPurchased, courseType, phone, ...restData } = values;
+      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, remainingLessons, totalLessonsPurchased, courseType, phone, refundDate, refundReason, ...restData } = values;
 
       // 处理出生日期格式
       const studentData = {
         ...restData,
         phone: phone || restData.contact, // 兼容成单信息导入
         birthDate: birthDate ? birthDate.format('YYYY-MM-DD') : null,
-        remainingLessons: remainingLessons || 0,
-        totalLessonsPurchased: totalLessonsPurchased || remainingLessons || 0,
+        // 编辑时：如果没有填写课时，保持原值；新增时：默认为0
+        remainingLessons: editingStudent
+          ? (remainingLessons !== undefined && remainingLessons !== null ? remainingLessons : editingStudent.remainingLessons)
+          : (remainingLessons || 0),
       };
 
       if (editingStudent) {
-        // 更新学员信息
-        await memfireDB.students.update(editingStudent.id, studentData);
+        // 通过后端 API 更新学员信息（只传有值的字段，避免覆盖剩余课时）
+        const updateData: any = {
+          name: studentData.name,
+          gender: studentData.gender,
+          phone: studentData.phone,
+          parentName: studentData.parentName,
+          parentPhone: studentData.parentPhone,
+          birthDate: studentData.birthDate,
+          campusId: studentData.campusId,
+          status: studentData.status,
+        };
+        // 处理退费相关字段
+        if (studentData.status === 'refunded') {
+          updateData.refundReason = refundReason || null;
+          updateData.refundDate = refundDate ? (dayjs.isDayjs(refundDate) ? refundDate.format('YYYY-MM-DD') : refundDate) : dayjs().format('YYYY-MM-DD');
+        } else {
+          // 如果状态不是退费，清空退费信息
+          updateData.refundReason = null;
+          updateData.refundDate = null;
+        }
+        // 只有明确填写了课时才更新
+        if (remainingLessons !== undefined && remainingLessons !== null) {
+          updateData.remainingLessons = remainingLessons;
+        }
+        await api.put(`/students/${editingStudent.id}`, updateData);
 
         // 如果选择了班级，处理班级关联
         if (classId) {
@@ -228,10 +242,10 @@ const Students = () => {
             // 需要更新班级
             if (currentEnrollment) {
               // 先取消原有班级
-              await memfireDB.enrollments.cancel(currentEnrollment.id);
+              await api.put(`/enrollments/${currentEnrollment.id}`, { status: 'cancelled' });
             }
             // 创建新的班级关联
-            await memfireDB.enrollments.create({
+            await api.post('/enrollments', {
               studentId: editingStudent.id,
               classId: classId,
               status: 'active',
@@ -240,17 +254,18 @@ const Students = () => {
         }
         message.success('更新成功');
       } else {
-        // 创建学员时需要添加 organizationId
+        // 通过后端 API 创建学员
         const newStudentData = {
           ...studentData,
-          organizationId: user?.organizationId || 'default-org',
+          organizationId: user?.organizationId,
           status: 'active',
         };
-        const newStudent = await memfireDB.students.create(newStudentData);
+        const response = await api.post('/students', newStudentData);
+        const newStudent = response.data;
 
         // 如果选择了班级，创建班级关联
         if (classId && newStudent?.id) {
-          await memfireDB.enrollments.create({
+          await api.post('/enrollments', {
             studentId: newStudent.id,
             classId: classId,
             status: 'active',
@@ -260,15 +275,11 @@ const Students = () => {
         // 如果是从成单信息导入的，更新成单记录的 studentId
         if (selectedConversion && newStudent?.id) {
           try {
-            // 更新 conversions 表，关联学员ID
-            const { data: conversionData } = await memfireDB.conversions.list({ page: 1, pageSize: 1 });
-            // 直接更新数据库中的 conversion 记录
-            const updateData = {
+            // 通过后端 API 更新 conversions 表，关联学员ID（绕过 RLS）
+            await api.put(`/conversions/${selectedConversion.id}`, {
               studentId: newStudent.id,
               studentName: newStudent.name,
-            };
-            // 使用 memfire 直接更新
-            await memfireDB.conversions.update(selectedConversion.id, updateData);
+            });
             message.info('成单信息已关联到学员');
           } catch (error) {
             console.error('更新成单信息失败:', error);
@@ -277,16 +288,17 @@ const Students = () => {
         }
 
         // 如果选择了创建家长账号，同时创建家长账号
-        if (createParent && parentEmail && parentName && studentData.parentPhone) {
+        if (createParent && parentName && studentData.parentPhone) {
           try {
-            await api.post('/auth/create-parent', {
-              email: parentEmail,
+            const response = await api.post('/auth/create-parent', {
+              email: parentEmail || undefined,
               password: parentPassword || undefined,
               name: parentName,
               phone: studentData.parentPhone,
               studentId: newStudent.id,
             });
-            message.success('学员创建成功！家长账号也已创建，默认密码：' + (parentPassword || '123456'));
+            const defaultPassword = response.data?.defaultPassword || parentPassword || '123456';
+            message.success(`学员创建成功！家长账号已创建，密码：${defaultPassword}`);
           } catch (parentError: any) {
             console.error('创建家长账号失败:', parentError);
             message.warning('学员创建成功，但家长账号创建失败：' + (parentError.response?.data?.error?.message || parentError.message));
@@ -305,8 +317,9 @@ const Students = () => {
 
   const fetchAllStudents = async () => {
     try {
-      const data = await memfireDB.students.listAll();
-      setStudentsList(data || []);
+      // 通过后端 API 获取所有学员（绕过 RLS）
+      const response = await api.get('/students', { params: { pageSize: 1000 } });
+      setStudentsList(response.data || []);
     } catch (error: any) {
       console.error('获取学员列表失败:', error);
       message.error(error.message || '获取学员列表失败');
@@ -315,8 +328,9 @@ const Students = () => {
 
   const fetchClasses = async () => {
     try {
-      const data = await memfireDB.classes.listAll();
-      setClassesList(data || []);
+      // 通过后端 API 获取班级列表（绕过 RLS）
+      const response = await api.get('/classes', { params: { pageSize: 1000 } });
+      setClassesList(response.data || []);
     } catch (error: any) {
       console.error('获取班级列表失败:', error);
       message.error(error.message || '获取班级列表失败');
@@ -334,10 +348,13 @@ const Students = () => {
     try {
       const student = studentsList.find((s: any) => s.id === studentId);
       setSelectedStudent(student);
-      
-      // 获取学员的当前班级
-      const enrollment = await memfireDB.enrollments.getByStudentId(studentId);
-      
+
+      // 通过后端 API 获取学员的当前班级
+      const response = await api.get(`/enrollments`, {
+        params: { studentId, status: 'active' }
+      });
+      const enrollment = response.data?.[0];
+
       if (enrollment && enrollment.class) {
         setCurrentClass(enrollment.class);
         transferForm.setFieldsValue({
@@ -362,7 +379,7 @@ const Students = () => {
         message.error('请选择学员');
         return;
       }
-      
+
       if (!values.newClassId) {
         message.error('请选择新班级');
         return;
@@ -378,11 +395,12 @@ const Students = () => {
         return;
       }
 
-      await memfireDB.students.transfer(
-        selectedStudent.id,
-        currentClass.id,
-        values.newClassId
-      );
+      // 通过后端 API 调班
+      await api.post('/enrollments/transfer', {
+        studentId: selectedStudent.id,
+        fromClassId: currentClass.id,
+        toClassId: values.newClassId
+      });
 
       message.success('调班成功');
       setTransferModalVisible(false);
@@ -402,20 +420,22 @@ const Students = () => {
       message.warning('该学员剩余课时不足，无法划课');
       return;
     }
-    
+
     // 获取学员的班级信息
     try {
-      const studentDetail = await memfireDB.students.getById(student.id);
+      // 通过后端 API 获取学员详情（绕过 RLS）
+      const response = await api.get(`/students/${student.id}`);
+      const studentDetail = response.data;
       const activeEnrollments = studentDetail.enrollments?.filter((e: any) => e.status === 'active') || [];
-      
+
       if (activeEnrollments.length === 0) {
         message.warning('该学员未报名任何班级，无法划课');
         return;
       }
-      
+
       setDeductLessonStudent({ ...student, enrollments: activeEnrollments });
     deductLessonForm.resetFields();
-      deductLessonForm.setFieldsValue({ 
+      deductLessonForm.setFieldsValue({
         lessons: 1,
         attendanceStatus: 'present',
         date: dayjs(),
@@ -430,25 +450,20 @@ const Students = () => {
   const handleLessonSubmit = async (values: any) => {
     if (!deductLessonStudent) return;
     try {
-      const { user } = useAuthStore.getState();
-      const deduction = values.lessons || 0;
-      const currentRemaining = deductLessonStudent.remainingLessons || 0;
-      const actualDeduct = Math.min(deduction, currentRemaining);
-      const newRemaining = Math.max(currentRemaining - deduction, 0);
-      
-      // 获取或创建排课记录
       const classId = values.classId;
       const attendanceDate = values.date.format('YYYY-MM-DD');
       const attendanceStatus = values.attendanceStatus;
-      
+      const lessons = values.lessons || 0;
+
       // 查找当天该班级的排课
-      let schedule = await memfireDB.schedules.findByClassAndDate(classId, attendanceDate);
-      
+      const schedulesResponse = await api.get('/schedules', {
+        params: { classId, date: attendanceDate, pageSize: 1 }
+      });
+      let schedule = schedulesResponse.data?.[0];
+
       // 如果没有排课记录，创建一个临时排课（用于手动划课）
       if (!schedule) {
-        const classInfo = deductLessonStudent.enrollments?.find((e: any) => e.classId === classId)?.class;
-        schedule = await memfireDB.schedules.create({
-          organizationId: user?.organizationId || classInfo?.organizationId,
+        const newScheduleRes = await api.post('/schedules', {
           classId,
           startTime: `${attendanceDate}T00:00:00+08:00`,
           endTime: `${attendanceDate}T23:59:59+08:00`,
@@ -456,33 +471,21 @@ const Students = () => {
           isRecurring: false,
           classroom: '手动划课',
         });
+        schedule = newScheduleRes.data;
       }
-      
-      // 创建考勤记录
-      await memfireDB.attendances.create({
-        organizationId: user?.organizationId,
-        classId,
-        scheduleId: schedule.id,
+
+      // 通过后端 API 进行划课（绕过 RLS）
+      const response = await api.post('/lesson-logs/deduct', {
         studentId: deductLessonStudent.id,
-        status: attendanceStatus,
+        lessons,
+        classId,
+        scheduleId: schedule?.id,
+        attendanceStatus,
         notes: values.notes || '手动划课',
       });
-      
-      // 扣减课时
-      await memfireDB.students.update(deductLessonStudent.id, {
-        remainingLessons: newRemaining,
-      });
-      
-      // 记录课时日志
-      await memfireDB.lessonLogs.create({
-        studentId: deductLessonStudent.id,
-        studentName: deductLessonStudent.name,
-        type: 'deduct',
-        lessons: actualDeduct,
-        notes: `${attendanceStatus === 'present' ? '出勤' : attendanceStatus === 'absent' ? '缺勤' : '请假'} - ${values.notes || ''}`,
-      });
 
-      message.success(`${deductLessonStudent.name} 划课成功：${actualDeduct} 节，剩余 ${newRemaining} 节`);
+      const result = response.data;
+      message.success(`${deductLessonStudent.name} 划课成功：${result.deducted} 节，剩余 ${result.currentRemaining} 节`);
       setDeductLessonModalVisible(false);
       setDeductLessonStudent(null);
       fetchStudents();
@@ -507,20 +510,16 @@ const Students = () => {
         message.warning('请输入大于 0 的增课节数');
         return;
       }
-      const currentRemaining = addLessonStudent.remainingLessons || 0;
-      const newRemaining = currentRemaining + addition;
-      await memfireDB.students.update(addLessonStudent.id, {
-        remainingLessons: newRemaining,
-      });
-      await memfireDB.lessonLogs.create({
+
+      // 通过后端 API 增课（绕过 RLS）
+      const response = await api.post('/lesson-logs/add', {
         studentId: addLessonStudent.id,
-        studentName: addLessonStudent.name,
-        type: 'add',
         lessons: addition,
         notes: values.notes || '后台增课',
       });
 
-      message.success(`${addLessonStudent.name} 增课 ${addition} 节，剩余 ${newRemaining} 节`);
+      const result = response.data;
+      message.success(`${addLessonStudent.name} 增课 ${addition} 节，剩余 ${result.currentRemaining} 节`);
       setAddLessonModalVisible(false);
       setAddLessonStudent(null);
       fetchStudents();
@@ -533,12 +532,6 @@ const Students = () => {
   const fetchLessonLogs = async (page = 1, pageSize = logPagination.pageSize, filters?: { type?: string }) => {
     setLogLoading(true);
     try {
-      const userOrgId = user?.organizationId;
-      if (!userOrgId) {
-        message.error('无法获取机构ID');
-        return;
-      }
-
       // 使用传入的filters或state中的logFilters
       const currentFilters = filters !== undefined ? filters : logFilters;
 
@@ -548,14 +541,17 @@ const Students = () => {
 
       console.log('📋 查询参数:', { page, pageSize, startDate, endDate, filters: currentFilters });
 
-      // 1. 查询考勤记录（划课记录）
+      // 1. 查询考勤记录（划课记录）- 通过后端 API
       const attendanceRecords: any[] = [];
       if (!currentFilters.type || currentFilters.type === 'deduct') {
         try {
-          console.log('🔍 开始查询考勤记录:', { startDate, endDate, userOrgId });
-          const attendancesResult = await memfireDB.attendances.getByDateRange(startDate, endDate, userOrgId);
+          console.log('🔍 开始查询考勤记录:', { startDate, endDate });
+          const attendancesResponse = await api.get('/attendances', {
+            params: { startDate, endDate, pageSize: 1000 }
+          });
+          const attendancesResult = attendancesResponse.data || [];
           console.log('✅ 查询到考勤记录:', attendancesResult.length);
-          
+
           attendancesResult.forEach((att: any) => {
             attendanceRecords.push({
               id: `att-${att.id}`,
@@ -577,31 +573,31 @@ const Students = () => {
         }
       }
 
-      // 2. 查询课时变动记录（包括增课和手动划课）
+      // 2. 查询课时变动记录（包括增课和手动划课）- 通过后端 API
       const lessonLogRecords: any[] = [];
       // 根据筛选条件查询不同类型的记录
       if (!currentFilters.type || currentFilters.type === 'add' || currentFilters.type === 'deduct') {
         try {
-          const params: any = { 
-            page: 1, 
+          const params: any = {
+            page: 1,
             pageSize: 1000,
           };
-          
+
           // 只有明确筛选时才传入type参数
           if (currentFilters.type) {
             params.type = currentFilters.type;
           }
-          
+
           if (logDateRange?.[0]) {
             params.startDate = startDate;
           }
           if (logDateRange?.[1]) {
             params.endDate = endDate;
           }
-          
+
           console.log('🔍 开始查询课时变动记录:', params);
-          const lessonLogsResult = await memfireDB.lessonLogs.list(params);
-          lessonLogRecords.push(...(lessonLogsResult.data || []));
+          const lessonLogsResponse = await api.get('/lesson-logs', { params });
+          lessonLogRecords.push(...(lessonLogsResponse.data || []));
           console.log('✅ 查询到课时变动记录:', lessonLogRecords.length);
         } catch (err) {
           console.error('❌ 查询课时变动记录失败:', err);
@@ -624,13 +620,13 @@ const Students = () => {
       const endIndex = startIndex + pageSize;
       const paginatedData = allRecords.slice(startIndex, endIndex);
 
-      console.log('📄 分页信息:', { 
-        total, 
-        page, 
-        pageSize, 
-        startIndex, 
-        endIndex, 
-        paginatedDataLength: paginatedData.length 
+      console.log('📄 分页信息:', {
+        total,
+        page,
+        pageSize,
+        startIndex,
+        endIndex,
+        paginatedDataLength: paginatedData.length
       });
 
       setLessonLogs(paginatedData);
@@ -671,23 +667,19 @@ const Students = () => {
   const handleExportLogs = async () => {
     try {
       message.loading('正在导出数据...', 0);
-      
-      const userOrgId = user?.organizationId;
-      if (!userOrgId) {
-        message.destroy();
-        message.error('无法获取机构ID');
-        return;
-      }
 
       // 构建日期范围
       const startDate = logDateRange?.[0]?.format('YYYY-MM-DD') || '2020-01-01';
       const endDate = logDateRange?.[1]?.format('YYYY-MM-DD') || dayjs().add(1, 'year').format('YYYY-MM-DD');
 
-      // 1. 查询所有考勤记录（不分页）
+      // 1. 查询所有考勤记录（不分页）- 通过后端 API
       const allAttendanceRecords: any[] = [];
       if (!logFilters.type || logFilters.type === 'deduct') {
         try {
-          const attendancesResult = await memfireDB.attendances.getByDateRange(startDate, endDate, userOrgId);
+          const attendancesResponse = await api.get('/attendances', {
+            params: { startDate, endDate, pageSize: 10000 }
+          });
+          const attendancesResult = attendancesResponse.data || [];
           attendancesResult.forEach((att: any) => {
             allAttendanceRecords.push({
               id: `att-${att.id}`,
@@ -708,29 +700,29 @@ const Students = () => {
         }
       }
 
-      // 2. 查询所有课时变动记录（不分页，包括增课和手动划课）
+      // 2. 查询所有课时变动记录（不分页，包括增课和手动划课）- 通过后端 API
       const allLessonLogRecords: any[] = [];
       if (!logFilters.type || logFilters.type === 'add' || logFilters.type === 'deduct') {
         try {
-          const params: any = { 
-            page: 1, 
+          const params: any = {
+            page: 1,
             pageSize: 10000,
           };
-          
+
           // 只有明确筛选时才传入type参数
           if (logFilters.type) {
             params.type = logFilters.type;
           }
-          
+
           if (logDateRange?.[0]) {
             params.startDate = startDate;
           }
           if (logDateRange?.[1]) {
             params.endDate = endDate;
           }
-          
-          const lessonLogsResult = await memfireDB.lessonLogs.list(params);
-          allLessonLogRecords.push(...(lessonLogsResult.data || []));
+
+          const lessonLogsResponse = await api.get('/lesson-logs', { params });
+          allLessonLogRecords.push(...(lessonLogsResponse.data || []));
         } catch (err) {
           console.error('❌ 导出时查询课时变动记录失败:', err);
         }
@@ -757,7 +749,7 @@ const Students = () => {
           const status = log.type === 'add' ? '-' : (log.status === 'present' ? '出勤' : '缺勤');
           const notes = log.type === 'deduct' ? '-' : (log.notes || '-');
           const time = log.createdAt ? dayjs(log.createdAt).format('YYYY-MM-DD HH:mm') : '-';
-          
+
           return [
             log.studentName || '-',
             type,
@@ -776,14 +768,14 @@ const Students = () => {
       const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
-      
+
       link.setAttribute('href', url);
       link.setAttribute('download', `划课记录_${dayjs().format('YYYY-MM-DD_HHmmss')}.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       message.destroy();
       message.success(`成功导出 ${allRecords.length} 条记录`);
     } catch (error: any) {
@@ -804,14 +796,11 @@ const Students = () => {
     setImportModalVisible(true);
     setImportLoading(true);
     try {
-      // 获取未关联学员的成单信息
-      const result = await memfireDB.conversions.list({
-        page: 1,
-        pageSize: 100,
+      // 通过后端 API 获取未关联学员的成单信息（绕过 RLS）
+      const response = await api.get('/conversions', {
+        params: { unlinkedOnly: true, pageSize: 100 }
       });
-      // 过滤出还没有学员ID的成单记录
-      const unlinkedConversions = (result.data || []).filter((c: any) => !c.studentId);
-      setConversionsList(unlinkedConversions);
+      setConversionsList(response.data || []);
     } catch (error: any) {
       console.error('获取成单信息失败:', error);
       message.error('获取成单信息失败');
@@ -833,7 +822,7 @@ const Students = () => {
         address: conversion.address,
         // 课时信息
         remainingLessons: conversion.totalLessons || 0,
-        totalLessonsPurchased: conversion.totalLessons || 0,
+        // totalLessonsPurchased 从 conversions 表计算，不存储在 students 表
         courseType: conversion.courseType,
       });
       // 关闭导入 Modal，打开新增学员 Modal
@@ -863,15 +852,16 @@ const Students = () => {
       const { email, password, name, parentPhone } = values;
 
       // 调用创建家长账号API
-      await api.post('/auth/create-parent', {
-        email,
-        password,
+      const response = await api.post('/auth/create-parent', {
+        email: email || undefined,
+        password: password || undefined,
         name,
         phone: parentPhone,
         studentId: parentAccountStudent.id,
       });
 
-      message.success('家长账号创建成功！默认密码：' + (password || '123456'));
+      const defaultPassword = response.data?.defaultPassword || password || '123456';
+      message.success(`家长账号创建成功！密码：${defaultPassword}`);
       setParentAccountModalVisible(false);
       parentAccountForm.resetFields();
       setParentAccountStudent(null);
@@ -886,15 +876,14 @@ const Students = () => {
   const handleExportAllStudents = async () => {
     try {
       message.loading('正在导出全部学员数据...', 0);
-      
-      // 获取所有学员数据（包含班级和教练信息）
-      const response = await memfireDB.students.list({
-        page: 1,
-        pageSize: 10000, // 获取大量数据
+
+      // 通过后端 API 获取所有学员数据（绕过 RLS）
+      const response = await api.get('/students', {
+        params: { pageSize: 10000 }
       });
-      
+
       const allStudents = response.data || [];
-      
+
       if (allStudents.length === 0) {
         message.destroy();
         message.warning('没有学员数据可导出');
@@ -912,15 +901,15 @@ const Students = () => {
             .map((e: any) => e.class?.name || e.class?.code || '')
             .filter((name: string) => name)
             .join('、') || '-';
-          
+
           const teacherNames = activeEnrollments
             .map((e: any) => e.class?.teacher?.name || '')
             .filter((name: string) => name)
             .join('、') || '-';
-          
+
           const gender = student.gender === 'M' ? '男' : student.gender === 'F' ? '女' : '-';
           const status = student.status === 'active' ? '活跃' : student.status === 'inactive' ? '非活跃' : student.status === 'graduated' ? '已毕业' : '-';
-          
+
           return [
             `"${student.name || '-'}"`,
             gender,
@@ -941,16 +930,16 @@ const Students = () => {
       const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
-      
+
       const dateStr = dayjs().format('YYYYMMDD_HHmmss');
-      
+
       link.setAttribute('href', url);
       link.setAttribute('download', `全部学员_${dateStr}.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       message.destroy();
       message.success(`成功导出 ${allStudents.length} 位学员的数据`);
     } catch (error: any) {
@@ -1044,8 +1033,10 @@ const Students = () => {
           active: 'green',
           inactive: 'red',
           graduated: 'blue',
+          refunded: 'orange',
         };
-        return <Tag color={colorMap[status]}>{status === 'active' ? '活跃' : status === 'inactive' ? '非活跃' : '已毕业'}</Tag>;
+        const statusText = status === 'active' ? '活跃' : status === 'inactive' ? '非活跃' : status === 'graduated' ? '已毕业' : status === 'refunded' ? '退费' : '-';
+        return <Tag color={colorMap[status]}>{statusText}</Tag>;
       },
     },
     {
@@ -1053,9 +1044,11 @@ const Students = () => {
       key: 'action',
       render: (_: any, record: any) => (
         <Space wrap>
-          <Button type="link" icon={<PlusCircleOutlined />} onClick={() => handleAddLessons(record)}>
-            增课
-          </Button>
+          {canManageStudents && (
+            <Button type="link" icon={<PlusCircleOutlined />} onClick={() => handleAddLessons(record)}>
+              增课
+            </Button>
+          )}
           <Button type="link" icon={<MinusCircleOutlined />} onClick={() => handleDeductLessons(record)}>
             划课
           </Button>
@@ -1182,6 +1175,11 @@ const Students = () => {
           {canManageStudents && (
             <Button type="default" icon={<ImportOutlined />} onClick={handleOpenImportModal}>
               从成单信息导入
+            </Button>
+          )}
+          {canManageStudents && (
+            <Button icon={<FileExcelOutlined />} onClick={() => setBatchImportModalVisible(true)}>
+              批量导入
             </Button>
           )}
           {canManageStudents && (
@@ -1476,38 +1474,22 @@ const Students = () => {
                 💰 课时登记
               </div>
               <div style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>
-                登记学员购买的课程信息
+                新报名或续费时，填入新增课时数
               </div>
 
-              <Input.Group compact style={{ display: 'flex', gap: 12 }}>
-                <Form.Item
-                  name="remainingLessons"
-                  label="剩余课时"
-                  style={{ flex: 1, marginBottom: 0 }}
-                  initialValue={0}
-                >
-                  <InputNumber
-                    min={0}
-                    placeholder="剩余课时"
-                    style={{ width: '100%' }}
-                    addonAfter="节"
-                  />
-                </Form.Item>
-
-                <Form.Item
-                  name="totalLessonsPurchased"
-                  label="累计课时"
-                  style={{ flex: 1, marginBottom: 0 }}
-                  initialValue={0}
-                >
-                  <InputNumber
-                    min={0}
-                    placeholder="累计课时"
-                    style={{ width: '100%' }}
-                    addonAfter="节"
-                  />
-                </Form.Item>
-              </Input.Group>
+              <Form.Item
+                name="remainingLessons"
+                label="新增课时"
+                style={{ marginBottom: 0 }}
+                initialValue={0}
+              >
+                <InputNumber
+                  min={0}
+                  placeholder="新增课时"
+                  style={{ width: '100%' }}
+                  addonAfter="节"
+                />
+              </Form.Item>
             </div>
           )}
 
@@ -1517,7 +1499,33 @@ const Students = () => {
                 <Select.Option value="active">活跃</Select.Option>
                 <Select.Option value="inactive">非活跃</Select.Option>
                 <Select.Option value="graduated">已毕业</Select.Option>
+                <Select.Option value="refunded">退费</Select.Option>
               </Select>
+            </Form.Item>
+          )}
+
+          {/* 退费信息 - 当状态为退费时显示 */}
+          {editingStudent && (
+            <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => prevValues.status !== currentValues.status}>
+              {({ getFieldValue }) => {
+                const status = getFieldValue('status');
+                if (status === 'refunded') {
+                  return (
+                    <div style={{ background: '#fff7e6', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid #ffd591' }}>
+                      <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#fa8c16' }}>
+                        退费信息
+                      </div>
+                      <Form.Item name="refundReason" label="退费原因">
+                        <Input.TextArea rows={2} placeholder="请输入退费原因" />
+                      </Form.Item>
+                      <Form.Item name="refundDate" label="退费日期" initialValue={dayjs()}>
+                        <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                      </Form.Item>
+                    </div>
+                  );
+                }
+                return null;
+              }}
             </Form.Item>
           )}
 
@@ -1541,7 +1549,7 @@ const Students = () => {
               {createParentAccount && (
                 <>
                   <Alert
-                    message="创建家长账号后，家长可以使用邮箱和密码登录系统，查看学员的课表、出勤记录和缴费信息。"
+                    message="创建家长账号后，家长可以使用手机号登录系统，查看学员的课表、出勤记录和缴费信息。"
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
@@ -1557,13 +1565,12 @@ const Students = () => {
 
                   <Form.Item
                     name="parentEmail"
-                    label="家长邮箱"
+                    label="家长邮箱（可选）"
                     rules={createParentAccount ? [
-                      { required: true, message: '请输入家长邮箱' },
                       { type: 'email', message: '请输入有效的邮箱地址' },
                     ] : []}
                   >
-                    <Input placeholder="用于家长登录的邮箱地址" />
+                    <Input placeholder="可选，用于接收邮件通知" />
                   </Form.Item>
 
                   <Form.Item
@@ -1571,7 +1578,7 @@ const Students = () => {
                     label="登录密码"
                     extra="留空则使用默认密码 123456"
                   >
-                    <Input.Password placeholder="可选，留空使用默认密码 123456" />
+                    <Input.Password placeholder="留空使用默认密码 123456" />
                   </Form.Item>
                 </>
               )}
@@ -1731,7 +1738,7 @@ const Students = () => {
         <Form form={parentAccountForm} onFinish={handleParentAccountSubmit} layout="vertical">
           <Alert
             message="提示"
-            description="创建家长账号后，家长可以使用邮箱和密码登录系统，查看学员的课表、出勤记录和缴费信息。"
+            description="创建家长账号后，家长可以使用手机号登录系统，查看学员的课表、出勤记录和缴费信息。"
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -1746,23 +1753,25 @@ const Students = () => {
           </Form.Item>
 
           <Form.Item
-            name="email"
-            label="家长邮箱"
+            name="parentPhone"
+            label="家长手机号"
             rules={[
-              { required: true, message: '请输入家长邮箱' },
-              { type: 'email', message: '请输入有效的邮箱地址' },
+              { required: true, message: '请输入家长手机号' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
             ]}
+            extra="此手机号将用于登录和关联学员"
           >
-            <Input placeholder="用于登录的邮箱地址" />
+            <Input placeholder="用于登录的手机号" />
           </Form.Item>
 
           <Form.Item
-            name="parentPhone"
-            label="家长电话"
-            rules={[{ required: true, message: '请输入家长电话' }]}
-            extra="此电话将用于关联学员，需与学员的家长电话一致"
+            name="email"
+            label="家长邮箱（可选）"
+            rules={[
+              { type: 'email', message: '请输入有效的邮箱地址' },
+            ]}
           >
-            <Input placeholder="用于关联学员的电话号码" />
+            <Input placeholder="可选，用于接收邮件通知" />
           </Form.Item>
 
           <Form.Item
@@ -1770,10 +1779,18 @@ const Students = () => {
             label="登录密码"
             extra="留空则使用默认密码 123456"
           >
-            <Input.Password placeholder="可选，留空使用默认密码 123456" />
+            <Input.Password placeholder="留空使用默认密码 123456" />
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 批量导入 Modal */}
+      <ImportModal
+        visible={batchImportModalVisible}
+        type="students"
+        onClose={() => setBatchImportModalVisible(false)}
+        onSuccess={fetchStudents}
+      />
     </div>
   );
 };

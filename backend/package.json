@@ -14,6 +14,11 @@
     "create:test-user": "tsx scripts/createTestUser.ts",
     "clean-db": "tsx src/scripts/cleanDatabase.ts",
     "create-admin": "tsx src/scripts/createAdmin.ts",
+    "migrate-teacher-to-coach": "tsx src/scripts/migrateTeacherToCoach.ts",
+    "check-rls": "tsx src/scripts/checkRlsPrerequisites.ts",
+    "enable-rls": "tsx src/scripts/enableRls.ts",
+    "disable-rls": "tsx src/scripts/disableRls.ts",
+    "test-rls": "tsx src/scripts/testRls.ts",
     "prisma:seed": "tsx prisma/seed.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
@@ -31,9 +36,11 @@
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
     "express-validator": "^7.0.1",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
+    "pg": "^8.18.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
     "xlsx": "^0.18.5"

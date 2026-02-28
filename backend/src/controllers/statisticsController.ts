@@ -1,6 +1,5 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { ApiError } from '../middleware/errorHandler';
 import { sendSuccess } from '../utils/response';
 import prisma from '../config/database';
 
@@ -1060,12 +1059,12 @@ export const statisticsController = {
 
       // 3. 计算续费率：续费学员数 / 当月5节课以内学员数
       // 首先获取当月（本周所在月份）的起始和结束时间
-      const monthStart = new Date(start.getFullYear(), start.getMonth(), 1);
+      const _monthStart = new Date(start.getFullYear(), start.getMonth(), 1);
       const monthEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
 
       // 获取当月所有活跃学员及其剩余课次（简化处理：使用活跃学员数）
       // 实际应该计算每个学员的剩余课次，但这里简化处理
-      const monthActiveEnrollments = await prisma.enrollment.findMany({
+      const _monthActiveEnrollments = await prisma.enrollment.findMany({
         where: {
           organizationId,
           status: 'active',
@@ -1355,8 +1354,8 @@ export const statisticsController = {
   getConsumptionStatistics: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const organizationId = req.body.organizationId;
-      const startDate = req.query.startDate as string;
-      const endDate = req.query.endDate as string;
+      const _startDate = req.query.startDate as string;
+      const _endDate = req.query.endDate as string;
 
       const where: any = { organizationId, status: 'active' };
       

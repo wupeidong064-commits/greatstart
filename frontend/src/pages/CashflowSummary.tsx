@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Card, Row, Col, Statistic, DatePicker, Space, Spin, Select } from 'antd';
-import { DollarOutlined, UserAddOutlined, TeamOutlined, RiseOutlined, SyncOutlined } from '@ant-design/icons';
-import memfireDB from '../services/memfireDB';
+import { Card, Row, Col, Statistic, DatePicker, Space, Spin, Select, Modal, Button, Table } from 'antd';
+import { DollarOutlined, UserAddOutlined, TeamOutlined, RiseOutlined, SyncOutlined, RollbackOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import api from '../services/api';
+import { dataService } from '../services/dataService';
 import dayjs from 'dayjs';
 import { useAuthStore } from '../store/authStore';
 import { normalizeRole } from '../utils/dataFilter';
@@ -17,6 +18,7 @@ const CashflowSummary = () => {
   ]);
   const [selectedStaff, setSelectedStaff] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [refundModalVisible, setRefundModalVisible] = useState(false);
   const [summaryData, setSummaryData] = useState<any>({
     newSignup: {
       totalLeads: 0,
@@ -29,6 +31,12 @@ const CashflowSummary = () => {
       amount: 0,
       totalEligible: 0,
       renewalRate: 0,
+    },
+    refund: {
+      count: 0,
+      amount: 0,
+      refundRate: 0,
+      students: [],
     },
   });
   const { user } = useAuthStore();
@@ -50,8 +58,8 @@ const CashflowSummary = () => {
 
   const fetchStaffList = async () => {
     try {
-      const users = await memfireDB.users.listTeachers();
-      setStaffList(users || []);
+      const data = await dataService.getTeachers();
+      setStaffList(data);
     } catch (error) {
       console.error('获取人员列表失败:', error);
     }
@@ -60,12 +68,35 @@ const CashflowSummary = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const data = await memfireDB.cashflowSummary.getSummary({
-        startDate: dateRange[0].format('YYYY-MM-DD'),
-        endDate: dateRange[1].format('YYYY-MM-DD'),
-        staffId: selectedStaff || undefined,
+      const response = await api.get('/cashflow-summary', {
+        params: {
+          startDate: dateRange[0].format('YYYY-MM-DD'),
+          endDate: dateRange[1].format('YYYY-MM-DD'),
+          staffId: selectedStaff || undefined,
+        },
       });
-      setSummaryData(data);
+      // axios拦截器返回response.data，后端sendSuccess包装在data字段中
+      const result = response?.data || response || {};
+      setSummaryData(result || {
+        newSignup: {
+          totalLeads: 0,
+          attendedExperience: 0,
+          conversions: 0,
+          conversionRate: 0,
+        },
+        renewal: {
+          count: 0,
+          amount: 0,
+          totalEligible: 0,
+          renewalRate: 0,
+        },
+        refund: {
+          count: 0,
+          amount: 0,
+          refundRate: 0,
+          students: [],
+        },
+      });
     } catch (error: any) {
       console.error('获取现金流总结失败:', error);
     } finally {
@@ -96,7 +127,7 @@ const CashflowSummary = () => {
               showSearch
               optionFilterProp="children"
               filterOption={(input, option) =>
-                (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                ((option?.children as unknown as string) || '')?.toLowerCase().includes(input.toLowerCase())
               }
             >
               {staffList.map(staff => (
@@ -115,6 +146,7 @@ const CashflowSummary = () => {
         </Space>
       </div>
 
+      <>
       <Spin spinning={loading}>
         {/* 新签板块 */}
         <Card
@@ -239,7 +271,115 @@ const CashflowSummary = () => {
             </Col>
           </Row>
         </Card>
+
+        {/* 退费板块 */}
+        <Card
+          title={
+            <span>
+              <RollbackOutlined style={{ marginRight: 8 }} />
+              退费板块
+            </span>
+          }
+        >
+          <Row gutter={16}>
+            <Col span={6}>
+              <Card>
+                <Statistic
+                  title="退费人数"
+                  value={summaryData.refund.count}
+                  prefix={<UserAddOutlined />}
+                  suffix="人"
+                  valueStyle={{ color: '#ff4d4f' }}
+                />
+              </Card>
+            </Col>
+            <Col span={6}>
+              <Card>
+                <Statistic
+                  title="退费金额"
+                  value={summaryData.refund.amount}
+                  prefix="¥"
+                  precision={2}
+                  valueStyle={{ color: '#ff7875' }}
+                />
+              </Card>
+            </Col>
+            <Col span={6}>
+              <Card>
+                <Statistic
+                  title="退费率"
+                  value={summaryData.refund.refundRate}
+                  prefix={<RiseOutlined />}
+                  suffix="%"
+                  valueStyle={{ color: '#faad14' }}
+                />
+                <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                  退费人数 / 总成单人数
+                </div>
+              </Card>
+            </Col>
+            <Col span={6}>
+              <Card>
+                <div style={{ padding: '16px 0', textAlign: 'center' }}>
+                  <div style={{ fontWeight: 'bold', marginBottom: 16, color: '#666' }}>退费学员详情</div>
+                  <Button
+                    type="primary"
+                    icon={<UnorderedListOutlined />}
+                    onClick={() => setRefundModalVisible(true)}
+                    disabled={!summaryData.refund.students || summaryData.refund.students.length === 0}
+                  >
+                    查看列表 ({summaryData.refund.count}人)
+                  </Button>
+                </div>
+              </Card>
+            </Col>
+          </Row>
+        </Card>
       </Spin>
+
+      {/* 退费学员列表弹窗 */}
+      <Modal
+        title={
+          <span>
+            <RollbackOutlined style={{ marginRight: 8, color: '#ff4d4f' }} />
+            退费学员列表
+          </span>
+        }
+        open={refundModalVisible}
+        onCancel={() => setRefundModalVisible(false)}
+        footer={null}
+        width={600}
+      >
+        <Table
+          dataSource={summaryData.refund.students || []}
+          rowKey="id"
+          pagination={{ pageSize: 10 }}
+          size="small"
+          locale={{ emptyText: '暂无退费学员' }}
+          columns={[
+            {
+              title: '学员姓名',
+              dataIndex: 'name',
+              key: 'name',
+              width: 120,
+            },
+            {
+              title: '退费日期',
+              dataIndex: 'refundDate',
+              key: 'refundDate',
+              width: 120,
+              render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+            },
+            {
+              title: '退费原因',
+              dataIndex: 'refundReason',
+              key: 'refundReason',
+              render: (reason: string) => reason || '-',
+            },
+          ]}
+        />
+      </Modal>
+      </>
     </div>
   );
 };

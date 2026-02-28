@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, PhoneOutlined, UserAddOutlined, ImportOutlined } from '@ant-design/icons';
-import memfireDB from '../services/memfireDB';
-import { getDataScopeFilter } from '../utils/dataFilter';
+import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse, Segmented } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, CheckCircleOutlined, ReloadOutlined, ClockCircleOutlined, UserDeleteOutlined } from '@ant-design/icons';
+import api from '../services/api';
+import { dataService } from '../services/dataService';
+import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
+import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -31,7 +33,15 @@ interface LeadInfo {
   assigneeName?: string;
 }
 
+// 筛选模式类型
+type FilterMode = 'all' | 'pendingConfirm' | 'unconverted';
+
 const ExperienceSchedule = () => {
+  // 获取当前用户和权限
+  const user = useAuthStore((state) => state.user);
+  const normalizedRole = user?.role ? normalizeRole(user.role) : null;
+  const canManageAll = normalizedRole === 'admin' || normalizedRole === 'manager';
+
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
@@ -44,10 +54,10 @@ const ExperienceSchedule = () => {
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [conversionStats, setConversionStats] = useState<any[]>([]);
   const [statsDateRange, setStatsDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
-  const [unconvertedModalVisible, setUnconvertedModalVisible] = useState(false);
-  const [unconvertedData, setUnconvertedData] = useState<any[]>([]);
-  const [unconvertedLoading, setUnconvertedLoading] = useState(false);
-  
+
+  // 筛选模式：all-全部, pendingConfirm-待上课确认, unconverted-未成单回访
+  const [filterMode, setFilterMode] = useState<FilterMode>('all');
+
   // 新增：来源类型和鱼池线索
   const [sourceType, setSourceType] = useState<'new' | 'lead'>('new');
   const [leadsList, setLeadsList] = useState<LeadInfo[]>([]);
@@ -58,7 +68,7 @@ const ExperienceSchedule = () => {
     fetchClasses();
     fetchStaffList();
     fetchLeadsList();
-  }, [pagination.current, pagination.pageSize, teacherFilter, assigneeFilter]);
+  }, [pagination.current, pagination.pageSize, teacherFilter, assigneeFilter, filterMode]);
 
   useEffect(() => {
     fetchTeacherStats();
@@ -69,18 +79,37 @@ const ExperienceSchedule = () => {
     try {
       // 应用数据过滤：teacher 角色只看自己负责的体验课
       const filter = getDataScopeFilter('experiences');
-      
-      const result = await memfireDB.experienceLessons.list({
-        page: pagination.current,
-        pageSize: pagination.pageSize,
-        teachingTeacherId: teacherFilter || undefined,
-        assigneeId: assigneeFilter || filter.assigneeId || undefined,
+
+      // 根据筛选模式设置状态过滤
+      let statusParam: string | undefined;
+      let unconvertedOnly = false;
+
+      if (filterMode === 'pendingConfirm') {
+        // 待上课确认：包含待上课、未到场、已取消（待上课邀约的）
+        statusParam = 'pending,no-show,cancelled';
+      } else if (filterMode === 'unconverted') {
+        // 未成单回访：到场后未成单
+        statusParam = 'completed';
+        unconvertedOnly = true;
+      }
+
+      const response = await api.get('/experience-lessons', {
+        params: {
+          page: pagination.current,
+          pageSize: pagination.pageSize,
+          teachingTeacherId: teacherFilter || undefined,
+          assigneeId: assigneeFilter || filter.assigneeId || undefined,
+          status: statusParam || undefined,
+          unconvertedOnly,
+        }
       });
-      setData(result.data || []);
-      setPagination(prev => ({
-        ...prev,
-        total: result.pagination.total,
-      }));
+      setData(response.data || []);
+      if (response.pagination) {
+        setPagination(prev => ({
+          ...prev,
+          total: response.pagination.total || 0,
+        }));
+      }
     } catch (error: any) {
       console.error('获取体验课列表失败:', error);
       message.error(error.message || '获取体验课列表失败');
@@ -91,8 +120,8 @@ const ExperienceSchedule = () => {
 
   const fetchClasses = async () => {
     try {
-      const classList = await memfireDB.classes.listAll();
-      setClasses(classList || []);
+      const data = await dataService.getClasses();
+      setClasses(data);
     } catch (error) {
       console.error('获取班级列表失败:', error);
     }
@@ -100,8 +129,8 @@ const ExperienceSchedule = () => {
 
   const fetchStaffList = async () => {
     try {
-      const users = await memfireDB.users.listTeachers();
-      setStaffList(users || []);
+      const data = await dataService.getTeachers();
+      setStaffList(data);
     } catch (error) {
       console.error('获取工作人员列表失败:', error);
     }
@@ -109,13 +138,15 @@ const ExperienceSchedule = () => {
 
   const fetchTeacherStats = async () => {
     try {
-      const stats = await memfireDB.experienceLessons.teacherConversionStats({
-        teachingTeacherId: teacherFilter || undefined,
-        assigneeId: assigneeFilter || undefined,
-        startDate: statsDateRange?.[0] ? statsDateRange[0].format('YYYY-MM-DD') : undefined,
-        endDate: statsDateRange?.[1] ? statsDateRange[1].format('YYYY-MM-DD') : undefined,
+      const response = await api.get('/experience-lessons/stats', {
+        params: {
+          teachingTeacherId: teacherFilter || undefined,
+          assigneeId: assigneeFilter || undefined,
+          startDate: statsDateRange?.[0] ? statsDateRange[0].format('YYYY-MM-DD') : undefined,
+          endDate: statsDateRange?.[1] ? statsDateRange[1].format('YYYY-MM-DD') : undefined,
+        }
       });
-      setConversionStats(stats);
+      setConversionStats(response.data || []);
     } catch (error: any) {
       console.error('获取教练成单率失败:', error);
     }
@@ -125,11 +156,11 @@ const ExperienceSchedule = () => {
     setStatsDateRange(dates);
   };
 
-  // 获取鱼池线索列表
+  // 获取鱼池线索列表（使用缓存）
   const fetchLeadsList = async () => {
     try {
-      const result = await memfireDB.leads.list({ pageSize: 100 });
-      setLeadsList(result.data || []);
+      const data = await dataService.getLeads();
+      setLeadsList(data);
     } catch (error) {
       console.error('获取鱼池线索失败:', error);
     }
@@ -141,6 +172,10 @@ const ExperienceSchedule = () => {
     setSelectedLeadId(null);
     form.resetFields();
     form.setFieldsValue({ status: 'pending' });
+    // 非管理人员默认分配给自己
+    if (!canManageAll && user?.id) {
+      form.setFieldsValue({ assigneeId: user.id });
+    }
     setModalVisible(true);
   };
 
@@ -187,7 +222,7 @@ const ExperienceSchedule = () => {
       content: '确定要删除该体验课记录吗？',
       onOk: async () => {
         try {
-          await memfireDB.experienceLessons.delete(id);
+          await api.delete(`/experience-lessons/${id}`);
           message.success('删除成功');
           fetchData();
         } catch (error: any) {
@@ -199,7 +234,7 @@ const ExperienceSchedule = () => {
 
   const handleStatusChange = async (id: string, status: string) => {
     try {
-      await memfireDB.experienceLessons.updateStatus(id, status);
+      await api.put(`/experience-lessons/${id}/status`, { status });
       message.success('状态更新成功');
       fetchData();
     } catch (error: any) {
@@ -234,18 +269,18 @@ const ExperienceSchedule = () => {
       };
 
       if (editingRecord) {
-        await memfireDB.experienceLessons.update(editingRecord.id, submitData);
+        await api.put(`/experience-lessons/${editingRecord.id}`, submitData);
         message.success('更新成功');
       } else {
-        await memfireDB.experienceLessons.create(submitData);
+        await api.post('/experience-lessons', submitData);
         message.success('创建成功');
-        
+
         // 注意：不删除鱼池线索，保留以便统计添加数
         // 鱼池记录会保留，用于现金流总结中的"添加数"统计
         if (sourceType === 'lead' && selectedLeadId) {
           // 可选：更新鱼池线索的最近联系时间，表示已处理
           try {
-            await memfireDB.leads.updateLastContactTime(selectedLeadId);
+            await api.put(`/leads/${selectedLeadId}/contact`);
             fetchLeadsList(); // 刷新鱼池列表
           } catch (e) {
             console.warn('更新鱼池线索失败:', e);
@@ -262,25 +297,29 @@ const ExperienceSchedule = () => {
     }
   };
 
-  const handleUnconvertedFollowUp = async () => {
-    setUnconvertedModalVisible(true);
-    setUnconvertedLoading(true);
-    try {
-      const result = await memfireDB.experienceLessons.listUnconverted({ pageSize: 50 });
-      setUnconvertedData(result.data || []);
-    } catch (error: any) {
-      message.error(error.message || '获取未成单列表失败');
-    } finally {
-      setUnconvertedLoading(false);
-    }
-  };
-
   const handleTableChange = (newPagination: any) => {
     setPagination({
       ...pagination,
       current: newPagination.current,
       pageSize: newPagination.pageSize,
     });
+  };
+
+  const handleResetFilters = () => {
+    setTeacherFilter(null);
+    setAssigneeFilter(null);
+    setFilterMode('all');
+    setPagination(prev => ({ ...prev, current: 1 }));
+  };
+
+  // 获取当前筛选模式的统计信息
+  const getFilterStats = () => {
+    const stats = {
+      pendingConfirm: 0,
+      unconverted: 0,
+    };
+    // 这些统计可以从后端获取，这里暂时返回空
+    return stats;
   };
 
   const columns = [
@@ -366,7 +405,9 @@ const ExperienceSchedule = () => {
       render: (status: string) => {
         const statusMap: Record<string, { text: string; color: string }> = {
           pending: { text: '待上课', color: 'orange' },
-          completed: { text: '已完成', color: 'green' },
+          completed: { text: '到场', color: 'green' },
+          'no-show': { text: '未到场', color: 'red' },
+          noshow: { text: '未到场', color: 'red' },
           cancelled: { text: '已取消', color: 'red' },
           converted: { text: '已成单', color: 'blue' },
           unconverted: { text: '未成单', color: 'default' },
@@ -384,12 +425,12 @@ const ExperienceSchedule = () => {
         <Space size="small">
           {record.status === 'pending' && (
             <>
-              <Button 
-                type="link" 
+              <Button
+                type="link"
                 size="small"
-                onClick={() => handleStatusChange(record.id, 'unconverted')}
+                onClick={() => handleStatusChange(record.id, 'completed')}
               >
-                未成单
+                到场
               </Button>
             </>
           )}
@@ -414,41 +455,75 @@ const ExperienceSchedule = () => {
     },
   ];
 
-  const unconvertedColumns = [
-    { title: '学员姓名', dataIndex: 'studentName', key: 'studentName', width: 100 },
-    { title: '联系方式', dataIndex: 'contact', key: 'contact', width: 130 },
-    { title: '体验班级', dataIndex: 'className', key: 'className', width: 120 },
-    { 
-      title: '上课日期', 
-      dataIndex: 'scheduleDate', 
-      key: 'scheduleDate', 
-      width: 110,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
-    },
-    { title: '负责人', dataIndex: 'assigneeName', key: 'assigneeName', width: 100 },
-    {
-      title: '备注',
-      key: 'note',
-      width: 200,
-      render: () => (
-        <span style={{ color: '#999', fontSize: '12px' }}>
-          如需成单，请前往【成单信息】页面登记
-        </span>
-      ),
-    },
-  ];
+  // 根据筛选模式获取表格标题
+  const getTableTitle = () => {
+    switch (filterMode) {
+      case 'pendingConfirm':
+        return '待上课确认列表（包含待上课、未到场等状态）';
+      case 'unconverted':
+        return '未成单回访列表（到场后未成单的客户）';
+      default:
+        return null;
+    }
+  };
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>体验课表</h1>
-        <Space>
+      <h1 style={{ marginBottom: 16 }}>体验课表</h1>
+
+      {/* 筛选区域 */}
+      <div style={{ marginBottom: 16, padding: '16px', background: '#fafafa', borderRadius: '8px' }}>
+        {/* 快捷筛选按钮 */}
+        <div style={{ marginBottom: 12 }}>
+          <span style={{ marginRight: 12, fontWeight: 500 }}>快捷筛选：</span>
+          <Segmented
+            value={filterMode}
+            onChange={(value) => {
+              setFilterMode(value as FilterMode);
+              setPagination(prev => ({ ...prev, current: 1 }));
+            }}
+            options={[
+              {
+                value: 'all',
+                label: (
+                  <div style={{ padding: '4px 8px' }}>
+                    <CheckCircleOutlined style={{ marginRight: 6 }} />
+                    全部
+                  </div>
+                ),
+              },
+              {
+                value: 'pendingConfirm',
+                label: (
+                  <div style={{ padding: '4px 8px' }}>
+                    <ClockCircleOutlined style={{ marginRight: 6 }} />
+                    待上课确认
+                  </div>
+                ),
+              },
+              {
+                value: 'unconverted',
+                label: (
+                  <div style={{ padding: '4px 8px' }}>
+                    <UserDeleteOutlined style={{ marginRight: 6 }} />
+                    未成单回访
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </div>
+
+        {/* 详细筛选 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <Select
-            placeholder="筛选上课教练"
-            allowClear
-            style={{ width: 180 }}
+            placeholder="全部教练"
+            style={{ width: 140 }}
             value={teacherFilter}
             onChange={(value) => setTeacherFilter(value)}
+            allowClear
+            showSearch
+            optionFilterProp="children"
           >
             {staffList.map(teacher => (
               <Option key={teacher.id} value={teacher.id}>
@@ -457,11 +532,13 @@ const ExperienceSchedule = () => {
             ))}
           </Select>
           <Select
-            placeholder="筛选负责人"
-            allowClear
-            style={{ width: 180 }}
+            placeholder="全部负责人"
+            style={{ width: 140 }}
             value={assigneeFilter}
             onChange={(value) => setAssigneeFilter(value)}
+            allowClear
+            showSearch
+            optionFilterProp="children"
           >
             {staffList.map(person => (
               <Option key={person.id} value={person.id}>
@@ -469,19 +546,28 @@ const ExperienceSchedule = () => {
               </Option>
             ))}
           </Select>
-          <Button icon={<PhoneOutlined />} onClick={handleUnconvertedFollowUp}>
-            未成单回访
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={handleResetFilters}
+            disabled={!teacherFilter && !assigneeFilter && filterMode === 'all'}
+          >
+            重置筛选
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            新增体验课
-          </Button>
-          <RangePicker
-            value={statsDateRange}
-            onChange={handleStatsDateChange}
-            format="YYYY-MM-DD"
-            allowClear
-          />
-        </Space>
+        </div>
+      </div>
+
+      {/* 操作按钮区域 */}
+      <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+          新增体验课
+        </Button>
+        <RangePicker
+          value={statsDateRange}
+          onChange={handleStatsDateChange}
+          format="YYYY-MM-DD"
+          allowClear
+          placeholder={['统计开始日期', '统计结束日期']}
+        />
       </div>
 
       <Collapse ghost style={{ marginBottom: 16 }} defaultActiveKey={[]}>
@@ -506,11 +592,14 @@ const ExperienceSchedule = () => {
           />
         </Collapse.Panel>
       </Collapse>
+
+      {/* 数据表格 */}
       <Table
         columns={columns}
         dataSource={data}
         loading={loading}
         rowKey="id"
+        title={getTableTitle}
         pagination={{
           current: pagination.current,
           pageSize: pagination.pageSize,
@@ -538,8 +627,8 @@ const ExperienceSchedule = () => {
           {/* 来源选择（仅新增时显示） */}
           {!editingRecord && (
             <Form.Item label="学员来源">
-              <Radio.Group 
-                value={sourceType} 
+              <Radio.Group
+                value={sourceType}
                 onChange={(e) => {
                   setSourceType(e.target.value);
                   setSelectedLeadId(null);
@@ -610,10 +699,10 @@ const ExperienceSchedule = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item name="classId" label="体验班级">
-              <Select 
-                placeholder="请选择体验班级" 
-                allowClear 
-                showSearch 
+              <Select
+                placeholder="请选择体验班级"
+                allowClear
+                showSearch
                 optionFilterProp="children"
                 onChange={handleClassSelect}
               >
@@ -650,19 +739,19 @@ const ExperienceSchedule = () => {
             </Form.Item>
           </div>
 
-          <Form.Item 
-            name="status" 
-            label="状态" 
+          <Form.Item
+            name="status"
+            label="状态"
             rules={[{ required: true, message: '请选择状态' }]}
             tooltip="注意：'已成单'状态由成单信息表自动设置，无法手动选择"
           >
             <Select placeholder="请选择状态">
               <Option value="pending">待上课</Option>
+              <Option value="completed">到场</Option>
               <Option value="cancelled">已取消</Option>
               <Option value="converted" disabled>
                 已成单（由成单信息表自动设置）
               </Option>
-              <Option value="unconverted">未成单</Option>
             </Select>
           </Form.Item>
 
@@ -670,24 +759,6 @@ const ExperienceSchedule = () => {
             <Input.TextArea rows={3} placeholder="请输入备注信息" />
           </Form.Item>
         </Form>
-      </Modal>
-
-      {/* 未成单回访 Modal */}
-      <Modal
-        title="未成单回访列表"
-        open={unconvertedModalVisible}
-        onCancel={() => setUnconvertedModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <Table
-          columns={unconvertedColumns}
-          dataSource={unconvertedData}
-          loading={unconvertedLoading}
-          rowKey="id"
-          pagination={false}
-          size="small"
-        />
       </Modal>
     </div>
   );

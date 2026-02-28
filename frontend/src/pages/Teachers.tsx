@@ -1,7 +1,7 @@
 import { Card, Table, Button, Space, Tag, message, Progress, Modal, Form, Input, DatePicker } from 'antd';
 import { UsergroupAddOutlined, FileExcelOutlined, DeleteOutlined, UserAddOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
-import memfireDB from '../services/memfireDB';
+import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
@@ -27,11 +27,15 @@ const Teachers = () => {
     dayjs().subtract(7, 'day'),
     dayjs(),
   ]);
-  const [mainDateRange, setMainDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  // 默认显示当前月份的数据
+  const [mainDateRange, setMainDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>([
+    dayjs().startOf('month'),
+    dayjs(),
+  ]);
 
   useEffect(() => {
     fetchTeachers();
-  }, []);
+  }, [mainDateRange]);
 
   useEffect(() => {
     if (managementModalVisible) {
@@ -47,8 +51,8 @@ const Teachers = () => {
         params.startDate = mainDateRange[0].format('YYYY-MM-DD');
         params.endDate = mainDateRange[1].format('YYYY-MM-DD');
       }
-      const data = await memfireDB.users.getCoachStatistics(params);
-      setTeachers(data || []);
+      const response = await api.get('/users/coach-statistics', { params });
+      setTeachers(response.data || []);
     } catch (error: any) {
       console.error('获取教练统计数据失败:', error);
       message.error(error.message || '获取教练统计数据失败');
@@ -72,7 +76,8 @@ const Teachers = () => {
   const fetchTeachersList = async () => {
     setTeachersListLoading(true);
     try {
-      const data = await memfireDB.users.listAll();
+      const response = await api.get('/users');
+      const data = response.data || [];
       // 只显示角色为 coach 的用户
       const coachesList = data.filter((user: any) => user.role === 'coach');
       setTeachersList(coachesList || []);
@@ -87,11 +92,11 @@ const Teachers = () => {
 
   const handleAddTeacher = async (values: any) => {
     try {
-      const result = await memfireDB.users.create({
+      const response = await api.post('/auth/create-staff', {
         ...values,
         role: 'coach',
       });
-      const { defaultPassword } = result.data || {};
+      const { defaultPassword } = response.data || {};
       message.success(
         `添加教练成功${defaultPassword ? `，默认密码：${defaultPassword}` : ''}`
       );
@@ -168,7 +173,7 @@ const Teachers = () => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          await memfireDB.users.delete(teacherId);
+          await api.delete(`/users/${teacherId}`);
           message.success('删除成功');
           fetchTeachersList();
           fetchTeachers(); // 刷新统计数据

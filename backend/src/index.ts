@@ -14,30 +14,58 @@ import { attendanceRoutes } from './routes/attendances';
 import { enrollmentRoutes } from './routes/enrollments';
 import { paymentRoutes } from './routes/payments';
 import { statisticsRoutes } from './routes/statistics';
+import { lessonLogRoutes } from './routes/lessonLogs';
+import { conversionRoutes } from './routes/conversions';
 import { memfireUsersRoutes } from './routes/memfireUsers';
+import { experienceLessonRoutes } from './routes/experienceLessons';
+import { leadRoutes } from './routes/leads';
 import parentRoutes from './routes/parents';
+import { consumptionRoutes } from './routes/consumption';
+import { settingsRoutes } from './routes/settings';
+import { cashflowSummaryRoutes } from './routes/cashflowSummary';
+import { honeymoonRoutes } from './routes/honeymoon';
+import { lessonDeductionRoutes } from './routes/lessonDeductions';
+import { resourceTransferRoutes } from './routes/resourceTransfers';
+import { importRoutes } from './routes/import';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
+import { securityConfig, isOriginAllowed } from './config/security';
+import { requestLogger, errorLogger } from './middleware/logger';
+import rateLimit from 'express-rate-limit';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 中间件
+// 安全中间件 - 请求日志
+app.use(requestLogger);
+
+// 速率限制 - 防止暴力攻击
+const limiter = rateLimit({
+  windowMs: securityConfig.rateLimit.windowMs,
+  max: securityConfig.rateLimit.maxRequests,
+  message: { error: '请求过于频繁，请稍后再试' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', limiter);
+
+// CORS 配置 - 使用安全配置
 app.use(cors({
-  origin: function (origin, callback) {
-    // 允许所有本地开发环境
-    if (!origin || origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
     } else {
+      console.warn(`[CORS] Rejected origin: ${ origin }`);
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: securityConfig.cors.credentials,
+  methods: securityConfig.cors.methods,
+  allowedHeaders: securityConfig.cors.allowedHeaders,
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -45,7 +73,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // 健康检查
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -62,14 +90,27 @@ app.use('/api/attendances', attendanceRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/statistics', statisticsRoutes);
+app.use('/api/lesson-logs', lessonLogRoutes);
+app.use('/api/conversions', conversionRoutes);
 app.use('/api/memfire/users', memfireUsersRoutes);
+app.use('/api/experience-lessons', experienceLessonRoutes);
+app.use('/api/leads', leadRoutes);
 app.use('/api/parent', parentRoutes);
+app.use('/api/consumption', consumptionRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/cashflow-summary', cashflowSummaryRoutes);
+app.use('/api/honeymoon', honeymoonRoutes);
+app.use('/api/lesson-deductions', lessonDeductionRoutes);
+app.use('/api/resource-transfers', resourceTransferRoutes);
+app.use('/api/import', importRoutes);
 
 // 错误处理
+app.use(errorLogger);
 app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`服务器运行在端口 ${PORT}`);
   console.log(`API文档: http://localhost:${PORT}/api-docs`);
+  console.log(`环境: ${process.env.NODE_ENV || 'development'}`);
 });
 

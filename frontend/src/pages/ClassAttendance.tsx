@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Table, Card, Tag, Progress, message, DatePicker, Select, Space, Button } from 'antd';
-import { TeamOutlined, SearchOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
-import { memfireDB } from '../services/memfireDB';
+import { useState, useEffect, useMemo } from 'react';
+import { Table, Card, Tag, Progress, message, DatePicker, Select, Space, Button, Switch, InputNumber } from 'antd';
+import { TeamOutlined, SearchOutlined, ReloadOutlined, DownloadOutlined, FilterOutlined } from '@ant-design/icons';
+import api from '../services/api';
+import { dataService, Teacher } from '../services/dataService';
 import dayjs from 'dayjs';
 import * as XLSX from 'xlsx';
 
@@ -9,19 +10,21 @@ const { RangePicker } = DatePicker;
 
 const ClassAttendance = () => {
   const [classes, setClasses] = useState<any[]>([]);
-  const [teachers, setTeachers] = useState<any[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>([
     dayjs().subtract(7, 'day'),
     dayjs(),
   ]);
   const [selectedTeacher, setSelectedTeacher] = useState<string | undefined>(undefined);
+  const [showLowAttendanceOnly, setShowLowAttendanceOnly] = useState(false);
+  const [lowAttendanceThreshold, setLowAttendanceThreshold] = useState<number | null>(70);
 
-  // 获取教练员列表
+  // 获取教练员列表（使用缓存）
   const fetchTeachers = async () => {
     try {
-      const data = await memfireDB.users.listTeachers();
-      setTeachers(data || []);
+      const data = await dataService.getTeachers();
+      setTeachers(data);
     } catch (error: any) {
       console.error('获取教练员列表失败:', error);
     }
@@ -37,19 +40,19 @@ const ClassAttendance = () => {
     try {
       // 构建查询参数
       const params: any = {};
-      
+
       if (dateRange && dateRange[0] && dateRange[1]) {
         params.startDate = dateRange[0].startOf('day').toISOString();
         params.endDate = dateRange[1].endOf('day').toISOString();
       }
-      
+
       if (selectedTeacher) {
         params.teacherId = selectedTeacher;
       }
 
-      // 使用 MemFire 获取班级出勤统计
-      const data = await memfireDB.attendances.getClassAttendanceStats(params);
-      setClasses(data || []);
+      // 使用 API 获取班级出勤统计
+      const response = await api.get('/attendances/class-attendance-stats', { params });
+      setClasses(response.data || []);
     } catch (error: any) {
       console.error('获取班级出勤信息失败:', error);
       message.error(error.message || '获取班级出勤信息失败');
@@ -68,9 +71,20 @@ const ClassAttendance = () => {
   const handleReset = () => {
     setDateRange([dayjs().subtract(7, 'day'), dayjs()]);
     setSelectedTeacher(undefined);
+    setShowLowAttendanceOnly(false);
+    setLowAttendanceThreshold(70);
     // 重置后自动查询
     setTimeout(() => fetchClassAttendance(), 0);
   };
+
+  // 根据筛选条件过滤班级数据
+  const filteredClasses = useMemo(() => {
+    if (!showLowAttendanceOnly) {
+      return classes;
+    }
+    const threshold = lowAttendanceThreshold ?? 70;
+    return classes.filter(cls => cls.attendanceRate < threshold);
+  }, [classes, showLowAttendanceOnly, lowAttendanceThreshold]);
 
   const columns = [
     {
@@ -158,13 +172,13 @@ const ClassAttendance = () => {
   // 导出为 Excel
   const handleExport = () => {
     try {
-      if (!classes || classes.length === 0) {
+      if (!filteredClasses || filteredClasses.length === 0) {
         message.warning('暂无数据可导出');
         return;
       }
 
       // 准备导出数据
-      const exportData = classes.map((item, index) => ({
+      const exportData = filteredClasses.map((item, index) => ({
         '序号': index + 1,
         '班级名称': item.className,
         '班级代码': item.classCode,
@@ -201,10 +215,13 @@ const ClassAttendance = () => {
       const dateRangeStr = dateRange && dateRange[0] && dateRange[1]
         ? `${dateRange[0].format('YYYYMMDD')}-${dateRange[1].format('YYYYMMDD')}`
         : dayjs().format('YYYYMMDD');
-      const teacherStr = selectedTeacher 
+      const teacherStr = selectedTeacher
         ? `_${teachers.find(t => t.id === selectedTeacher)?.name || '未知教练'}`
         : '';
-      const fileName = `班级出勤统计_${dateRangeStr}${teacherStr}.xlsx`;
+      const lowAttendanceStr = showLowAttendanceOnly
+        ? `_低出勤(<${lowAttendanceThreshold ?? 70}%)`
+        : '';
+      const fileName = `班级出勤统计_${dateRangeStr}${teacherStr}${lowAttendanceStr}.xlsx`;
 
       // 导出文件
       XLSX.writeFile(workbook, fileName);
@@ -219,7 +236,7 @@ const ClassAttendance = () => {
     <div>
       <Card>
         <h1 style={{ marginBottom: 16 }}>班级出勤</h1>
-        
+
         {/* 筛选区域 */}
         <div style={{ marginBottom: 24, padding: '16px', background: '#fafafa', borderRadius: '8px' }}>
           <Space wrap size="middle">
@@ -241,9 +258,7 @@ const ClassAttendance = () => {
             <div>
               <span style={{ marginRight: 8 }}>负责教练：</span>
               <Select
-                style={{ width: 180 }}
-                placeholder="全部教练"
-                allowClear
+                style={{ width: 150 }}
                 value={selectedTeacher}
                 onChange={(value) => setSelectedTeacher(value)}
                 showSearch
@@ -252,6 +267,7 @@ const ClassAttendance = () => {
                   (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
                 }
               >
+                <Select.Option value={undefined}>全部教练</Select.Option>
                 {teachers.map((teacher) => (
                   <Select.Option key={teacher.id} value={teacher.id}>
                     {teacher.name}
@@ -259,17 +275,40 @@ const ClassAttendance = () => {
                 ))}
               </Select>
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch
+                checked={showLowAttendanceOnly}
+                onChange={setShowLowAttendanceOnly}
+                checkedChildren="低出勤"
+                unCheckedChildren="全部"
+              />
+              {showLowAttendanceOnly && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  出勤率 &lt;
+                  <InputNumber
+                    min={0}
+                    max={100}
+                    value={lowAttendanceThreshold}
+                    onChange={setLowAttendanceThreshold}
+                    style={{ width: 70 }}
+                    size="small"
+                    controls={false}
+                  />
+                  %
+                </span>
+              )}
+            </div>
             <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
               查询
             </Button>
             <Button icon={<ReloadOutlined />} onClick={handleReset}>
               重置
             </Button>
-            <Button 
-              type="default" 
-              icon={<DownloadOutlined />} 
+            <Button
+              type="default"
+              icon={<DownloadOutlined />}
               onClick={handleExport}
-              disabled={!classes || classes.length === 0}
+              disabled={!filteredClasses || filteredClasses.length === 0}
             >
               导出Excel
             </Button>
@@ -284,17 +323,25 @@ const ClassAttendance = () => {
               筛选教练：{teachers.find(t => t.id === selectedTeacher)?.name || '-'}
             </span>
           )}
+          {showLowAttendanceOnly && (
+            <span style={{ marginLeft: 16 }}>
+              <FilterOutlined style={{ marginRight: 4 }} />
+              低出勤筛选：出勤率 &lt; {lowAttendanceThreshold ?? 70}%
+            </span>
+          )}
         </div>
 
         <Table
           columns={columns}
-          dataSource={classes}
+          dataSource={filteredClasses}
           loading={loading}
           rowKey="classId"
           pagination={{
             pageSize: 10,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 个班级`,
+            showTotal: (total) => showLowAttendanceOnly
+              ? `共 ${total} 个低出勤班级（出勤率 < ${lowAttendanceThreshold ?? 70}%）`
+              : `共 ${total} 个班级`,
           }}
         />
       </Card>
@@ -303,4 +350,3 @@ const ClassAttendance = () => {
 };
 
 export default ClassAttendance;
-

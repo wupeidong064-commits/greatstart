@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Card, Statistic, Row, Col } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, FilterOutlined, PlusCircleOutlined } from '@ant-design/icons';
-import memfireDB from '../services/memfireDB';
+import api from '../services/api';
+import { dataService } from '../services/dataService';
 import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
@@ -67,10 +68,10 @@ const OrderInfo = () => {
   const user = useAuthStore((state) => state.user);
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
 
-  // 权限检查：教练角色只能创建，不能编辑/删除
+  // 权限检查：销售和教练角色只能创建，不能编辑/删除
   const canEdit = normalizedRole === 'admin' || normalizedRole === 'manager';
   const canDelete = normalizedRole === 'admin' || normalizedRole === 'manager';
-  const canCreate = normalizedRole === 'admin' || normalizedRole === 'manager' || normalizedRole === 'coach';
+  const canCreate = normalizedRole === 'admin' || normalizedRole === 'manager' || normalizedRole === 'coach' || normalizedRole === 'sales';
 
   useEffect(() => {
     fetchData();
@@ -91,28 +92,28 @@ const OrderInfo = () => {
         pageSize: pagination.pageSize,
         studentId: selectedStudentFilter || undefined,
       };
-      
+
       // 添加日期筛选
       if (dateRange && dateRange[0] && dateRange[1]) {
         params.startDate = dateRange[0].format('YYYY-MM-DD');
         params.endDate = dateRange[1].format('YYYY-MM-DD');
       }
-      
+
       // 应用数据过滤：teacher 角色只看自己的销售数据
       const filter = getDataScopeFilter('sales');
       Object.assign(params, filter);
-      
-      const result = await memfireDB.conversions.list(params);
-      setData(result.data || []);
+
+      const response = await api.get('/conversions', { params });
+      setData(response.data || []);
       setPagination(prev => ({
         ...prev,
-        total: result.pagination.total,
+        total: response.pagination?.total || 0,
       }));
-      
+
       // 计算统计数据
-      const totalAmount = (result.data || []).reduce((sum: number, item: any) => sum + (item.price || 0), 0);
+      const totalAmount = (response.data || []).reduce((sum: number, item: any) => sum + (item.price || 0), 0);
       setStats({
-        totalCount: result.pagination.total,
+        totalCount: response.pagination?.total || 0,
         totalAmount,
       });
     } catch (error: any) {
@@ -158,8 +159,8 @@ const OrderInfo = () => {
 
   const fetchClasses = async () => {
     try {
-      const classList = await memfireDB.classes.listAll();
-      setClasses(classList || []);
+      const data = await dataService.getClasses();
+      setClasses(data);
     } catch (error) {
       console.error('获取班级列表失败:', error);
     }
@@ -167,8 +168,8 @@ const OrderInfo = () => {
 
   const fetchStaffList = async () => {
     try {
-      const users = await memfireDB.users.listTeachers();
-      setStaffList(users || []);
+      const data = await dataService.getTeachers();
+      setStaffList(data);
     } catch (error) {
       console.error('获取工作人员列表失败:', error);
     }
@@ -177,11 +178,8 @@ const OrderInfo = () => {
   // 获取已完成的体验课（可转化的）
   const fetchExperienceLessons = async () => {
     try {
-    const result = await memfireDB.experienceLessons.list({ 
-      pageSize: 100,
-      excludeConverted: true,
-    });
-      setExperienceLessons(result.data || []);
+      const response = await api.get('/experience-lessons/unconverted');
+      setExperienceLessons(response.data || []);
     } catch (error) {
       console.error('获取体验课列表失败:', error);
     }
@@ -189,7 +187,8 @@ const OrderInfo = () => {
 
   const fetchStudentOptions = async () => {
     try {
-      const students = await memfireDB.students.listAll();
+      const response = await api.get('/students', { params: { pageSize: 1000 } });
+      const students = response.data || [];
       const options = (students || []).map((student: any) => ({
         label: `${student.name}${student.phone || student.parentPhone ? ` (${student.phone || student.parentPhone})` : ''}`,
         value: student.id,
@@ -202,8 +201,8 @@ const OrderInfo = () => {
 
   const fetchRenewalCandidates = async () => {
     try {
-      const students = await memfireDB.students.listAll();
-      setRenewalStudents(students || []);
+      const response = await api.get('/students', { params: { pageSize: 1000 } });
+      setRenewalStudents(response.data || []);
     } catch (error) {
       console.error('获取续费学员列表失败:', error);
     }
@@ -253,13 +252,11 @@ const OrderInfo = () => {
       // 确定实际的班级ID和班级信息
       let finalClassId = values.classId || originalClassId; // 未填班级则使用原班级
       let finalClassName = null;
-      let finalTeacherId = originalTeacherId; // 默认使用原班级教练
 
       if (values.classId) {
         // 如果填了新班级，获取新班级信息
         const selectedClass = classes.find(c => c.id === values.classId);
         finalClassName = selectedClass?.name || null;
-        finalTeacherId = selectedClass?.teacher?.id || originalTeacherId;
       } else {
         // 未填班级，使用原班级信息
         finalClassName = originalClass?.name || null;
@@ -279,8 +276,8 @@ const OrderInfo = () => {
         if (values.classId) {
           // 填入了班级但未填跟进人 → 算新班级负责教练员业绩
           const selectedClass = classes.find(c => c.id === values.classId);
-          finalSalesId = selectedClass?.teacher?.id || originalTeacherId;
-          finalSalesName = selectedClass?.teacher?.name || originalTeacherName;
+          finalSalesId = (selectedClass as any)?.teacher?.id || originalTeacherId;
+          finalSalesName = (selectedClass as any)?.teacher?.name || originalTeacherName;
         } else {
           // 未填班级也未填跟进人 → 算原班级负责教练员业绩
           finalSalesId = originalTeacherId;
@@ -299,7 +296,7 @@ const OrderInfo = () => {
         parentName: selectedRenewalStudent.parentName || null,
         classId: finalClassId || null,
         className: finalClassName,
-        courseType: '续费',
+        courseType: 'renewal', // 续费类型，与数据库保持一致
         totalLessons: addition || null,
         price: values.price || null,
         paymentMethod: values.paymentMethod || null,
@@ -311,8 +308,8 @@ const OrderInfo = () => {
         existingStudentId: selectedRenewalStudent.id,
       };
 
-      await memfireDB.conversions.createRenewal(conversionData);
-      await memfireDB.students.update(selectedRenewalStudent.id, {
+      await api.post('/conversions', conversionData);
+      await api.put(`/students/${selectedRenewalStudent.id}`, {
         remainingLessons: newRemaining,
       });
 
@@ -357,7 +354,7 @@ const OrderInfo = () => {
       content: '确定要删除该成单记录吗？注意：关联的学员记录不会被删除。',
       onOk: async () => {
         try {
-          await memfireDB.conversions.delete(id);
+          await api.delete(`/conversions/${id}`);
           message.success('删除成功');
           fetchData();
         } catch (error: any) {
@@ -394,28 +391,14 @@ const OrderInfo = () => {
       };
 
       if (editingRecord) {
-        await memfireDB.conversions.update(editingRecord.id, submitData);
+        await api.put(`/conversions/${editingRecord.id}`, submitData);
         message.success('更新成功');
       } else {
-        // 创建成单记录，同时创建学员
-        const result = await memfireDB.conversions.createWithStudent(submitData);
-        message.success(`成单成功！已创建学员：${result.student?.name || values.studentName}`);
-        
-        // 如果是从体验课转化，更新体验课状态为已成单
-        if (sourceType === 'experience' && selectedExperienceId) {
-          try {
-            await memfireDB.experienceLessons.update(selectedExperienceId, { 
-              status: 'converted',
-              convertedStudentId: result.student?.id,
-              convertedAt: new Date().toISOString(),
-            });
-            fetchExperienceLessons(); // 刷新体验课列表
-          } catch (e) {
-            console.warn('更新体验课状态失败:', e);
-          }
-        }
+        // 创建成单记录
+        await api.post('/conversions', submitData);
+        message.success(`成单成功！`);
       }
-      
+
       setModalVisible(false);
       setSelectedExperienceId(null);
       form.resetFields();
@@ -510,7 +493,9 @@ const OrderInfo = () => {
       key: 'source',
       width: 120,
       render: (_: string, record: any) => {
-        return record.courseType === '续费' ? (
+        // 兼容 '续费' 和 'renewal' 两种值
+        const isRenewal = record.courseType === '续费' || record.courseType === 'renewal';
+        return isRenewal ? (
           <Tag color="purple">续费</Tag>
         ) : (
           <Tag color="green">新报名</Tag>
@@ -675,13 +660,18 @@ const OrderInfo = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item name="classId" label="续费班级">
-              <Select placeholder="请选择班级（不填则保持原班级）" allowClear showSearch optionFilterProp="children">
-                {classes.map((cls) => (
-                  <Option key={cls.id} value={cls.id}>
-                    {cls.name}
-                  </Option>
-                ))}
-              </Select>
+              <Select
+                placeholder="请选择班级（不填则保持原班级）"
+                allowClear
+                showSearch
+                options={classes.map((cls) => ({
+                  label: cls.name,
+                  value: cls.id,
+                }))}
+                filterOption={(input, option) =>
+                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item name="totalLessons" label="续费课时" rules={[{ required: true, message: '请输入课时数' }]}>
               <InputNumber min={1} placeholder="课时数" style={{ width: '100%' }} />
@@ -844,13 +834,18 @@ const OrderInfo = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item name="classId" label="报名班级">
-              <Select placeholder="请选择班级" allowClear showSearch optionFilterProp="children">
-                {classes.map((cls) => (
-                  <Option key={cls.id} value={cls.id}>
-                    {cls.name}
-                  </Option>
-                ))}
-              </Select>
+              <Select
+                placeholder="请选择班级"
+                allowClear
+                showSearch
+                options={classes.map((cls) => ({
+                  label: cls.name,
+                  value: cls.id,
+                }))}
+                filterOption={(input, option) =>
+                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                }
+              />
             </Form.Item>
             <Form.Item name="courseType" label="课程类型">
               <Input placeholder="如：游泳初级班" />

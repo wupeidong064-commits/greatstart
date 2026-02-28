@@ -57,7 +57,7 @@ export const studentsDB = {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
     const organizationId = await this.getOrganizationId();
-    const { page = 1, pageSize = 10, lowAttendanceOnly = false, search = '', keyword = '', unscheduledOnly = false, teacherId } = params || {};
+    const { page = 1, pageSize = 10, search = '', keyword = '', unscheduledOnly = false, teacherId } = params || {};
     const searchTerm = keyword || search;  // 优先使用 keyword
 
     let query = memfire
@@ -2235,17 +2235,17 @@ export const usersDB = {
     const statistics = coaches.map(coach => {
       // 负责的班级（去重）
       const coachClasses = new Set(
-        enrollments
-          ?.filter(e => e.class?.teacherId === coach.id)
-          .map(e => e.classId) || []
+        (enrollments as any[])
+          ?.filter((e: any) => e.class?.teacherId === coach.id)
+          .map((e: any) => e.classId) || []
       );
       const classCount = coachClasses.size;
 
       // 负责的学员（去重）
       const coachStudents = new Set(
-        enrollments
-          ?.filter(e => e.class?.teacherId === coach.id)
-          .map(e => e.studentId) || []
+        (enrollments as any[])
+          ?.filter((e: any) => e.class?.teacherId === coach.id)
+          .map((e: any) => e.studentId) || []
       );
       const studentCount = coachStudents.size;
       const coachStudentIds = Array.from(coachStudents);
@@ -2264,8 +2264,8 @@ export const usersDB = {
       // 3. 计算应出勤人数：每次排课 × 该班级的活跃学员数
       let totalExpectedAttendances = 0;
       for (const schedule of coachSchedules) {
-        const classStudentCount = enrollments?.filter(
-          e => e.classId === schedule.classId && e.class?.teacherId === coach.id
+        const classStudentCount = (enrollments as any[])?.filter(
+          (e: any) => e.classId === schedule.classId && e.class?.teacherId === coach.id
         ).length || 0;
         totalExpectedAttendances += classStudentCount;
       }
@@ -4229,6 +4229,7 @@ export const conversionsDB = {
     startDate?: string;
     endDate?: string;
     salesId?: string;
+    studentId?: string;
   }) {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
@@ -4242,11 +4243,11 @@ export const conversionsDB = {
 
     const { 
       page = 1, 
-      pageSize = 10, 
+      pageSize = 10,
       startDate,
       endDate,
       salesId,
-      studentId,
+      studentId: _studentId,
     } = params || {};
 
     let query = memfire
@@ -4275,8 +4276,8 @@ export const conversionsDB = {
       query = query.eq('salesId', salesId);
     }
 
-    if (studentId) {
-      query = query.eq('studentId', studentId);
+    if (_studentId) {
+      query = query.eq('studentId', _studentId);
     }
 
     // 分页
@@ -4763,7 +4764,7 @@ export const cashflowSummaryDB = {
     if (endDate) renewalQuery = renewalQuery.lte('conversionDate', endDate);
     if (staffId) renewalQuery = renewalQuery.eq('salesId', staffId);
     
-    const { data: renewals, count: renewalCount } = await renewalQuery;
+    const { data: renewals, count: _renewalCount } = await renewalQuery;
 
     const renewalAmount = (renewals || []).reduce((sum, r) => sum + (r.price || 0), 0);
 

@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { authenticateMemFire } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { parentController } from '../controllers/parentController';
 
 const router = Router();
 
-// 所有路由都需要认证
-router.use(authenticateMemFire);
+// 所有路由都需要认证（使用后端 JWT 验证）
+router.use(authenticate);
 
 /**
  * @route   GET /api/parent/students

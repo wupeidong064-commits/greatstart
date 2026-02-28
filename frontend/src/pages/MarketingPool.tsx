@@ -1,8 +1,9 @@
 import { Table, Button, Space, message, Modal, Form, Input, InputNumber, DatePicker, Select } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
-import memfireDB from '../services/memfireDB';
-import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
+import api from '../services/api';
+import { dataService } from '../services/dataService';
+import { normalizeRole } from '../utils/dataFilter';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
 
@@ -34,11 +35,11 @@ const MarketingPool = () => {
     fetchStaffList();
   }, [pagination.current, pagination.pageSize, selectedAssignee]);
 
-  // 获取工作人员列表（用于负责人选择）
+  // 获取工作人员列表（用于负责人选择，使用缓存）
   const fetchStaffList = async () => {
     try {
-      const users = await memfireDB.users.listTeachers();
-      setStaffList(users || []);
+      const data = await dataService.getTeachers();
+      setStaffList(data);
     } catch (error) {
       console.error('获取工作人员列表失败:', error);
     }
@@ -53,8 +54,11 @@ const MarketingPool = () => {
         pageSize: pagination.pageSize,
       };
 
-      // 如果选择了负责人，添加筛选条件
-      if (selectedAssignee) {
+      // 非管理人员只能看到自己负责的线索（防止翘单）
+      if (!canManageAll && user?.id) {
+        params.assigneeId = user.id;
+      } else if (selectedAssignee) {
+        // 管理人员可以按负责人筛选
         params.assigneeId = selectedAssignee;
       }
 
@@ -63,12 +67,14 @@ const MarketingPool = () => {
         params.search = searchKeyword;
       }
 
-      const result = await memfireDB.leads.list(params);
-      setData(result.data || []);
-      setPagination({
-        ...pagination,
-        total: result.pagination.total,
-      });
+      const response = await api.get('/leads', { params });
+      setData(response.data || []);
+      if (response.pagination) {
+        setPagination({
+          ...pagination,
+          total: response.pagination.total || 0,
+        });
+      }
     } catch (error: any) {
       console.error('获取线索列表失败:', error);
       message.error(error.message || '获取线索列表失败');
@@ -87,10 +93,19 @@ const MarketingPool = () => {
   const handleAdd = () => {
     setEditingRecord(null);
     form.resetFields();
+    // 非管理人员默认分配给自己
+    if (!canManageAll && user?.id) {
+      form.setFieldsValue({ assigneeId: user.id });
+    }
     setModalVisible(true);
   };
 
   const handleEdit = (record: any) => {
+    // 非管理人员只能编辑自己负责的线索
+    if (!canManageAll && record.assigneeId !== user?.id) {
+      message.warning('您只能编辑自己负责的线索');
+      return;
+    }
     setEditingRecord(record);
     form.setFieldsValue({
       ...record,
@@ -102,7 +117,7 @@ const MarketingPool = () => {
 
   const handleUpdateContactTime = async (id: string) => {
     try {
-      await memfireDB.leads.updateLastContactTime(id);
+      await api.put(`/leads/${id}/contact`);
       message.success('已更新最近联系时间');
       fetchData();
     } catch (error: any) {
@@ -111,12 +126,19 @@ const MarketingPool = () => {
   };
 
   const handleDelete = async (id: string) => {
+    // 先获取线索详情，检查权限
+    const record = data.find(item => item.id === id);
+    if (!canManageAll && record?.assigneeId !== user?.id) {
+      message.warning('您只能删除自己负责的线索');
+      return;
+    }
+
     Modal.confirm({
       title: '确认删除',
       content: '确定要删除该线索吗？',
       onOk: async () => {
         try {
-          await memfireDB.leads.delete(id);
+          await api.delete(`/leads/${id}`);
           message.success('删除成功');
           fetchData();
         } catch (error: any) {
@@ -130,7 +152,7 @@ const MarketingPool = () => {
     try {
       // 获取选中的负责人信息
       const selectedStaff = staffList.find(s => s.id === values.assigneeId);
-      
+
       if (editingRecord) {
         // 编辑时包含最近联系时间和负责人
         const submitData = {
@@ -142,7 +164,7 @@ const MarketingPool = () => {
           assigneeId: values.assigneeId || null,
           assigneeName: selectedStaff?.name || null,
         };
-        await memfireDB.leads.update(editingRecord.id, submitData);
+        await api.put(`/leads/${editingRecord.id}`, submitData);
         message.success('更新成功');
       } else {
         // 新增时提交：姓名、年龄、联系方式、备注、负责人
@@ -154,7 +176,7 @@ const MarketingPool = () => {
           assigneeId: values.assigneeId || null,
           assigneeName: selectedStaff?.name || null,
         };
-        await memfireDB.leads.create(submitData);
+        await api.post('/leads', submitData);
         message.success('创建成功');
       }
       setModalVisible(false);
@@ -326,23 +348,34 @@ const MarketingPool = () => {
           <Form.Item name="contact" label="联系方式" rules={[{ required: true, message: '请输入联系方式' }]}>
             <Input placeholder="请输入联系方式（手机号）" />
           </Form.Item>
-          <Form.Item name="assigneeId" label="负责人">
-            <Select
-              placeholder="选择负责人"
-              allowClear
-              showSearch
-              optionFilterProp="children"
-              filterOption={(input, option) =>
-                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
-              }
-            >
-              {staffList.map(staff => (
-                <Select.Option key={staff.id} value={staff.id}>
-                  {staff.name}
+          {/* 非管理人员不能修改负责人，防止翘单 */}
+          {canManageAll ? (
+            <Form.Item name="assigneeId" label="负责人">
+              <Select
+                placeholder="选择负责人"
+                allowClear
+                showSearch
+                optionFilterProp="children"
+                filterOption={(input, option) =>
+                  (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+                }
+              >
+                {staffList.map(staff => (
+                  <Select.Option key={staff.id} value={staff.id}>
+                    {staff.name}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          ) : (
+            <Form.Item name="assigneeId" label="负责人">
+              <Select disabled value={user?.id}>
+                <Select.Option key={user?.id} value={user?.id}>
+                  {user?.name} (自己)
                 </Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
+              </Select>
+            </Form.Item>
+          )}
           {editingRecord && (
             <Form.Item name="lastContactAt" label="最近联系时间">
               <DatePicker 

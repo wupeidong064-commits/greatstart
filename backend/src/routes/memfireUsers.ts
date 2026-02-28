@@ -1,13 +1,13 @@
 import { Router } from 'express';
-import { authenticateMemFire } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { sendSuccess } from '../utils/response';
 import { memfireAdmin } from '../config/memfire';
 import { normalizeRole } from '../middleware/rbac';
 
 export const memfireUsersRoutes = Router();
 
-// 所有路由需要 MemFire 认证
-memfireUsersRoutes.use(authenticateMemFire);
+// 所有路由需要 JWT 认证
+memfireUsersRoutes.use(authenticate);
 
 /**
  * @swagger
@@ -19,9 +19,9 @@ memfireUsersRoutes.use(authenticateMemFire);
  *       - bearerAuth: []
  *     description: 系统管理员可以查看所有用户，其他用户只能查看自己机构的用户
  */
-memfireUsersRoutes.get('/', async (req: any, res, next) => {
+memfireUsersRoutes.get('/', async (req: any, res, next): Promise<any> => {
   try {
-    const user = req.memfireUser;
+    const user = req.user;
 
     if (!user) {
       return res.status(401).json({ error: '未认证' });
@@ -64,11 +64,11 @@ memfireUsersRoutes.get('/', async (req: any, res, next) => {
  *     security:
  *       - bearerAuth: []
  */
-memfireUsersRoutes.put('/:id', async (req: any, res, next) => {
+memfireUsersRoutes.put('/:id', async (req: any, res, next): Promise<any> => {
   try {
     const { id } = req.params;
     const { name, phone, role, group, isActive, organizationId, campusId } = req.body;
-    const currentUser = req.memfireUser;
+    const currentUser = req.user;
 
     if (!currentUser) {
       return res.status(401).json({ error: '未认证' });

@@ -96,7 +96,7 @@ const MySchedules = () => {
       }
 
       const response = await api.get(`/parent/schedules/${selectedStudentId}`, { params });
-      setSchedules(response.data.data || []);
+      setSchedules(response.data || []);
     } catch (error: any) {
       console.error('获取课表失败:', error);
       if (error.response?.data?.error?.message) {

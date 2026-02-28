@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { Card, Table, Tag, Button, Space, DatePicker, Spin, message, Tabs, Modal, Popconfirm, Radio, Select, Checkbox } from 'antd';
-import { CalendarOutlined, ClockCircleOutlined, EnvironmentOutlined, UserOutlined, DeleteOutlined, ExclamationCircleOutlined, CheckCircleOutlined } from '@ant-design/icons';
-import { memfireDB } from '../services/memfireDB';
+import { useState, useEffect, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
+import { Card, Table, Tag, Button, Space, DatePicker, Spin, message, Tabs, Modal, Select } from 'antd';
+import { CalendarOutlined, ClockCircleOutlined, UserOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import api from '../services/api';
 import dayjs, { Dayjs } from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import weekday from 'dayjs/plugin/weekday';
@@ -24,7 +25,7 @@ interface Schedule {
   teacherId: string;
   teacherName: string;
   startTime: string;
-  endTime: string;
+  endTime?: string;
   classroom: string;
   status: string;
   studentCount: number;
@@ -59,51 +60,91 @@ const WeeklySchedule = () => {
   const fetchWeekSchedules = async () => {
     setLoading(true);
     try {
-      // 使用完整的时间戳（包含时区），确保查询范围正确
-      const startDate = currentWeek.startOf('isoWeek').format('YYYY-MM-DD') + 'T00:00:00+08:00';
-      const endDate = currentWeek.endOf('isoWeek').format('YYYY-MM-DD') + 'T23:59:59+08:00';
+      // 获取当前周的日期范围
+      const weekStart = currentWeek.startOf('isoWeek');
+      const weekEnd = currentWeek.endOf('isoWeek');
 
-      const schedules = await memfireDB.schedules.list({
-        startDate,
-        endDate,
-        includeAll: false, // 不包含已取消的排课
+      // 获取所有班级数据（包含 scheduleRule）
+      const response = await api.get('/classes', {
+        params: { pageSize: 1000 }
       });
+      const classes = response.data || [];
 
       // 按星期几分组
       const grouped: Record<number, Schedule[]> = {
         1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 0: []
       };
 
-      for (const schedule of schedules || []) {
-        // 跳过已取消的排课
-        if (schedule.status === 'cancelled') {
-          continue;
-        }
-        
-        const dayOfWeek = dayjs(schedule.startTime).tz('Asia/Shanghai').day();
-        const classInfo = schedule.class as any;
-        
+      // 调试：输出所有班级的 scheduleRule
+      console.log('=== 每周排课调试 ===');
+      console.log('当前周范围:', weekStart.format('YYYY-MM-DD'), '-', weekEnd.format('YYYY-MM-DD'));
+
+      // 遍历每个班级，根据 scheduleRule 生成本周排课
+      for (const cls of classes) {
+        // 跳过非活跃班级
+        if (cls.status !== 'active') continue;
+
+        const scheduleRule = cls.scheduleRule;
+        if (!scheduleRule || !scheduleRule.weekDays || scheduleRule.weekDays.length === 0) continue;
+
+        // 检查班级有效期是否覆盖当前周
+        const ruleStartDate = scheduleRule.startDate ? dayjs(scheduleRule.startDate) : null;
+        const ruleEndDate = scheduleRule.endDate ? dayjs(scheduleRule.endDate) : null;
+
+        // 如果有效期在当前周之前结束，或当前周之后开始，则跳过
+        if (ruleEndDate && ruleEndDate.isBefore(weekStart, 'day')) continue;
+        if (ruleStartDate && ruleStartDate.isAfter(weekEnd, 'day')) continue;
+
         // 只计算 active 状态的学员数
-        const activeEnrollments = classInfo?.enrollments?.filter((e: any) => e.status === 'active') || [];
-        
-        grouped[dayOfWeek].push({
-          id: schedule.id,
-          classId: schedule.classId,
-          className: classInfo?.name || '-',
-          classCode: classInfo?.code || '-',
-          teacherId: schedule.teacherId,
-          teacherName: schedule.teacher?.name || '-',
-          startTime: schedule.startTime,
-          endTime: schedule.endTime,
-          classroom: schedule.classroom || '-',
-          status: schedule.status,
-          studentCount: activeEnrollments.length,
-        });
+        const activeEnrollments = cls.enrollments?.filter((e: any) => e.status === 'active') || [];
+
+        // 为每个上课日生成排课记录
+        for (const dayOfWeek of scheduleRule.weekDays) {
+          // dayOfWeek: 0=周日, 1=周一, ..., 6=周六
+          // 检查该上课日是否在当前周内且在有效期内
+          const dayDate = weekStart.add(dayOfWeek === 0 ? 6 : dayOfWeek - 1, 'day');
+
+          // 检查是否在有效期内
+          if (ruleStartDate && dayDate.isBefore(ruleStartDate, 'day')) continue;
+          if (ruleEndDate && dayDate.isAfter(ruleEndDate, 'day')) continue;
+
+          console.log(`     添加到 grouped[${dayOfWeek}]`);
+
+          // 构建该天的具体时间
+          const [startHour, startMinute] = (scheduleRule.startTime || '09:00').split(':').map(Number);
+          const [endHour, endMinute] = (scheduleRule.endTime || '10:00').split(':').map(Number);
+          const scheduleDateTime = dayDate.hour(startHour).minute(startMinute).second(0);
+          const endDateTime = dayDate.hour(endHour).minute(endMinute).second(0);
+
+          // 使用 classId + 日期作为虚拟 ID（用于批量划课)
+          const virtualId = `${cls.id}_${dayDate.format('YYYY-MM-DD')}`;
+
+          grouped[dayOfWeek].push({
+            id: virtualId,
+            classId: cls.id,
+            className: cls.name || '-',
+            classCode: cls.code || '-',
+            teacherId: cls.teacherId,
+            teacherName: cls.teacher?.name || '-',
+            startTime: scheduleDateTime.toISOString(),
+            endTime: endDateTime.toISOString(),
+            classroom: '-',
+            status: 'scheduled',
+            studentCount: activeEnrollments.length,
+          });
+        }
       }
 
       // 按开始时间排序
       Object.keys(grouped).forEach(day => {
-        grouped[Number(day)].sort((a, b) => 
+        grouped[Number(day)].sort((a, b) =>
+          dayjs(a.startTime).valueOf() - dayjs(b.startTime).valueOf()
+        );
+      });
+
+      // 按开始时间排序
+      Object.keys(grouped).forEach(day => {
+        grouped[Number(day)].sort((a, b) =>
           dayjs(a.startTime).valueOf() - dayjs(b.startTime).valueOf()
         );
       });
@@ -129,119 +170,45 @@ const WeeklySchedule = () => {
     setCurrentWeek(dayjs());
   };
 
-  const handleCancelSchedule = async (schedule: Schedule) => {
-    let cancelType = 'single'; // 默认取消单次
-
-    Modal.confirm({
-      title: '确认取消排课',
-      icon: <ExclamationCircleOutlined />,
-      width: 500,
-      content: (
-        <div>
-          <p style={{ marginBottom: 16 }}>确定要取消以下排课吗？</p>
-          <div style={{ 
-            background: '#f5f5f5', 
-            padding: 12, 
-            borderRadius: 4, 
-            marginBottom: 16 
-          }}>
-            <p style={{ margin: 0, marginBottom: 4 }}>
-              <strong>{schedule.className} ({schedule.classCode})</strong>
-            </p>
-            <p style={{ margin: 0, marginBottom: 4 }}>
-              时间：{dayjs(schedule.startTime).tz('Asia/Shanghai').format('YYYY-MM-DD HH:mm')} - {dayjs(schedule.endTime).tz('Asia/Shanghai').format('HH:mm')}
-            </p>
-            <p style={{ margin: 0 }}>教练：{schedule.teacherName}</p>
-          </div>
-          
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ marginBottom: 8, fontWeight: 500 }}>取消范围：</div>
-            <Radio.Group 
-              defaultValue="single"
-              onChange={(e) => { cancelType = e.target.value; }}
-            >
-              <Space direction="vertical">
-                <Radio value="single">仅取消当前这节课</Radio>
-                <Radio value="allFuture">
-                  <span>取消该班级从当前日期起的所有未来排课</span>
-                  <div style={{ fontSize: 12, color: '#999', marginLeft: 24 }}>
-                    将取消该班级所有在 {dayjs(schedule.startTime).tz('Asia/Shanghai').format('YYYY-MM-DD')} 及之后的排课
-                  </div>
-                </Radio>
-              </Space>
-            </Radio.Group>
-          </div>
-
-          <p style={{ color: '#ff4d4f', marginTop: 16, marginBottom: 0 }}>
-            ⚠️ 取消后排课状态将变为"已取消"，无法恢复
-          </p>
-        </div>
-      ),
-      okText: '确认取消',
-      okType: 'danger',
-      cancelText: '返回',
-      onOk: async () => {
-        try {
-          if (cancelType === 'single') {
-            await memfireDB.schedules.cancel(schedule.id);
-            message.success('排课已取消');
-          } else {
-            const fromDate = dayjs(schedule.startTime).tz('Asia/Shanghai').format('YYYY-MM-DD');
-            await memfireDB.schedules.cancelAllFuture(schedule.classId, fromDate);
-            message.success('该班级的未来排课已全部取消');
-          }
-          fetchWeekSchedules();
-        } catch (error: any) {
-          console.error('取消排课失败:', error);
-          message.error(error.message || '取消排课失败');
-        }
-      },
-    });
-  };
-
-  const handleDeleteSchedule = async (schedule: Schedule) => {
-    Modal.confirm({
-      title: '确认删除排课',
-      icon: <ExclamationCircleOutlined />,
-      content: (
-        <div>
-          <p>确定要删除以下排课吗？</p>
-          <p style={{ marginTop: 8 }}>
-            <strong>{schedule.className} ({schedule.classCode})</strong>
-          </p>
-          <p>时间：{dayjs(schedule.startTime).tz('Asia/Shanghai').format('YYYY-MM-DD HH:mm')} - {dayjs(schedule.endTime).tz('Asia/Shanghai').format('HH:mm')}</p>
-          <p>教练：{schedule.teacherName}</p>
-          <p style={{ color: '#ff4d4f', marginTop: 12 }}>
-            ⚠️ 删除后数据将无法恢复！建议使用"取消排课"功能
-          </p>
-        </div>
-      ),
-      okText: '确认删除',
-      okType: 'danger',
-      cancelText: '返回',
-      onOk: async () => {
-        try {
-          await memfireDB.schedules.delete(schedule.id);
-          message.success('排课已删除');
-          fetchWeekSchedules();
-        } catch (error: any) {
-          console.error('删除排课失败:', error);
-          message.error(error.message || '删除排课失败');
-        }
-      },
-    });
-  };
-
   // 打开批量划课模态框
   const handleBatchAttendance = async (schedule: Schedule) => {
+    // 检查是否是当天（划课只能当天进行）
+    const scheduleDate = dayjs(schedule.startTime).tz('Asia/Shanghai').startOf('day');
+    const today = dayjs().tz('Asia/Shanghai').startOf('day');
+
+    if (!scheduleDate.isSame(today, 'day')) {
+      message.warning(`该课程日期为 ${scheduleDate.format('YYYY-MM-DD')}，划课只能在当天进行`);
+      return;
+    }
+
+    // 检查非管理员是否已划过今天的课
+    const user = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.user;
+    if (user?.role !== 'admin' && user?.role !== 'manager') {
+      try {
+        const todayStr = today.format('YYYY-MM-DD');
+        const checkResponse = await api.get(`/lesson-deductions/check/${schedule.classId}`, {
+          params: { date: todayStr }
+        });
+
+        if (checkResponse.data?.hasDeducted) {
+          message.warning('您今天已经为该班级划过课了，非管理员每天只能划一次');
+          return;
+        }
+      } catch (error) {
+        console.error('检查划课记录失败:', error);
+        // 继续执行，但记录错误
+      }
+    }
+
     setSelectedSchedule(schedule);
     setBatchAttendanceVisible(true);
-    
+
     try {
       // 获取班级学员列表
-      const students = await memfireDB.classes.getClassStudents(schedule.classId);
+      const response = await api.get(`/classes/${schedule.classId}/students`);
+      const students = response.data || [];
       setClassStudents(students);
-      
+
       // 初始化所有学员的考勤状态为"出勤"
       const initialStatus: Record<string, string> = {};
       students.forEach((student: any) => {
@@ -275,71 +242,66 @@ const WeeklySchedule = () => {
       return;
     }
 
+    // 获取课程日期
+    const scheduleDate = dayjs(selectedSchedule.startTime).format('YYYY-MM-DD');
+
     try {
       setLoading(true);
-      
+
       // 为每个学员创建考勤记录并扣课时
       const promises = classStudents.map(async (student: any) => {
         const status = studentAttendance[student.id];
-        
-        // 先检查是否已存在考勤记录
-        const existingAttendances = await memfireDB.attendances.list({
-          scheduleId: selectedSchedule.id,
-          studentId: student.id,
+
+        // 先检查是否已存在考勤记录（通过 classId + studentId + date）
+        const existingResponse = await api.get('/attendances', {
+          params: {
+            classId: selectedSchedule.classId,
+            studentId: student.id,
+            date: scheduleDate,
+          }
         });
+        const existingAttendances = existingResponse.data || [];
 
         if (existingAttendances && existingAttendances.length > 0) {
           // 如果已存在，更新考勤记录
           const existingId = existingAttendances[0].id;
-          await memfireDB.attendances.update(existingId, { status });
-          
+          await api.put(`/attendances/${existingId}`, { status });
+
           // 如果之前不是出勤，现在改为出勤，则需要扣课时
           const wasPresent = existingAttendances[0].status === 'present';
           const isNowPresent = status === 'present';
-          
+
           if (!wasPresent && isNowPresent && student.remainingLessons > 0) {
             // 从非出勤改为出勤，需要扣课时
-            await memfireDB.students.update(student.id, {
-              remainingLessons: student.remainingLessons - 1,
-            });
-            await memfireDB.lessonLogs.create({
+            await api.post('/lesson-logs/deduct', {
               studentId: student.id,
-              studentName: student.name,
-              type: 'deduct',
               lessons: 1,
-              notes: '批量划课 - 出勤',
+              notes: `批量划课 - ${scheduleDate}`,
             });
           }
         } else {
           // 不存在，创建新考勤记录
-          await memfireDB.attendances.create({
+          await api.post('/attendances', {
             organizationId: user.organizationId,
             classId: selectedSchedule.classId,
-            scheduleId: selectedSchedule.id,
             studentId: student.id,
             status: status,
+            date: scheduleDate,
           });
 
           // 只有出勤才扣除课时
           if (status === 'present' && student.remainingLessons > 0) {
-            await memfireDB.students.update(student.id, {
-              remainingLessons: student.remainingLessons - 1,
-            });
-
-            // 记录课时变动日志
-            await memfireDB.lessonLogs.create({
+            await api.post('/lesson-logs/deduct', {
               studentId: student.id,
-              studentName: student.name,
-              type: 'deduct',
               lessons: 1,
-              notes: '批量划课 - 出勤',
+              notes: `批量划课 - ${scheduleDate}`,
             });
           }
         }
       });
 
       await Promise.all(promises);
-      
+
       message.success(`已为 ${classStudents.length} 名学员完成考勤记录`);
       setBatchAttendanceVisible(false);
       setSelectedSchedule(null);
@@ -354,31 +316,21 @@ const WeeklySchedule = () => {
   };
 
   const renderScheduleCard = (schedule: Schedule) => {
-    const statusColors: Record<string, string> = {
-      scheduled: 'blue',
-      completed: 'green',
-      cancelled: 'red',
-      rescheduled: 'orange',
-    };
-
-    const statusTexts: Record<string, string> = {
-      scheduled: '待上课',
-      completed: '已完成',
-      cancelled: '已取消',
-      rescheduled: '已改期',
-    };
-
-    const canCancel = schedule.status === 'scheduled' && dayjs(schedule.startTime).isAfter(dayjs());
+    const scheduleDate = dayjs(schedule.startTime).tz('Asia/Shanghai');
+    const today = dayjs().tz('Asia/Shanghai').startOf('day');
+    const isToday = scheduleDate.isSame(today, 'day');
+    const isPast = scheduleDate.isBefore(today, 'day');
 
     return (
       <Card
         key={schedule.id}
         size="small"
-        style={{ 
+        style={{
           marginBottom: 8,
-          opacity: schedule.status === 'cancelled' ? 0.6 : 1,
+          opacity: isPast ? 0.6 : 1,
+          borderColor: isToday ? '#1890ff' : undefined,
         }}
-        hoverable={canCancel}
+        hoverable={isToday}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ flex: 1 }}>
@@ -394,39 +346,22 @@ const WeeklySchedule = () => {
                 <UserOutlined style={{ marginRight: 4 }} />
                 {schedule.teacherName} · {schedule.studentCount}人
               </div>
-              {schedule.classroom && schedule.classroom !== '-' && (
-                <div style={{ fontSize: 12, color: '#666' }}>
-                  <EnvironmentOutlined style={{ marginRight: 4 }} />
-                  {schedule.classroom}
-                </div>
-              )}
             </Space>
-            {canCancel && (
+            {isToday && (
               <div style={{ marginTop: 8 }}>
-                <Space size={4}>
-                  <Button 
-                    type="text" 
-                    size="small" 
-                    icon={<CheckCircleOutlined />}
-                    onClick={() => handleBatchAttendance(schedule)}
-                  >
-                    批量划课
-                  </Button>
-                  <Button 
-                    type="text" 
-                    size="small" 
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() => handleCancelSchedule(schedule)}
-                  >
-                    取消排课
-                  </Button>
-                </Space>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<CheckCircleOutlined />}
+                  onClick={() => handleBatchAttendance(schedule)}
+                >
+                  批量划课
+                </Button>
               </div>
             )}
           </div>
-          <Tag color={statusColors[schedule.status] || 'default'}>
-            {statusTexts[schedule.status] || schedule.status}
+          <Tag color={isPast ? 'default' : (isToday ? 'blue' : 'green')}>
+            {isPast ? '已过' : (isToday ? '今天' : '待上课')}
           </Tag>
         </div>
       </Card>
@@ -441,17 +376,18 @@ const WeeklySchedule = () => {
     return (
       <Card
         key={day.key}
+        size="small"
         title={
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ 
-              fontSize: 16, 
+          <div style={{ textAlign: 'center', padding: '4px 0' }}>
+            <div style={{
+              fontSize: 14,
               fontWeight: isToday ? 'bold' : 'normal',
               color: isToday ? '#1890ff' : 'inherit'
             }}>
               {day.label}
             </div>
-            <div style={{ 
-              fontSize: 12, 
+            <div style={{
+              fontSize: 11,
               color: isToday ? '#1890ff' : '#999',
               fontWeight: 'normal'
             }}>
@@ -459,18 +395,23 @@ const WeeklySchedule = () => {
             </div>
           </div>
         }
-        style={{ 
+        style={{
           height: '100%',
           opacity: isPast ? 0.7 : 1,
+          minWidth: 0,
         }}
-        headStyle={{
-          backgroundColor: isToday ? '#e6f7ff' : '#fafafa',
-          borderBottom: isToday ? '2px solid #1890ff' : '1px solid #f0f0f0',
-        }}
-        bodyStyle={{
-          padding: 12,
-          maxHeight: 'calc(100vh - 280px)',
-          overflowY: 'auto',
+        styles={{
+          header: {
+            backgroundColor: isToday ? '#e6f7ff' : '#fafafa',
+            borderBottom: isToday ? '2px solid #1890ff' : '1px solid #f0f0f0',
+            padding: '8px 12px',
+            minHeight: 'auto',
+          },
+          body: {
+            padding: 8,
+            maxHeight: 'calc(100vh - 250px)',
+            overflowY: 'auto',
+          },
         }}
       >
         {schedules.length === 0 ? (
@@ -548,32 +489,18 @@ const WeeklySchedule = () => {
         render: (count: number) => `${count}人`,
       },
       {
-        title: '教室',
-        dataIndex: 'classroom',
-        key: 'classroom',
-        width: 100,
-      },
-      {
         title: '状态',
-        dataIndex: 'status',
         key: 'status',
         width: 90,
-        render: (status: string) => {
-          const statusColors: Record<string, string> = {
-            scheduled: 'blue',
-            completed: 'green',
-            cancelled: 'red',
-            rescheduled: 'orange',
-          };
-          const statusTexts: Record<string, string> = {
-            scheduled: '待上课',
-            completed: '已完成',
-            cancelled: '已取消',
-            rescheduled: '已改期',
-          };
+        render: (_: any, record: Schedule) => {
+          const scheduleDate = dayjs(record.startTime).tz('Asia/Shanghai');
+          const today = dayjs().tz('Asia/Shanghai').startOf('day');
+          const isToday = scheduleDate.isSame(today, 'day');
+          const isPast = scheduleDate.isBefore(today, 'day');
+
           return (
-            <Tag color={statusColors[status] || 'default'}>
-              {statusTexts[status] || status}
+            <Tag color={isPast ? 'default' : (isToday ? 'blue' : 'green')}>
+              {isPast ? '已过' : (isToday ? '今天' : '待上课')}
             </Tag>
           );
         },
@@ -581,41 +508,25 @@ const WeeklySchedule = () => {
       {
         title: '操作',
         key: 'action',
-        width: 120,
+        width: 100,
         render: (_: any, record: Schedule) => {
-          const canCancel = record.status === 'scheduled' && dayjs(record.startTime).isAfter(dayjs());
-          
-          if (!canCancel) {
+          const scheduleDate = dayjs(record.startTime).tz('Asia/Shanghai');
+          const today = dayjs().tz('Asia/Shanghai').startOf('day');
+          const isToday = scheduleDate.isSame(today, 'day');
+
+          if (!isToday) {
             return <span style={{ color: '#999' }}>-</span>;
           }
 
           return (
-            <Space size="small">
-              <Button
-                type="link"
-                size="small"
-                danger
-                onClick={() => handleCancelSchedule(record)}
-              >
-                取消
-              </Button>
-              <Popconfirm
-                title="确认删除排课？"
-                description="删除后数据将无法恢复"
-                onConfirm={() => handleDeleteSchedule(record)}
-                okText="确认"
-                cancelText="取消"
-                okType="danger"
-              >
-                <Button
-                  type="link"
-                  size="small"
-                  danger
-                >
-                  删除
-                </Button>
-              </Popconfirm>
-            </Space>
+            <Button
+              type="link"
+              size="small"
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleBatchAttendance(record)}
+            >
+              划课
+            </Button>
           );
         },
       },
@@ -681,10 +592,12 @@ const WeeklySchedule = () => {
               key: 'calendar',
               label: '日历视图',
               children: (
-                <div style={{ 
-                  display: 'grid', 
-                  gridTemplateColumns: 'repeat(7, 1fr)', 
-                  gap: 12 
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(7, minmax(120px, 1fr))',
+                  gap: 8,
+                  overflowX: 'auto',
+                  paddingBottom: 8,
                 }}>
                   {weekDays.map(day => renderDayColumn(day))}
                 </div>
@@ -801,17 +714,23 @@ const WeeklySchedule = () => {
             </div>
 
             <div style={{ marginTop: 16, padding: 12, background: '#fff7e6', borderRadius: 4 }}>
-              <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
-                ⚠️ 提示：
+              <p style={{ margin: 0, fontSize: 12, color: '#666', fontWeight: 'bold' }}>
+                划课规则：
               </p>
-              <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
-                1. 提交后将为所有学员创建考勤记录
+              <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
+                1. 排课划课只能在当天进行
               </p>
-              <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
-                2. 仅出勤会扣除1课时，缺勤不扣课时
+              <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
+                2. 非管理员每天只能为同一班级划课一次
               </p>
-              <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
-                3. 课时不足的学员将跳过扣课时操作
+              <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
+                3. 提交后将为所有学员创建考勤记录
+              </p>
+              <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
+                4. 仅出勤会扣除1课时，缺勤不扣课时
+              </p>
+              <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
+                5. 课时不足的学员将跳过扣课时操作
               </p>
             </div>
           </div>

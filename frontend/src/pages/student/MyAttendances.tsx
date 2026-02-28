@@ -93,8 +93,8 @@ const MyAttendances = () => {
       }
 
       const response = await api.get(`/parent/attendances/${selectedStudentId}`, { params });
-      setAttendances(response.data.data || []);
-      setStats(response.data.stats || {
+      setAttendances(response.data || []);
+      setStats(response.stats || {
         present: 0,
         absent: 0,
         late: 0,

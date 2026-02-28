@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Table, Card, Tag, message, DatePicker, Space, Button, Progress, Select, Switch } from 'antd';
-import { UserOutlined, SearchOutlined, ReloadOutlined, WarningOutlined, DownloadOutlined } from '@ant-design/icons';
-import { memfireDB } from '../services/memfireDB';
+import { useState, useEffect, useCallback } from 'react';
+import { Table, Card, Tag, message, DatePicker, Space, Button, Progress, Select, Switch, Spin, Statistic, Row, Col, Alert } from 'antd';
+import { UserOutlined, SearchOutlined, ReloadOutlined, WarningOutlined, DownloadOutlined, TeamOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import api from '../services/api';
+import { dataService, Teacher } from '../services/dataService';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
 const ContinuousLeaveStudents = () => {
   const [students, setStudents] = useState<any[]>([]);
-  const [teachers, setTeachers] = useState<any[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(false);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>([
     dayjs().subtract(30, 'day'),
@@ -16,31 +17,33 @@ const ContinuousLeaveStudents = () => {
   ]);
   const [selectedTeacher, setSelectedTeacher] = useState<string | undefined>(undefined);
   const [continuousAbsentOnly, setContinuousAbsentOnly] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  // 获取教练员列表
-  const fetchTeachers = async () => {
+  // 获取教练员列表（使用缓存）
+  const fetchTeachers = useCallback(async () => {
     try {
-      const data = await memfireDB.users.listTeachers();
-      setTeachers(data || []);
+      const data = await dataService.getTeachers();
+      setTeachers(data);
     } catch (error: any) {
       console.error('获取教练员列表失败:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchTeachers();
-    fetchData();
-  }, []);
+    // 初始不自动加载，让用户选择时间范围后手动查询
+  }, [fetchTeachers]);
 
   const fetchData = async () => {
     setLoading(true);
+    setHasSearched(true);
     try {
       // 构建查询参数
       const params: any = {
-        threshold: 60, // 出勤率低于60%的学员
+        threshold: 60,
         continuousAbsentOnly,
       };
-      
+
       if (dateRange && dateRange[0] && dateRange[1]) {
         params.startDate = dateRange[0].startOf('day').toISOString();
         params.endDate = dateRange[1].endOf('day').toISOString();
@@ -50,18 +53,15 @@ const ContinuousLeaveStudents = () => {
         params.teacherId = selectedTeacher;
       }
 
-      console.log('📊 查询参数:', params);
+      const response = await api.get('/attendances/low-attendance-students', { params });
+      const data = response.data || [];
+      setStudents(data);
 
-      // 使用 MemFire 获取低出勤学员数据
-      const data = await memfireDB.attendances.getLowAttendanceStudents(params);
-      console.log('📊 查询结果:', data?.length, '位学员', data);
-      setStudents(data || []);
-      
-      if (!data || data.length === 0) {
+      if (data.length === 0) {
         message.info('没有符合条件的学员');
       }
     } catch (error: any) {
-      console.error('❌ 获取低出勤学员失败:', error);
+      console.error('获取低出勤学员失败:', error);
       message.error(error.message || '获取低出勤学员失败');
       setStudents([]);
     } finally {
@@ -79,7 +79,8 @@ const ContinuousLeaveStudents = () => {
     setDateRange([dayjs().subtract(30, 'day'), dayjs()]);
     setSelectedTeacher(undefined);
     setContinuousAbsentOnly(false);
-    setTimeout(() => fetchData(), 0);
+    setStudents([]);
+    setHasSearched(false);
   };
 
   // 获取时间范围描述
@@ -91,10 +92,7 @@ const ContinuousLeaveStudents = () => {
   // 导出低出勤学员数据
   const handleExport = () => {
     try {
-      message.loading('正在导出数据...', 0);
-      
       if (students.length === 0) {
-        message.destroy();
         message.warning('没有数据可导出');
         return;
       }
@@ -124,27 +122,34 @@ const ContinuousLeaveStudents = () => {
       const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
-      
+
       const dateStr = dateRange && dateRange[0] && dateRange[1]
         ? `${dateRange[0].format('YYYYMMDD')}-${dateRange[1].format('YYYYMMDD')}`
         : dayjs().format('YYYYMMDD');
       const filterSuffix = continuousAbsentOnly ? '_连续请假' : '';
       const teacherSuffix = selectedTeacher ? `_${teachers.find(t => t.id === selectedTeacher)?.name || ''}` : '';
-      
+
       link.setAttribute('href', url);
       link.setAttribute('download', `低出勤学员_${dateStr}${teacherSuffix}${filterSuffix}.csv`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
-      message.destroy();
+
       message.success(`成功导出 ${students.length} 位学员的数据`);
     } catch (error: any) {
       console.error('导出失败:', error);
-      message.destroy();
       message.error('导出失败: ' + (error.message || '未知错误'));
     }
+  };
+
+  // 统计数据
+  const stats = {
+    total: students.length,
+    continuousAbsent: students.filter(s => s.isContinuousAbsent).length,
+    avgAttendanceRate: students.length > 0
+      ? Math.round(students.reduce((sum, s) => sum + s.attendanceRate, 0) / students.length)
+      : 0,
   };
 
   const columns = [
@@ -152,17 +157,21 @@ const ContinuousLeaveStudents = () => {
       title: '学员姓名',
       dataIndex: 'studentName',
       key: 'studentName',
-      render: (text: string) => (
-        <span>
-          <UserOutlined style={{ marginRight: 8 }} />
-          {text}
-        </span>
+      width: 120,
+      render: (text: string, record: any) => (
+        <Space>
+          <UserOutlined style={{ color: record.isContinuousAbsent ? '#ff4d4f' : '#1890ff' }} />
+          <span style={{ fontWeight: record.isContinuousAbsent ? 'bold' : 'normal' }}>
+            {text}
+          </span>
+        </Space>
       ),
     },
     {
       title: '所属班级',
       dataIndex: 'className',
       key: 'className',
+      width: 180,
       render: (text: string, record: any) => (
         <span>
           {text}
@@ -173,15 +182,17 @@ const ContinuousLeaveStudents = () => {
       ),
     },
     {
-      title: '负责教练员',
+      title: '负责教练',
       dataIndex: ['teacher', 'name'],
       key: 'teacher',
+      width: 100,
       render: (name: string) => name || '-',
     },
     {
       title: '应出勤',
       dataIndex: 'scheduleCount',
       key: 'scheduleCount',
+      width: 90,
       align: 'center' as const,
       render: (count: number) => `${count} 次`,
     },
@@ -189,9 +200,10 @@ const ContinuousLeaveStudents = () => {
       title: '实际出勤',
       dataIndex: 'presentCount',
       key: 'presentCount',
+      width: 100,
       align: 'center' as const,
       render: (count: number, record: any) => (
-        <Tag color="green" style={{ fontSize: '14px', padding: '4px 12px' }}>
+        <Tag color="green" style={{ fontSize: '13px', padding: '2px 8px' }}>
           {count} / {record.scheduleCount}
         </Tag>
       ),
@@ -200,9 +212,10 @@ const ContinuousLeaveStudents = () => {
       title: '缺勤次数',
       dataIndex: 'absentCount',
       key: 'absentCount',
+      width: 90,
       align: 'center' as const,
       render: (count: number) => (
-        <Tag color="red" style={{ fontSize: '14px', padding: '4px 12px' }}>
+        <Tag color="red" style={{ fontSize: '13px', padding: '2px 8px' }}>
           {count} 次
         </Tag>
       ),
@@ -211,18 +224,21 @@ const ContinuousLeaveStudents = () => {
       title: '连续缺勤',
       dataIndex: 'continuousAbsentCount',
       key: 'continuousAbsentCount',
+      width: 110,
       align: 'center' as const,
       sorter: (a: any, b: any) => a.continuousAbsentCount - b.continuousAbsentCount,
       render: (count: number, record: any) => (
-        <Space>
-          <span style={{ 
+        <Space size={4}>
+          <span style={{
             color: record.isContinuousAbsent ? '#ff4d4f' : '#666',
             fontWeight: record.isContinuousAbsent ? 'bold' : 'normal'
           }}>
             {count} 次
           </span>
           {record.isContinuousAbsent && (
-            <Tag color="error" icon={<WarningOutlined />}>≥2周</Tag>
+            <Tag color="error" style={{ fontSize: '11px', padding: '0 4px', margin: 0 }}>
+              <WarningOutlined /> ≥2
+            </Tag>
           )}
         </Space>
       ),
@@ -231,29 +247,32 @@ const ContinuousLeaveStudents = () => {
       title: '出勤率',
       dataIndex: 'attendanceRate',
       key: 'attendanceRate',
+      width: 150,
       align: 'center' as const,
       sorter: (a: any, b: any) => a.attendanceRate - b.attendanceRate,
       render: (rate: number) => (
-        <>
+        <Space size={4}>
           <Progress
             percent={rate}
             status={rate < 30 ? 'exception' : rate < 50 ? 'active' : 'normal'}
             size="small"
-            style={{ width: 100, display: 'inline-block', marginRight: 8 }}
+            style={{ width: 80 }}
+            showInfo={false}
           />
           <Tag
             color={rate >= 50 ? 'orange' : rate >= 30 ? 'volcano' : 'red'}
-            style={{ fontSize: '14px', padding: '4px 12px' }}
+            style={{ fontSize: '13px', padding: '2px 8px' }}
           >
             {rate}%
           </Tag>
-        </>
+        </Space>
       ),
     },
     {
       title: '联系电话',
       dataIndex: 'phone',
       key: 'phone',
+      width: 120,
       render: (phone: string) => phone || '-',
     },
   ];
@@ -262,7 +281,7 @@ const ContinuousLeaveStudents = () => {
     <div>
       <Card>
         <h1 style={{ marginBottom: 16 }}>低出勤学员</h1>
-        
+
         {/* 筛选区域 */}
         <div style={{ marginBottom: 24, padding: '16px', background: '#fafafa', borderRadius: '8px' }}>
           <Space wrap size="middle">
@@ -284,9 +303,7 @@ const ContinuousLeaveStudents = () => {
             <div>
               <span style={{ marginRight: 8 }}>负责教练：</span>
               <Select
-                style={{ width: 180 }}
-                placeholder="全部教练"
-                allowClear
+                style={{ width: 150 }}
                 value={selectedTeacher}
                 onChange={(value) => setSelectedTeacher(value)}
                 showSearch
@@ -295,6 +312,7 @@ const ContinuousLeaveStudents = () => {
                   (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
                 }
               >
+                <Select.Option value={undefined}>全部教练</Select.Option>
                 {teachers.map((teacher) => (
                   <Select.Option key={teacher.id} value={teacher.id}>
                     {teacher.name}
@@ -302,17 +320,17 @@ const ContinuousLeaveStudents = () => {
                 ))}
               </Select>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <WarningOutlined style={{ marginRight: 4, color: continuousAbsentOnly ? '#ff4d4f' : '#999' }} />
-              <span style={{ marginRight: 8 }}>连续请假≥2周：</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <WarningOutlined style={{ color: continuousAbsentOnly ? '#ff4d4f' : '#999' }} />
+              <span>连续请假≥2次：</span>
               <Switch
                 checked={continuousAbsentOnly}
-                onChange={(checked) => setContinuousAbsentOnly(checked)}
+                onChange={setContinuousAbsentOnly}
                 checkedChildren="开"
                 unCheckedChildren="关"
               />
             </div>
-            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
+            <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>
               查询
             </Button>
             <Button icon={<ReloadOutlined />} onClick={handleReset}>
@@ -328,37 +346,113 @@ const ContinuousLeaveStudents = () => {
               导出数据
             </Button>
           </Space>
+
+          {/* 汇总统计 */}
+          {hasSearched && !loading && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e8e8e8' }}>
+              <Space size={24}>
+                <span style={{ color: '#666' }}>
+                  <TeamOutlined style={{ marginRight: 4 }} />
+                  低出勤学员：<b style={{ color: '#1890ff', fontSize: 16 }}>{stats.total}</b> 人
+                </span>
+                <span style={{ color: '#666' }}>
+                  <WarningOutlined style={{ marginRight: 4, color: '#ff4d4f' }} />
+                  连续请假≥2次：<b style={{ color: '#ff4d4f', fontSize: 16 }}>{stats.continuousAbsent}</b> 人
+                </span>
+                <span style={{ color: '#666' }}>
+                  平均出勤率：<b style={{ color: stats.avgAttendanceRate >= 40 ? '#52c41a' : '#ff4d4f', fontSize: 16 }}>{stats.avgAttendanceRate}</b>%
+                </span>
+              </Space>
+            </div>
+          )}
         </div>
 
         {/* 统计信息 */}
-        <div style={{ marginBottom: 16, color: '#666' }}>
-          <span>查询时间范围：{getDateRangeText()}</span>
-          {selectedTeacher && (
-            <span style={{ marginLeft: 16 }}>
-              筛选教练：<Tag color="blue">{teachers.find(t => t.id === selectedTeacher)?.name || '-'}</Tag>
-            </span>
-          )}
-          <span style={{ marginLeft: 16 }}>
-            筛选条件：出勤率低于 <Tag color="red">60%</Tag> 的学员
-          </span>
-          {continuousAbsentOnly && (
-            <span style={{ marginLeft: 16 }}>
-              <Tag color="error" icon={<WarningOutlined />}>仅显示连续请假≥2周的学员</Tag>
-            </span>
-          )}
-        </div>
+        {hasSearched && (
+          <div style={{ marginBottom: 16 }}>
+            <Alert
+              type="info"
+              showIcon
+              icon={<ClockCircleOutlined />}
+              message={
+                <Space split={<span style={{ color: '#d9d9d9' }}>|</span>}>
+                  <span>时间范围：{getDateRangeText()}</span>
+                  {selectedTeacher && (
+                    <span>筛选教练：<Tag color="blue">{teachers.find(t => t.id === selectedTeacher)?.name || '-'}</Tag></span>
+                  )}
+                  <span>筛选条件：出勤率低于 <Tag color="red">60%</Tag></span>
+                  {continuousAbsentOnly && (
+                    <span><Tag color="error" icon={<WarningOutlined />}>仅连续请假≥2次</Tag></span>
+                  )}
+                </Space>
+              }
+              style={{ marginBottom: 16 }}
+            />
 
-        <Table
-          columns={columns}
-          dataSource={students}
-          loading={loading}
-          rowKey="id"
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 位低出勤学员`,
-          }}
-        />
+            {!loading && students.length > 0 && (
+              <Row gutter={16} style={{ marginBottom: 16 }}>
+                <Col span={6}>
+                  <Card size="small" bordered={false} style={{ background: '#f5f5f5' }}>
+                    <Statistic
+                      title="低出勤学员"
+                      value={stats.total}
+                      suffix="人"
+                      prefix={<TeamOutlined />}
+                      valueStyle={{ color: '#1890ff' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card size="small" bordered={false} style={{ background: '#fff2f0' }}>
+                    <Statistic
+                      title="连续请假学员"
+                      value={stats.continuousAbsent}
+                      suffix="人"
+                      prefix={<WarningOutlined />}
+                      valueStyle={{ color: '#ff4d4f' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card size="small" bordered={false} style={{ background: '#f6ffed' }}>
+                    <Statistic
+                      title="平均出勤率"
+                      value={stats.avgAttendanceRate}
+                      suffix="%"
+                      valueStyle={{ color: stats.avgAttendanceRate >= 40 ? '#52c41a' : '#ff4d4f' }}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+            )}
+          </div>
+        )}
+
+        {/* 加载状态 */}
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '60px 0' }}>
+            <Spin size="large" tip="正在加载数据..." />
+          </div>
+        ) : !hasSearched ? (
+          <div style={{ textAlign: 'center', padding: '60px 0', color: '#999' }}>
+            <SearchOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+            <p>请选择时间范围后点击"查询"按钮</p>
+          </div>
+        ) : (
+          <Table
+            columns={columns}
+            dataSource={students}
+            loading={loading}
+            rowKey={(record) => `${record.id}_${record.classId}`}
+            scroll={{ x: 1200 }}
+            pagination={{
+              pageSize: 20,
+              showSizeChanger: true,
+              showTotal: (total) => `共 ${total} 位低出勤学员`,
+              pageSizeOptions: ['10', '20', '50', '100'],
+            }}
+          />
+        )}
       </Card>
     </div>
   );

@@ -1,12 +1,13 @@
 import { Router } from 'express';
-import { authenticateMemFire } from '../middleware/auth';
-import { requireRole, requireMinRole } from '../middleware/rbac';
+import { authenticate } from '../middleware/auth';
+import { requireRole, requireMinRole, requireOrganizationAccess } from '../middleware/rbac';
 import { userController } from '../controllers/userController';
 
 export const userRoutes = Router();
 
-// 所有路由需要认证
-userRoutes.use(authenticateMemFire);
+// 使用后端 JWT 认证（而非 MemFire token）
+userRoutes.use(authenticate);
+userRoutes.use(requireOrganizationAccess());
 
 /**
  * @swagger
@@ -18,10 +19,15 @@ userRoutes.use(authenticateMemFire);
  *       - bearerAuth: []
  */
 userRoutes.get('/', requireMinRole('manager'), userController.getUsers);
+userRoutes.get('/teachers', userController.getTeachers);
 userRoutes.get('/teachers/statistics', requireMinRole('manager'), userController.getTeachersStatistics);
 userRoutes.get('/teachers/statistics/export', requireMinRole('manager'), userController.exportTeachersStatistics);
 userRoutes.get('/teachers/sales-data', requireMinRole('manager'), userController.getTeachersSalesData);
 userRoutes.get('/teachers/sales-data/export', requireMinRole('manager'), userController.exportTeachersSalesData);
+// 新增端点 - 匹配前端调用
+// staff及以上角色可以访问，控制器内已做数据隔离
+userRoutes.get('/coach-statistics', requireMinRole('staff'), userController.getCoachStatistics);
+userRoutes.get('/sales-statistics', requireMinRole('staff'), userController.getSalesStatistics);
 
 /**
  * @swagger

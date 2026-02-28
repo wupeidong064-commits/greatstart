@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Spin } from 'antd';
 import { useAuthStore } from './store/authStore';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -22,23 +23,28 @@ import OrderInfo from './pages/OrderInfo';
 import Teachers from './pages/Teachers';
 import TeacherDashboard from './pages/TeacherDashboard';
 import StaffList from './pages/StaffList';
-import ExpensesAndReports from './pages/ExpensesAndReports';
-import StaffSalary from './pages/StaffSalary';
-import Statistics from './pages/Statistics';
+import ResourceTransfer from './pages/ResourceTransfer';
 import WeeklySummary from './pages/WeeklySummary';
 import MonthlySummary from './pages/MonthlySummary';
-import SpecialAnalysis from './pages/SpecialAnalysis';
 import Organizations from './pages/Organizations';
-import Users from './pages/Users';
 import Settings from './pages/Settings';
-import ChangePassword from './pages/ChangePassword';
 // 学员中心页面
 import MySchedules from './pages/student/MySchedules';
 import MyAttendances from './pages/student/MyAttendances';
 import MyPayments from './pages/student/MyPayments';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, _hasHydrated } = useAuthStore();
+
+  // 等待 Zustand 状态从 localStorage 恢复完成
+  if (!_hasHydrated) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <Spin size="large" tip="加载中..." />
+      </div>
+    );
+  }
+
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
 }
 
@@ -84,20 +90,15 @@ function App() {
           <Route path="teachers" element={<Teachers />} />
           <Route path="teachers/dashboard" element={<TeacherDashboard />} />
           
-          {/* 财务管理 */}
-          <Route path="finance/expenses" element={<ExpensesAndReports />} />
-          <Route path="finance/staff-salary" element={<StaffSalary />} />
-          
           {/* 数据统计与分析 */}
           <Route path="summary/weekly" element={<WeeklySummary />} />
           <Route path="summary/monthly" element={<MonthlySummary />} />
-          <Route path="analytics/special" element={<SpecialAnalysis />} />
           
           {/* 系统管理 */}
           <Route path="system/staff-list" element={<StaffList />} />
+          <Route path="system/resource-transfer" element={<ResourceTransfer />} />
           <Route path="organizations" element={<Organizations />} />
           <Route path="system/settings" element={<Settings />} />
-          <Route path="change-password" element={<ChangePassword />} />
 
           {/* 学员中心 - parent 角色专属 */}
           <Route path="student/schedules" element={<MySchedules />} />

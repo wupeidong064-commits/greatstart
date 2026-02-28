@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react';
-import { Table, Button, Modal, Form, message, Tag, Input, Space, Select, DatePicker, TimePicker, Checkbox, Descriptions } from 'antd';
-import { PlusOutlined, FilterOutlined, CalendarOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons';
-import { memfireDB } from '../services/memfireDB';
+import { useState, useEffect, useMemo } from 'react';
+import { Table, Button, Modal, Form, message, Tag, Input, Space, Select, DatePicker, TimePicker, Checkbox, Descriptions, Row, Col, Card } from 'antd';
+import { PlusOutlined, CalendarOutlined, TeamOutlined, UserAddOutlined, FileExcelOutlined } from '@ant-design/icons';
+import api from '../services/api';
+import { dataService, Teacher } from '../services/dataService';
 import { useAuthStore } from '../store/authStore';
 import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
-
-const { RangePicker } = DatePicker;
+import ImportModal from '../components/ImportModal';
 
 const Classes = () => {
   const { user } = useAuthStore();
@@ -18,13 +18,16 @@ const Classes = () => {
   const canEdit = !isSales && !isCoach;
 
   const [classes, setClasses] = useState<any[]>([]);
-  const [teachers, setTeachers] = useState<any[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingClass, setEditingClass] = useState<any>(null);
   const [form] = Form.useForm();
-  const [showLowAttendanceOnly, setShowLowAttendanceOnly] = useState(false);
   const [showExperienceClassOnly, setShowExperienceClassOnly] = useState(false);
+
+  // 筛选状态
+  const [filterTeacherId, setFilterTeacherId] = useState<string | null>(null);
+  const [filterWeekDay, setFilterWeekDay] = useState<number | null>(null);
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false);
   const [schedulingClass, setSchedulingClass] = useState<any>(null);
   const [scheduleForm] = Form.useForm();
@@ -37,11 +40,29 @@ const Classes = () => {
   const [addingToClass, setAddingToClass] = useState<any>(null);
   const [availableStudents, setAvailableStudents] = useState<any[]>([]);
 
-  // 获取教练员列表
+  const [newlyCreatedClassId, setNewlyCreatedClassId] = useState<string | null>(null);
+
+  // 批量导入相关状态
+  const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
+
+  // 星期几映射
+  const weekDayLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+  // 生成班级代码
+  const generateClassCode = (weekDays: number[], startTime: string): string => {
+    const dayLabel = weekDays.length === 1
+      ? weekDayLabels[weekDays[0]]
+      : weekDays.map(d => weekDayLabels[d]).join('');
+
+    const timeStr = startTime.replace(':', '');
+    return `${dayLabel}${timeStr}`;
+  };
+
+  // 获取教练员列表（使用缓存）
   const fetchTeachers = async () => {
     try {
-      const data = await memfireDB.users.listTeachers();
-      setTeachers(data || []);
+      const data = await dataService.getTeachers();
+      setTeachers(data);
     } catch (error: any) {
       console.error('获取教练员列表失败:', error);
     }
@@ -49,22 +70,37 @@ const Classes = () => {
 
   useEffect(() => {
     fetchTeachers(); // 页面加载时获取教练员列表
-    if (showLowAttendanceOnly) {
-      fetchLowAttendanceClasses();
-    } else if (showExperienceClassOnly) {
+    if (showExperienceClassOnly) {
       fetchExperienceClasses();
     } else {
       fetchClasses();
     }
-  }, [showLowAttendanceOnly, showExperienceClassOnly]);
+  }, [showExperienceClassOnly]);
+
+  // 自动打开排课弹窗（创建班级后）
+  useEffect(() => {
+    if (newlyCreatedClassId && classes.length > 0) {
+      const newClass = classes.find(c => c.id === newlyCreatedClassId);
+      if (newClass) {
+        setSchedulingClass(newClass);
+        scheduleForm.resetFields();
+        scheduleForm.setFieldsValue({
+          recurrenceType: 'weekly',
+          weekDays: [],
+        });
+        setScheduleModalVisible(true);
+        setNewlyCreatedClassId(null);
+      }
+    }
+  }, [newlyCreatedClassId, classes]);
 
   const fetchClasses = async () => {
     setLoading(true);
     try {
       // 应用数据过滤：teacher 角色只看自己的班级
       const filter = getDataScopeFilter('classes');
-      const data = await memfireDB.classes.list(filter);
-      setClasses(data || []);
+      const response = await api.get('/classes', { params: { ...filter, pageSize: 1000 } });
+      setClasses(response.data || []);
     } catch (error: any) {
       console.error('获取班级列表失败:', error);
       message.error(error.message || '获取班级列表失败');
@@ -74,40 +110,12 @@ const Classes = () => {
     }
   };
 
-  const fetchLowAttendanceClasses = async () => {
-    setLoading(true);
-    try {
-      // 使用 MemFire 获取连续两周出勤率低于60%的班级
-      const lowAttendanceData = await memfireDB.attendances.getLowAttendanceClasses(60);
-      
-        // 将低出勤班级数据转换为与普通班级列表相同的格式
-      const formattedClasses = lowAttendanceData.map((item: any) => ({
-          ...item.class,
-          attendanceRate: item.attendanceRate,
-        week1Rate: item.week1Rate,
-        week2Rate: item.week2Rate,
-          totalStudents: item.totalStudents,
-          lowAttendanceCount: item.lowAttendanceCount,
-          _count: {
-            enrollments: item.totalStudents, // 添加 _count 字段以匹配表格显示逻辑
-          },
-        }));
-        setClasses(formattedClasses);
-    } catch (error: any) {
-      console.error('获取低出勤班级失败:', error);
-      setClasses([]);
-      message.error(error.message || '获取低出勤班级失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fetchExperienceClasses = async () => {
     setLoading(true);
     try {
       // 获取所有活跃班级，包含学员数统计，按空位数排序
-      const classesWithStats = await memfireDB.classes.listForExperiencePriority();
-      setClasses(classesWithStats);
+      const response = await api.get('/classes/experience-priority');
+      setClasses(response.data || []);
     } catch (error: any) {
       console.error('获取优先安排体验课班级失败:', error);
       setClasses([]);
@@ -120,10 +128,41 @@ const Classes = () => {
   const handleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
-      
+
       if (editingClass) {
-        await memfireDB.classes.update(editingClass.id, values);
+        // 编辑班级时，自动更新班级名称
+        let updateData = { ...values };
+
+        // 获取教练名称
+        const teacher = teachers.find(t => t.id === values.teacherId);
+        const teacherName = teacher?.name || editingClass.teacher?.name || '';
+
+        // 生成班级名称：教练名-星期时间-品类
+        if (values.weekDays && values.timeRange) {
+          const weekDayText = values.weekDays.length === 1
+            ? weekDayLabels[values.weekDays[0]]
+            : values.weekDays.map((d: number) => weekDayLabels[d]).join('');
+          const timeText = values.timeRange[0]?.format('HH:mm') || '';
+          const courseTypeText = values.courseType || editingClass.courseType || '';
+          updateData.name = `${teacherName}-${weekDayText}${timeText}-${courseTypeText}`;
+        }
+
+        // 更新 scheduleRule
+        if (values.weekDays && values.timeRange) {
+          updateData.scheduleRule = {
+            ...editingClass.scheduleRule,
+            weekDays: values.weekDays,
+            startTime: values.timeRange[0]?.format('HH:mm'),
+            endTime: values.timeRange[1]?.format('HH:mm'),
+            startDate: values.startDate?.format('YYYY-MM-DD') || editingClass.scheduleRule?.startDate,
+            endDate: values.endDate?.format('YYYY-MM-DD') || editingClass.scheduleRule?.endDate,
+          };
+        }
+
+        await api.put(`/classes/${editingClass.id}`, updateData);
         message.success('更新成功');
+        setModalVisible(false);
+        fetchClasses();
       } else {
         // 创建班级时需要添加 organizationId
         const classData = {
@@ -132,11 +171,16 @@ const Classes = () => {
           campusId: user?.campusId || undefined,
           status: 'active',
         };
-        await memfireDB.classes.create(classData);
-        message.success('创建成功');
+        const response = await api.post('/classes', classData);
+        message.success('班级创建成功，请设置上课时间');
+        setModalVisible(false);
+
+        // 刷新列表后自动打开排课弹窗
+        if (response.data?.id) {
+          setNewlyCreatedClassId(response.data.id);
+        }
+        fetchClasses();
       }
-      setModalVisible(false);
-      fetchClasses();
     } catch (error: any) {
       console.error('操作失败:', error);
       message.error(error.message || '操作失败');
@@ -173,7 +217,7 @@ const Classes = () => {
   const handleScheduleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
-      
+
       if (!user?.organizationId) {
         message.error('无法获取机构信息，请重新登录');
         return;
@@ -184,7 +228,20 @@ const Classes = () => {
         message.error('每周重复模式必须选择至少一个上课日期');
         return;
       }
-      
+
+      // 获取教练信息
+      const teacherId = values.teacherId || schedulingClass.teacherId;
+      const teacher = teachers.find(t => t.id === teacherId);
+      const teacherName = teacher?.name || schedulingClass?.teacher?.name || '';
+
+      // 【新增】自动生成班级名称：教练名 + 星期时间 + 品类
+      const weekDayText = values.weekDays.length === 1
+        ? weekDayLabels[values.weekDays[0]]
+        : values.weekDays.map(d => weekDayLabels[d]).join('');
+      const timeText = values.timeRange[0].format('HH:mm');
+      const courseTypeText = schedulingClass?.courseType || '';
+      const autoGeneratedName = `${teacherName}-${weekDayText}${timeText}-${courseTypeText}`;
+
       const scheduleData = {
         classId: schedulingClass.id,
         organizationId: user.organizationId,
@@ -195,7 +252,7 @@ const Classes = () => {
         startTime: values.timeRange[0].format('HH:mm'),
         endTime: values.timeRange[1].format('HH:mm'),
         location: values.location,
-        teacherId: values.teacherId || schedulingClass.teacherId,
+        teacherId: teacherId,
       };
 
       // 如果班级已有排课，先取消之前的排课
@@ -206,11 +263,11 @@ const Classes = () => {
           okText: '确认修改',
           cancelText: '取消',
           onOk: async () => {
-            await submitSchedule(scheduleData);
+            await submitSchedule(scheduleData, autoGeneratedName);
           },
         });
       } else {
-        await submitSchedule(scheduleData);
+        await submitSchedule(scheduleData, autoGeneratedName);
       }
     } catch (error: any) {
       console.error('排课失败:', error);
@@ -218,15 +275,15 @@ const Classes = () => {
     }
   };
 
-  const submitSchedule = async (scheduleData: any) => {
+  const submitSchedule = async (scheduleData: any, autoGeneratedName?: string) => {
     try {
       // 取消之前的排课
       if (schedulingClass.scheduleRule) {
-        await memfireDB.schedules.cancelByClass(schedulingClass.id);
+        await api.post(`/schedules/cancel-by-class/${schedulingClass.id}`);
       }
 
       // 创建新排课
-      await memfireDB.schedules.createRecurring(scheduleData);
+      await api.post('/schedules/recurring', scheduleData);
 
       // 更新班级的排课规则
       const scheduleRule = {
@@ -238,14 +295,32 @@ const Classes = () => {
         endTime: scheduleData.endTime,
         location: scheduleData.location,
       };
-      await memfireDB.classes.update(schedulingClass.id, { scheduleRule });
+
+      // 自动生成班级代码（如果班级没有代码或代码是旧的A/B/C/D格式）
+      const currentCode = schedulingClass.code;
+      const isOldFormat = ['A', 'B', 'C', 'D', 'E', 'F'].includes(currentCode);
+      const updateData: any = { scheduleRule };
+
+      if (!currentCode || isOldFormat) {
+        const newCode = generateClassCode(scheduleData.weekDays || [], scheduleData.startTime);
+        updateData.code = newCode;
+      }
+
+      // 【新增】自动更新班级名称
+      if (autoGeneratedName) {
+        updateData.name = autoGeneratedName;
+      }
+
+      await api.put(`/classes/${schedulingClass.id}`, updateData);
 
       // 更新当前班级显示
       setSchedulingClass({
         ...schedulingClass,
         scheduleRule,
+        code: updateData.code || schedulingClass.code,
+        name: updateData.name || schedulingClass.name,
       });
-      
+
       message.success('排课成功');
       // 不关闭窗口，保留排课信息显示
       fetchClasses();
@@ -258,7 +333,27 @@ const Classes = () => {
 
   const handleEdit = (record: any) => {
     setEditingClass(record);
-    form.setFieldsValue(record);
+
+    // 处理 scheduleRule 字段
+    const weekDays = record.scheduleRule?.weekDays;
+    const timeRange = record.scheduleRule?.startTime && record.scheduleRule?.endTime
+      ? [
+          dayjs(record.scheduleRule.startTime, 'HH:mm'),
+          dayjs(record.scheduleRule.endTime, 'HH:mm')
+        ]
+      : undefined;
+
+    const startDate = record.scheduleRule?.startDate ? dayjs(record.scheduleRule.startDate) : undefined;
+    const endDate = record.scheduleRule?.endDate ? dayjs(record.scheduleRule.endDate) : undefined;
+
+    form.setFieldsValue({
+      ...record,
+      weekDays,
+      timeRange,
+      startDate,
+      endDate,
+    });
+
     setModalVisible(true);
   };
 
@@ -268,7 +363,7 @@ const Classes = () => {
       content: '确定要删除该班级吗？',
       onOk: async () => {
         try {
-          await memfireDB.classes.delete(id);
+          await api.delete(`/classes/${id}`);
           message.success('删除成功');
           fetchClasses();
         } catch (error: any) {
@@ -287,7 +382,7 @@ const Classes = () => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          await memfireDB.classes.update(id, { status: 'inactive' });
+          await api.put(`/classes/${id}`, { status: 'inactive' });
           message.success('班级已停课');
           fetchClasses();
         } catch (error: any) {
@@ -306,7 +401,7 @@ const Classes = () => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          await memfireDB.classes.update(id, { status: 'active' });
+          await api.put(`/classes/${id}`, { status: 'active' });
           message.success('班级已复课');
           fetchClasses();
         } catch (error: any) {
@@ -322,8 +417,8 @@ const Classes = () => {
     setStudentsModalVisible(true);
     setStudentsLoading(true);
     try {
-      const students = await memfireDB.classes.getClassStudents(record.id);
-      setClassStudents(students || []);
+      const response = await api.get(`/classes/${record.id}/students`);
+      setClassStudents(response.data || []);
     } catch (error: any) {
       console.error('获取班级学员失败:', error);
       message.error(error.message || '获取班级学员失败');
@@ -336,14 +431,31 @@ const Classes = () => {
   const handleAddStudentToClass = (record: any) => {
     setAddingToClass(record);
     addStudentForm.resetFields();
-    fetchAvailableStudents();
+    fetchAvailableStudents(record.id);
     setAddStudentModalVisible(true);
   };
 
-  const fetchAvailableStudents = async () => {
+  const fetchAvailableStudents = async (classId?: string) => {
     try {
-      const allStudents = await memfireDB.students.listAll();
-      setAvailableStudents(allStudents || []);
+      // 获取所有学员
+      const response = await api.get('/students', { params: { pageSize: 1000 } });
+      let students = response.data || [];
+
+      // 如果指定了班级ID，过滤掉已在该班级中的学员
+      if (classId) {
+        try {
+          // 获取该班级已报名的学员
+          const enrolledResponse = await api.get(`/classes/${classId}/students`);
+          const enrolledStudentIds = (enrolledResponse.data || []).map((s: any) => s.id);
+          // 过滤掉已报名的学员
+          students = students.filter((s: any) => !enrolledStudentIds.includes(s.id));
+        } catch (e) {
+          // 如果获取班级学员失败，继续显示所有学员
+          console.warn('获取班级学员失败，显示所有学员', e);
+        }
+      }
+
+      setAvailableStudents(students);
     } catch (error: any) {
       console.error('获取学员列表失败:', error);
       message.error(error.message || '获取学员列表失败');
@@ -353,7 +465,7 @@ const Classes = () => {
   const handleAddStudentSubmit = async (values: any) => {
     if (!addingToClass) return;
     try {
-      await memfireDB.enrollments.create({
+      await api.post('/enrollments', {
         studentId: values.studentId,
         classId: addingToClass.id,
         status: 'active',
@@ -365,8 +477,8 @@ const Classes = () => {
       fetchClasses();
       // 如果学员名单窗口打开着，也刷新它
       if (viewingClass?.id === addingToClass.id) {
-        const students = await memfireDB.classes.getClassStudents(addingToClass.id);
-        setClassStudents(students || []);
+        const response = await api.get(`/classes/${addingToClass.id}/students`);
+        setClassStudents(response.data || []);
       }
     } catch (error: any) {
       console.error('添加学员失败:', error);
@@ -433,53 +545,6 @@ const Classes = () => {
         return `${currentStudents}/${capacity}`;
       },
     },
-    ...(showLowAttendanceOnly
-      ? [
-          {
-            title: '学员总数',
-            dataIndex: 'totalStudents',
-            key: 'totalStudents',
-          },
-          {
-            title: '第一周出勤率',
-            dataIndex: 'week1Rate',
-            key: 'week1Rate',
-            render: (rate: number) => (
-              <Tag color={rate >= 60 ? 'green' : rate >= 40 ? 'orange' : 'red'}>
-                {rate !== null ? `${rate}%` : '-'}
-              </Tag>
-            ),
-          },
-          {
-            title: '第二周出勤率',
-            dataIndex: 'week2Rate',
-            key: 'week2Rate',
-            render: (rate: number) => (
-              <Tag color={rate >= 60 ? 'green' : rate >= 40 ? 'orange' : 'red'}>
-                {rate !== null ? `${rate}%` : '-'}
-              </Tag>
-            ),
-          },
-          {
-            title: '平均出勤率',
-            dataIndex: 'attendanceRate',
-            key: 'attendanceRate',
-            render: (rate: number) => (
-              <Tag color={rate >= 60 ? 'green' : rate >= 40 ? 'orange' : 'red'}>
-                {rate}%
-              </Tag>
-            ),
-          },
-          {
-            title: '低出勤学员',
-            dataIndex: 'lowAttendanceCount',
-            key: 'lowAttendanceCount',
-            render: (count: number) => (
-              <Tag color="red">{count} 人</Tag>
-            ),
-          },
-        ]
-      : []),
     ...(showExperienceClassOnly
       ? [
           {
@@ -553,31 +618,44 @@ const Classes = () => {
     },
   ];
 
+  // 筛选后的班级列表
+  const filteredClasses = useMemo(() => {
+    let result = classes;
+
+    // 按教练筛选
+    if (filterTeacherId) {
+      result = result.filter(cls => cls.teacherId === filterTeacherId);
+    }
+
+    // 按星期几筛选
+    if (filterWeekDay !== null) {
+      result = result.filter(cls => {
+        const weekDays = cls.scheduleRule?.weekDays || [];
+        return weekDays.includes(filterWeekDay);
+      });
+    }
+
+    return result;
+  }, [classes, filterTeacherId, filterWeekDay]);
+
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h1>班级管理</h1>
         <Space>
           <Button
-            type={showLowAttendanceOnly ? 'default' : 'primary'}
-            icon={<FilterOutlined />}
-            onClick={() => {
-              setShowLowAttendanceOnly(!showLowAttendanceOnly);
-              setShowExperienceClassOnly(false);
-            }}
-          >
-            {showLowAttendanceOnly ? '取消筛选' : '低出勤班级筛选'}
-          </Button>
-          <Button
             type={showExperienceClassOnly ? 'default' : 'primary'}
-            icon={<FilterOutlined />}
             onClick={() => {
               setShowExperienceClassOnly(!showExperienceClassOnly);
-              setShowLowAttendanceOnly(false);
             }}
           >
             {showExperienceClassOnly ? '取消筛选' : '优先安排体验课班级'}
           </Button>
+          {canEdit && (
+            <Button icon={<FileExcelOutlined />} onClick={() => setBatchImportModalVisible(true)}>
+              批量导入
+            </Button>
+          )}
           {canEdit && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               setEditingClass(null);
@@ -589,7 +667,63 @@ const Classes = () => {
           )}
         </Space>
       </div>
-      <Table columns={columns} dataSource={classes} loading={loading} rowKey="id" />
+
+      {/* 筛选区域 */}
+      <div style={{
+        marginBottom: 16,
+        padding: '12px 16px',
+        background: '#fafafa',
+        borderRadius: 8,
+        display: 'flex',
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: 12
+      }}>
+        <span style={{ fontWeight: 500 }}>筛选：</span>
+        <Select
+          placeholder="选择教练"
+          allowClear
+          style={{ width: 140, minWidth: 140 }}
+          value={filterTeacherId}
+          onChange={(value) => setFilterTeacherId(value)}
+        >
+          {teachers.map(teacher => (
+            <Select.Option key={teacher.id} value={teacher.id}>
+              {teacher.name}
+            </Select.Option>
+          ))}
+        </Select>
+        <Select
+          placeholder="选择星期"
+          allowClear
+          style={{ width: 110, minWidth: 110 }}
+          value={filterWeekDay}
+          onChange={(value) => setFilterWeekDay(value)}
+        >
+          <Select.Option value={1}>周一</Select.Option>
+          <Select.Option value={2}>周二</Select.Option>
+          <Select.Option value={3}>周三</Select.Option>
+          <Select.Option value={4}>周四</Select.Option>
+          <Select.Option value={5}>周五</Select.Option>
+          <Select.Option value={6}>周六</Select.Option>
+          <Select.Option value={0}>周日</Select.Option>
+        </Select>
+        {(filterTeacherId || filterWeekDay !== null) && (
+          <Button size="small" onClick={() => {
+            setFilterTeacherId(null);
+            setFilterWeekDay(null);
+          }}>
+            清除
+          </Button>
+        )}
+        <span style={{ color: '#999', marginLeft: 'auto' }}>
+          共 {filteredClasses.length} 个班级
+        </span>
+      </div>
+
+      {/* 班级列表 */}
+      <Table columns={columns} dataSource={filteredClasses} loading={loading} rowKey="id" />
+
       <Modal
         title={editingClass ? '编辑班级' : '新增班级'}
         open={modalVisible}
@@ -642,6 +776,55 @@ const Classes = () => {
           <Form.Item name="capacity" label="容量" rules={[{ required: true }]}>
             <Input type="number" />
           </Form.Item>
+
+          {/* 上课时间设置 */}
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+            <div style={{ marginBottom: 12, fontWeight: 500, color: '#666' }}>上课时间设置</div>
+            <Form.Item
+              name="weekDays"
+              label="每周安排"
+              rules={[{ required: true, message: '请选择上课日期' }]}
+            >
+              <Checkbox.Group>
+                <Checkbox value={1}>周一</Checkbox>
+                <Checkbox value={2}>周二</Checkbox>
+                <Checkbox value={3}>周三</Checkbox>
+                <Checkbox value={4}>周四</Checkbox>
+                <Checkbox value={5}>周五</Checkbox>
+                <Checkbox value={6}>周六</Checkbox>
+                <Checkbox value={0}>周日</Checkbox>
+              </Checkbox.Group>
+            </Form.Item>
+            <Form.Item
+              name="timeRange"
+              label="上课时段"
+              rules={[{ required: true, message: '请选择上课时段' }]}
+            >
+              <TimePicker.RangePicker
+                style={{ width: '100%' }}
+                format="HH:mm"
+                minuteStep={15}
+              />
+            </Form.Item>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="startDate"
+                  label="开始日期"
+                >
+                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="endDate"
+                  label="结束日期"
+                >
+                  <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </div>
         </Form>
       </Modal>
 
@@ -892,13 +1075,21 @@ const Classes = () => {
           </Form.Item>
 
           <Form.Item name="notes" label="备注">
-            <Input.TextArea 
-              rows={3} 
-              placeholder="选填，如：转班、新学员等备注信息" 
+            <Input.TextArea
+              rows={3}
+              placeholder="选填，如：转班、新学员等备注信息"
             />
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 批量导入 Modal */}
+      <ImportModal
+        visible={batchImportModalVisible}
+        type="classes"
+        onClose={() => setBatchImportModalVisible(false)}
+        onSuccess={fetchClasses}
+      />
     </div>
   );
 };

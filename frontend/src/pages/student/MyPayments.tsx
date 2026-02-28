@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Card, Tag, DatePicker, Select, Statistic, Row, Col, Space, message, Empty } from 'antd';
-import { DollarOutlined, WalletOutlined, CalendarOutlined, FileTextOutlined } from '@ant-design/icons';
+import { DollarOutlined, CalendarOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import dayjs from 'dayjs';
 
@@ -86,8 +86,8 @@ const MyPayments = () => {
       }
 
       const response = await api.get(`/parent/payments/${selectedStudentId}`, { params });
-      setPayments(response.data.data || []);
-      setSummary(response.data.summary || {
+      setPayments(response.data || []);
+      setSummary(response.summary || {
         totalAmount: 0,
         paymentByType: {},
       });

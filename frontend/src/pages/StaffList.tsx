@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Space, Tag, message, Modal, Form, Input, Select, Card } from 'antd';
-import { UserAddOutlined, EditOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
-import memfireDB from '../services/memfireDB';
+import { UserAddOutlined, EditOutlined, TeamOutlined } from '@ant-design/icons';
+import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { normalizeRole } from '../utils/dataFilter';
 
@@ -63,8 +63,8 @@ const StaffList = () => {
 
   const fetchOrganizations = async () => {
     try {
-      const data = await memfireDB.organizations.listAll();
-      setOrganizations(data || []);
+      const response = await api.get('/organizations');
+      setOrganizations(response.data || []);
     } catch (error) {
       console.error('获取机构列表失败:', error);
     }
@@ -72,8 +72,8 @@ const StaffList = () => {
 
   const fetchCampuses = async () => {
     try {
-      const data = await memfireDB.campuses.listAll();
-      setCampuses(data || []);
+      const response = await api.get('/campuses');
+      setCampuses(response.data || []);
     } catch (error) {
       console.error('获取校区列表失败:', error);
     }
@@ -82,9 +82,12 @@ const StaffList = () => {
   const fetchStaffList = async () => {
     setLoading(true);
     try {
-      const data = await memfireDB.users.listAll();
-      setStaffList(data || []);
-      setFilteredStaffList(data || []);
+      const response = await api.get('/users');
+      const data = response.data || [];
+      // 过滤掉家长角色
+      const staffOnly = data.filter((user: any) => user.role !== 'parent');
+      setStaffList(staffOnly);
+      setFilteredStaffList(staffOnly);
     } catch (error: any) {
       console.error('获取工作人员列表失败:', error);
       message.error('获取工作人员列表失败');
@@ -95,11 +98,12 @@ const StaffList = () => {
 
   const fetchGroups = async () => {
     try {
-      // 从用户数据中提取所有分组
-      const data = await memfireDB.users.listAll();
+      // 从用户数据中提取所有分组（排除家长角色）
+      const response = await api.get('/users');
+      const data = response.data || [];
       const groupSet = new Set<string>();
-      (data || []).forEach((user: any) => {
-        if (user.group) {
+      data.forEach((user: any) => {
+        if (user.group && user.role !== 'parent') {
           groupSet.add(user.group);
         }
       });
@@ -130,11 +134,11 @@ const StaffList = () => {
   const handleSubmit = async (values: any) => {
     try {
       if (editingStaff) {
-        await memfireDB.users.update(editingStaff.id, values);
+        await api.put(`/users/${editingStaff.id}`, values);
         message.success('更新成功');
       } else {
-        const result = await memfireDB.users.create(values);
-        const { defaultPassword } = result.data || {};
+        const response = await api.post('/auth/create-staff', values);
+        const { defaultPassword } = response.data || {};
         message.success(
           `添加成功${defaultPassword ? `，默认密码：${defaultPassword}` : ''}`
         );
@@ -168,7 +172,7 @@ const StaffList = () => {
       // 如果当前是管理员角色（admin 或 manager），取消管理员身份，恢复为 coach
       // 如果不是管理员角色，设为 manager（校区管理员）
       const newRole = (currentRole === 'admin' || currentRole === 'manager') ? 'coach' : 'manager';
-      await memfireDB.users.update(userId, { role: newRole });
+      await api.put(`/users/${userId}`, { role: newRole });
       message.success(newRole === 'manager' ? '已设为校区管理员' : '已取消管理员身份');
       fetchStaffList();
     } catch (error: any) {
@@ -372,18 +376,24 @@ const StaffList = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item
-              name="email"
-              label="邮箱"
+              name="phone"
+              label="手机号"
               rules={[
-                { required: true, message: '请输入邮箱' },
+                { required: true, message: '请输入手机号' },
+                { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
+              ]}
+            >
+              <Input placeholder="请输入手机号" />
+            </Form.Item>
+
+            <Form.Item
+              name="email"
+              label="邮箱（可选）"
+              rules={[
                 { type: 'email', message: '请输入有效的邮箱' },
               ]}
             >
-              <Input placeholder="请输入邮箱" />
-            </Form.Item>
-
-            <Form.Item name="phone" label="联系方式">
-              <Input placeholder="请输入联系方式" />
+              <Input placeholder="请输入邮箱（可选）" />
             </Form.Item>
           </div>
 
@@ -415,9 +425,9 @@ const StaffList = () => {
             <Form.Item
               name="password"
               label="初始密码"
-              rules={[{ required: true, message: '请输入初始密码' }]}
+              extra="留空则使用默认密码 123456"
             >
-              <Input.Password placeholder="请输入初始密码" />
+              <Input.Password placeholder="留空使用默认密码 123456" />
             </Form.Item>
           )}
         </Form>

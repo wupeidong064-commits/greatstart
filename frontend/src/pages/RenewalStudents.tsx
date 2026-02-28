@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Table, Input, Space, Tag, message, Button, Select, Modal, Form, InputNumber, DatePicker, Tabs, Popconfirm } from 'antd';
 import { SearchOutlined, FileExcelOutlined, CheckCircleOutlined, CloseCircleOutlined, UserOutlined } from '@ant-design/icons';
-import memfireDB from '../services/memfireDB';
+import api from '../services/api';
+import { dataService } from '../services/dataService';
 import { getDataScopeFilter } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
@@ -67,16 +68,23 @@ const RenewalStudents = () => {
 
   useEffect(() => {
     if (activeTab === 'pending') {
-    fetchRenewalStudents();
+      fetchRenewalStudents();
     } else {
       fetchNoRenewalStudents();
     }
-  }, [pagination.current, pagination.pageSize, searchText, selectedTeacher, activeTab, noRenewalPagination.current, renewalDateRange]);
+  }, [pagination.current, pagination.pageSize, searchText, selectedTeacher, activeTab, renewalDateRange]);
+
+  // 分离 noRenewalPagination 的依赖，避免交叉触发
+  useEffect(() => {
+    if (activeTab === 'no_renewal') {
+      fetchNoRenewalStudents();
+    }
+  }, [noRenewalPagination.current, noRenewalPagination.pageSize]);
 
   const fetchTeacherList = async () => {
     try {
-      const users = await memfireDB.users.listTeachers();
-      setTeacherList(users || []);
+      const data = await dataService.getTeachers();
+      setTeacherList(data);
     } catch (error) {
       console.error('获取教练列表失败:', error);
     }
@@ -84,8 +92,8 @@ const RenewalStudents = () => {
 
   const fetchClassList = async () => {
     try {
-      const classes = await memfireDB.classes.listAll();
-      setClassList(classes || []);
+      const data = await dataService.getClasses();
+      setClassList(data || []);
     } catch (error) {
       console.error('获取班级列表失败:', error);
     }
@@ -96,22 +104,35 @@ const RenewalStudents = () => {
     try {
       // 应用数据过滤：teacher 角色自动传入自己的 ID
       const filter = getDataScopeFilter('students');
-      
-      const result = await memfireDB.students.listForRenewal({
-          page: pagination.current,
-          pageSize: pagination.pageSize,
-        search: searchText,
+
+      const params = {
+        page: pagination.current,
+        pageSize: pagination.pageSize,
+        search: searchText || undefined,
         teacherId: selectedTeacher || filter.teacherId || undefined,
         maxRemainingLessons: 10,
-        excludeNoRenewal: true, // 排除已标记不续费的
-        renewalStartDate: renewalDateRange?.[0] ? renewalDateRange[0].format('YYYY-MM-DD') : undefined,
-        renewalEndDate: renewalDateRange?.[1] ? renewalDateRange[1].format('YYYY-MM-DD') : undefined,
-      });
-      
-      setStudents(result.data || []);
+        excludeNoRenewal: true,
+      };
+      console.log('[DEBUG fetchRenewalStudents] 请求参数:', params);
+
+      const response = await api.get('/students', { params });
+
+      console.log('[DEBUG fetchRenewalStudents] 后端完整响应:', response);
+      console.log('[DEBUG fetchRenewalStudents] response类型:', Array.isArray(response) ? '数组' : typeof response);
+
+      // 响应拦截器已经返回 response.data，所以 response 就是后端返回的完整对象
+      // 后端 sendPaginated 返回 { success, data, pagination }
+      const students = response.data || [];
+      const paginationInfo = response.pagination || {};
+
+      console.log('[DEBUG fetchRenewalStudents] 学员数组:', students.length, '条');
+      console.log('[DEBUG fetchRenewalStudents] 学员详情:', students);
+      console.log('[DEBUG fetchRenewalStudents] 分页信息:', paginationInfo);
+
+      setStudents(students);
       setPagination(prev => ({
         ...prev,
-        total: result.pagination?.total || 0,
+        total: paginationInfo.total || 0,
       }));
     } catch (error: any) {
       console.error('获取续费学员列表失败:', error);
@@ -126,14 +147,18 @@ const RenewalStudents = () => {
     try {
       // 应用数据过滤：teacher 角色自动传入自己的 ID
       const filter = getDataScopeFilter('students');
-      
-      const result = await memfireDB.students.listNoRenewal({
-        page: noRenewalPagination.current,
-        pageSize: noRenewalPagination.pageSize,
-        search: searchText,
-        teacherId: filter.teacherId || undefined,
+
+      const response = await api.get('/students', {
+        params: {
+          page: noRenewalPagination.current,
+          pageSize: noRenewalPagination.pageSize,
+          search: searchText,
+          teacherId: filter.teacherId || undefined,
+          renewalStatus: 'no_renewal',
+        }
       });
-      
+      const result = response || {};
+
       let filteredData = result.data || [];
       if (selectedTeacher) {
         filteredData = filteredData.filter((student: any) => student.teacherId === selectedTeacher);
@@ -200,13 +225,11 @@ const RenewalStudents = () => {
       // 确定实际的班级ID和班级信息
       let finalClassId = values.classId || originalClassId; // 未填班级则使用原班级
       let finalClassName = null;
-      let finalTeacherId = originalTeacherId; // 默认使用原班级教练
 
       if (values.classId) {
         // 如果填了新班级，获取新班级信息
         const selectedClass = classList.find(c => c.id === values.classId);
         finalClassName = selectedClass?.name || null;
-        finalTeacherId = selectedClass?.teacher?.id || originalTeacherId;
       } else {
         // 未填班级，使用原班级信息
         finalClassName = originalClass?.name || null;
@@ -252,12 +275,13 @@ const RenewalStudents = () => {
         conversionDate: values.conversionDate ? values.conversionDate.format('YYYY-MM-DD') : null,
         notes: `续费 - ${values.notes || ''}`,
         existingStudentId: renewingStudent.id,
+        courseType: 'renewal',  // 标记为续费类型，用于现金流统计
       };
 
-      await memfireDB.conversions.createRenewal(conversionData);
-      
+      await api.post('/conversions', conversionData);
+
       const newRemainingLessons = (renewingStudent.remainingLessons || 0) + (values.totalLessons || 0);
-      await memfireDB.students.update(renewingStudent.id, {
+      await api.put(`/students/${renewingStudent.id}`, {
         remainingLessons: newRemainingLessons,
       });
 
@@ -273,7 +297,7 @@ const RenewalStudents = () => {
   // 提交不续费
   const handleNoRenewalSubmit = async (values: any) => {
     try {
-      await memfireDB.students.update(renewingStudent.id, {
+      await api.put(`/students/${renewingStudent.id}`, {
         renewalStatus: 'no_renewal',
         noRenewalReason: values.reason,
         noRenewalDate: new Date().toISOString(),
@@ -291,12 +315,12 @@ const RenewalStudents = () => {
   // 恢复为待续费
   const handleRestoreRenewal = async (student: any) => {
     try {
-      await memfireDB.students.update(student.id, {
+      await api.put(`/students/${student.id}`, {
         renewalStatus: null,
         noRenewalReason: null,
         noRenewalDate: null,
       });
-      
+
       message.success(`已将 ${student.name} 恢复为待续费`);
       fetchNoRenewalStudents();
     } catch (error: any) {

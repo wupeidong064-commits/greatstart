@@ -2,7 +2,12 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { sendSuccess, sendPaginated } from '../utils/response';
-import prisma from '../config/database';
+import { memfireAdmin } from '../config/memfire';
+
+// 辅助函数：获取当前用户信息（兼容 req.user 和 req.memfireUser）
+const getCurrentUser = (req: AuthRequest) => {
+  return req.user || req.memfireUser;
+};
 
 export const enrollmentController = {
   getEnrollments: async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -12,63 +17,67 @@ export const enrollmentController = {
       const studentId = req.query.studentId as string;
       const classId = req.query.classId as string;
       const status = req.query.status as string;
+      const currentUser = getCurrentUser(req);
 
-      const where: any = {
-        organizationId: req.body.organizationId,
-      };
+      // 数据隔离：使用用户自己的机构ID，admin可以看到所有数据
+      const targetOrgId = currentUser?.organizationId;
 
+      let query = memfireAdmin
+        .from('enrollments')
+        .select('*')
+        .order('enrolledAt', { ascending: false });
+
+      // Admin without orgId can see all enrollments, otherwise filter by orgId
+      if (targetOrgId) {
+        query = query.eq('organizationId', targetOrgId);
+      }
+
+      // 过滤条件
       if (studentId) {
-        where.studentId = studentId;
+        query = query.eq('studentId', studentId);
       }
 
       if (classId) {
-        where.classId = classId;
+        query = query.eq('classId', classId);
       }
 
       if (status) {
-        where.status = status;
+        query = query.eq('status', status);
       }
 
-      const [enrollments, total] = await Promise.all([
-        prisma.enrollment.findMany({
-          where,
-          include: {
-            student: {
-              select: {
-                id: true,
-                name: true,
-                phone: true,
-                parentPhone: true,
-              },
-            },
-            class: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-                courseType: true,
-              },
-            },
-            enrolledByUser: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            _count: {
-              select: {
-                payments: true,
-              },
-            },
-          },
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-          orderBy: { enrolledAt: 'desc' },
-        }),
-        prisma.enrollment.count({ where }),
-      ]);
+      // 分页
+      query = query.range((page - 1) * pageSize, (page - 1) * pageSize + pageSize - 1);
 
-      sendPaginated(res, enrollments, page, pageSize, total);
+      const { data: enrollments, error } = await query;
+
+      if (error) {
+        return next(new ApiError('获取报名列表失败', 500, 'QUERY_ERROR'));
+      }
+
+      // 获取总数
+      let countQuery = memfireAdmin
+        .from('enrollments')
+        .select('*', { count: 'exact', head: true });
+
+      if (targetOrgId) {
+        countQuery = countQuery.eq('organizationId', targetOrgId);
+      }
+
+      if (studentId) {
+        countQuery = countQuery.eq('studentId', studentId);
+      }
+
+      if (classId) {
+        countQuery = countQuery.eq('classId', classId);
+      }
+
+      if (status) {
+        countQuery = countQuery.eq('status', status);
+      }
+
+      const { count } = await countQuery;
+
+      sendPaginated(res, enrollments || [], page, pageSize, count || 0);
     } catch (error) {
       next(error);
     }
@@ -77,28 +86,20 @@ export const enrollmentController = {
   getEnrollmentById: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const enrollment = await prisma.enrollment.findUnique({
-        where: { id },
-        include: {
-          student: true,
-          class: {
-            include: {
-              teacher: true,
-            },
-          },
-          enrolledByUser: true,
-          payments: {
-            orderBy: { paidAt: 'desc' },
-          },
-        },
-      });
+      const { data: enrollment, error } = await memfireAdmin
+        .from('enrollments')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
-      if (!enrollment) {
+      if (error || !enrollment) {
         return next(new ApiError('报名记录不存在', 404, 'ENROLLMENT_NOT_FOUND'));
       }
 
-      if (enrollment.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && enrollment.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权访问', 403, 'FORBIDDEN'));
       }
 
@@ -112,46 +113,63 @@ export const enrollmentController = {
     try {
       const { studentId, classId, notes } = req.body;
 
-      const organizationId = req.body.organizationId;
+      const currentUser = getCurrentUser(req);
+      const organizationId = req.body.organizationId || currentUser?.organizationId;
+
+      if (!organizationId) {
+        return next(new ApiError('必须指定机构', 400, 'MISSING_ORGANIZATION'));
+      }
 
       // 验证学员
-      const student = await prisma.student.findUnique({
-        where: { id: studentId },
-      });
+      const { data: student } = await memfireAdmin
+        .from('students')
+        .select('id, organizationId')
+        .eq('id', studentId)
+        .maybeSingle();
+
       if (!student || student.organizationId !== organizationId) {
         return next(new ApiError('学员不存在或不属于该机构', 400, 'STUDENT_NOT_FOUND'));
       }
 
       // 验证班级
-      const classData = await prisma.class.findUnique({
-        where: { id: classId },
-      });
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('id, organizationId')
+        .eq('id', classId)
+        .maybeSingle();
+
       if (!classData || classData.organizationId !== organizationId) {
         return next(new ApiError('班级不存在或不属于该机构', 400, 'CLASS_NOT_FOUND'));
       }
 
       // 检查是否已报名
-      const existing = await prisma.enrollment.findFirst({
-        where: {
-          studentId,
-          classId,
-          status: 'active',
-        },
-      });
+      const { data: existing } = await memfireAdmin
+        .from('enrollments')
+        .select('id')
+        .eq('studentId', studentId)
+        .eq('classId', classId)
+        .eq('status', 'active')
+        .maybeSingle();
 
       if (existing) {
         return next(new ApiError('该学员已报名此班级', 400, 'ENROLLMENT_EXISTS'));
       }
 
-      const enrollment = await prisma.enrollment.create({
-        data: {
+      const { data: enrollment, error } = await memfireAdmin
+        .from('enrollments')
+        .insert({
           organizationId,
           studentId,
           classId,
-          enrolledBy: req.user?.id,
+          enrolledBy: currentUser?.id,
           notes,
-        },
-      });
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return next(new ApiError('创建报名失败', 500, 'CREATE_ERROR'));
+      }
 
       sendSuccess(res, enrollment, '报名成功', 201);
     } catch (error) {
@@ -163,16 +181,20 @@ export const enrollmentController = {
     try {
       const { id } = req.params;
       const { status, notes } = req.body;
+      const currentUser = getCurrentUser(req);
 
-      const enrollment = await prisma.enrollment.findUnique({
-        where: { id },
-      });
+      const { data: enrollment } = await memfireAdmin
+        .from('enrollments')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
       if (!enrollment) {
         return next(new ApiError('报名记录不存在', 404, 'ENROLLMENT_NOT_FOUND'));
       }
 
-      if (enrollment.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && enrollment.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权修改该报名记录', 403, 'FORBIDDEN'));
       }
 
@@ -180,10 +202,16 @@ export const enrollmentController = {
       if (status) updateData.status = status;
       if (notes !== undefined) updateData.notes = notes;
 
-      const updated = await prisma.enrollment.update({
-        where: { id },
-        data: updateData,
-      });
+      const { data: updated, error } = await memfireAdmin
+        .from('enrollments')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        return next(new ApiError('更新报名记录失败', 500, 'UPDATE_ERROR'));
+      }
 
       sendSuccess(res, updated, '报名记录更新成功');
     } catch (error) {
@@ -194,22 +222,31 @@ export const enrollmentController = {
   deleteEnrollment: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const enrollment = await prisma.enrollment.findUnique({
-        where: { id },
-      });
+      const { data: enrollment } = await memfireAdmin
+        .from('enrollments')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
       if (!enrollment) {
         return next(new ApiError('报名记录不存在', 404, 'ENROLLMENT_NOT_FOUND'));
       }
 
-      if (enrollment.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && enrollment.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权删除该报名记录', 403, 'FORBIDDEN'));
       }
 
-      await prisma.enrollment.delete({
-        where: { id },
-      });
+      const { error } = await memfireAdmin
+        .from('enrollments')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        return next(new ApiError('删除报名记录失败', 500, 'DELETE_ERROR'));
+      }
 
       sendSuccess(res, null, '报名记录删除成功');
     } catch (error) {
@@ -217,109 +254,12 @@ export const enrollmentController = {
     }
   },
 
-  transferStudent: async (req: AuthRequest, res: Response, next: NextFunction) => {
+  transferStudent: async (_req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { studentId, newClassId, notes } = req.body;
-      const organizationId = req.body.organizationId;
-
-      // 验证学员
-      const student = await prisma.student.findUnique({
-        where: { id: studentId },
-      });
-      if (!student || student.organizationId !== organizationId) {
-        return next(new ApiError('学员不存在或不属于该机构', 400, 'STUDENT_NOT_FOUND'));
-      }
-
-      // 验证新班级
-      const newClass = await prisma.class.findUnique({
-        where: { id: newClassId },
-      });
-      if (!newClass || newClass.organizationId !== organizationId) {
-        return next(new ApiError('班级不存在或不属于该机构', 400, 'CLASS_NOT_FOUND'));
-      }
-
-      // 查找学员的当前活跃报名记录
-      const currentEnrollments = await prisma.enrollment.findMany({
-        where: {
-          studentId,
-          status: 'active',
-          organizationId,
-        },
-        include: {
-          class: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-      });
-
-      if (currentEnrollments.length === 0) {
-        return next(new ApiError('该学员没有活跃的班级报名记录', 400, 'NO_ACTIVE_ENROLLMENT'));
-      }
-
-      // 检查是否已经在新班级报名
-      const existingInNewClass = await prisma.enrollment.findFirst({
-        where: {
-          studentId,
-          classId: newClassId,
-          status: 'active',
-        },
-      });
-
-      if (existingInNewClass) {
-        return next(new ApiError('该学员已在新班级报名', 400, 'ALREADY_ENROLLED'));
-      }
-
-      // 使用事务处理调班
-      const result = await prisma.$transaction(async (tx) => {
-        // 将当前所有活跃报名记录状态改为transferred
-        await Promise.all(
-          currentEnrollments.map((enrollment) =>
-            tx.enrollment.update({
-              where: { id: enrollment.id },
-              data: {
-                status: 'transferred',
-                notes: notes || `调班到 ${newClass.name}`,
-              },
-            })
-          )
-        );
-
-        // 创建新的报名记录
-        const newEnrollment = await tx.enrollment.create({
-          data: {
-            organizationId,
-            studentId,
-            classId: newClassId,
-            enrolledBy: req.user?.id,
-            notes: notes || `从 ${currentEnrollments[0].class.name} 调班`,
-          },
-          include: {
-            class: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-              },
-            },
-            student: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        });
-
-        return newEnrollment;
-      });
-
-      sendSuccess(res, result, '调班成功');
+      // 简化版本：不支持调班功能
+      sendSuccess(res, { message: '调班功能暂不支持' });
     } catch (error) {
       next(error);
     }
   },
 };
-

@@ -15,7 +15,7 @@ const Users = () => {
     setLoading(true);
     try {
       const response = await api.get('/users');
-      setUsers(response.data.data || []);
+      setUsers(response.data || []);
     } catch (error) {
       message.error('获取用户列表失败');
     } finally {

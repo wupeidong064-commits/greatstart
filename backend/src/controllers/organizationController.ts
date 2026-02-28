@@ -2,7 +2,12 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { sendSuccess, sendPaginated } from '../utils/response';
-import prisma from '../config/database';
+import { memfireAdmin } from '../config/memfire';
+
+// 辅助函数：获取当前用户信息（兼容 req.user 和 req.memfireUser）
+const getCurrentUser = (req: AuthRequest) => {
+  return req.user || req.memfireUser;
+};
 
 export const organizationController = {
   getOrganizations: async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -10,35 +15,60 @@ export const organizationController = {
       const page = parseInt(req.query.page as string) || 1;
       const pageSize = parseInt(req.query.pageSize as string) || 10;
       const search = req.query.search as string;
+      const currentUser = getCurrentUser(req);
 
-      const where: any = {};
-      if (search) {
-        where.OR = [
-          { name: { contains: search, mode: 'insensitive' } },
-          { code: { contains: search, mode: 'insensitive' } },
-        ];
+      let query = memfireAdmin
+        .from('organizations')
+        .select('*')
+        .order('createdAt', { ascending: false });
+
+      // 数据隔离：
+      // - admin: 可以看到所有机构
+      // - 其他角色: 只能看到自己的机构
+      if (currentUser?.role === 'admin') {
+        // admin 不过滤，显示所有机构
+      } else if (currentUser?.organizationId) {
+        query = query.eq('id', currentUser.organizationId);
+      } else {
+        // 没有机构ID的非admin用户，返回空列表
+        return sendPaginated(res, [], page, pageSize, 0);
       }
 
-      const [organizations, total] = await Promise.all([
-        prisma.organization.findMany({
-          where,
-          include: {
-            _count: {
-              select: {
-                campuses: true,
-                users: true,
-                students: true,
-              },
-            },
-          },
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-          orderBy: { createdAt: 'desc' },
-        }),
-        prisma.organization.count({ where }),
-      ]);
+      // 分页
+      query = query.range((page - 1) * pageSize, (page - 1) * pageSize + pageSize - 1);
 
-      sendPaginated(res, organizations, page, pageSize, total);
+      const { data: organizations, error } = await query;
+
+      if (error) {
+        return next(new ApiError('获取机构列表失败', 500, 'QUERY_ERROR'));
+      }
+
+      // 获取总数
+      let countQuery = memfireAdmin
+        .from('organizations')
+        .select('*', { count: 'exact', head: true });
+
+      if (currentUser?.role === 'admin') {
+        // admin 不需要过滤
+      } else if (currentUser?.organizationId) {
+        countQuery = countQuery.eq('id', currentUser.organizationId);
+      } else {
+        // 没有机构ID的非admin用户，count为0
+      }
+
+      const { count } = await countQuery;
+
+      // 客户端搜索过滤
+      let filteredOrgs = organizations || [];
+      if (search) {
+        const searchLower = search.toLowerCase();
+        filteredOrgs = filteredOrgs.filter((org: any) =>
+          (org.name && org.name.toLowerCase().includes(searchLower)) ||
+          (org.code && org.code.toLowerCase().includes(searchLower))
+        );
+      }
+
+      sendPaginated(res, filteredOrgs, page, pageSize, count || 0);
     } catch (error) {
       next(error);
     }
@@ -47,38 +77,39 @@ export const organizationController = {
   getOrganizationById: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const organization = await prisma.organization.findUnique({
-        where: { id },
-        include: {
-          campuses: {
-            select: {
-              id: true,
-              name: true,
-              code: true,
-              isActive: true,
-            },
-          },
-          _count: {
-            select: {
-              users: true,
-              students: true,
-              classes: true,
-            },
-          },
-        },
-      });
+      const { data: organization, error } = await memfireAdmin
+        .from('organizations')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
-      if (!organization) {
+      if (error || !organization) {
         return next(new ApiError('机构不存在', 404, 'ORGANIZATION_NOT_FOUND'));
       }
 
       // 数据隔离：非admin只能查看自己机构
-      if (req.user?.role !== 'admin' && organization.id !== req.user?.organizationId) {
+      if (currentUser?.role !== 'admin' && organization.id !== currentUser?.organizationId) {
         return next(new ApiError('无权访问', 403, 'FORBIDDEN'));
       }
 
-      sendSuccess(res, organization);
+      // 获取校区的数量
+      const { data: campuses } = await memfireAdmin
+        .from('campuses')
+        .select('id', { count: 'exact' })
+        .eq('organizationId', id);
+
+      // 获取关联数据统计（简化版本）
+      const result = {
+        ...organization,
+        campuses: campuses || [],
+        _count: {
+          campuses: campuses?.length || 0,
+        },
+      };
+
+      sendSuccess(res, result);
     } catch (error) {
       next(error);
     }
@@ -87,25 +118,39 @@ export const organizationController = {
   createOrganization: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { name, code, address, phone, email } = req.body;
+      const currentUser = getCurrentUser(req);
+
+      // 只有 admin 可以创建机构
+      if (currentUser?.role !== 'admin') {
+        return next(new ApiError('无权创建机构', 403, 'FORBIDDEN'));
+      }
 
       // 检查代码是否已存在
-      const existing = await prisma.organization.findUnique({
-        where: { code },
-      });
+      const { data: existing } = await memfireAdmin
+        .from('organizations')
+        .select('id')
+        .eq('code', code)
+        .maybeSingle();
 
       if (existing) {
         return next(new ApiError('机构代码已存在', 400, 'CODE_EXISTS'));
       }
 
-      const organization = await prisma.organization.create({
-        data: {
+      const { data: organization, error } = await memfireAdmin
+        .from('organizations')
+        .insert({
           name,
           code,
           address,
           phone,
           email,
-        },
-      });
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return next(new ApiError('创建机构失败', 500, 'CREATE_ERROR'));
+      }
 
       sendSuccess(res, organization, '机构创建成功', 201);
     } catch (error) {
@@ -117,13 +162,22 @@ export const organizationController = {
     try {
       const { id } = req.params;
       const { name, address, phone, email, isActive } = req.body;
+      const currentUser = getCurrentUser(req);
 
-      const organization = await prisma.organization.findUnique({
-        where: { id },
-      });
+      // 检查机构是否存在
+      const { data: existing } = await memfireAdmin
+        .from('organizations')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
-      if (!organization) {
+      if (!existing) {
         return next(new ApiError('机构不存在', 404, 'ORGANIZATION_NOT_FOUND'));
+      }
+
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && existing.id !== currentUser?.organizationId) {
+        return next(new ApiError('无权修改该机构', 403, 'FORBIDDEN'));
       }
 
       const updateData: any = {};
@@ -133,10 +187,16 @@ export const organizationController = {
       if (email !== undefined) updateData.email = email;
       if (isActive !== undefined) updateData.isActive = isActive;
 
-      const updated = await prisma.organization.update({
-        where: { id },
-        data: updateData,
-      });
+      const { data: updated, error } = await memfireAdmin
+        .from('organizations')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        return next(new ApiError('更新机构失败', 500, 'UPDATE_ERROR'));
+      }
 
       sendSuccess(res, updated, '机构更新成功');
     } catch (error) {
@@ -147,18 +207,32 @@ export const organizationController = {
   deleteOrganization: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const organization = await prisma.organization.findUnique({
-        where: { id },
-      });
+      // 只有 admin 可以删除机构
+      if (currentUser?.role !== 'admin') {
+        return next(new ApiError('无权删除机构', 403, 'FORBIDDEN'));
+      }
 
-      if (!organization) {
+      // 检查机构是否存在
+      const { data: existing } = await memfireAdmin
+        .from('organizations')
+        .select('id')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (!existing) {
         return next(new ApiError('机构不存在', 404, 'ORGANIZATION_NOT_FOUND'));
       }
 
-      await prisma.organization.delete({
-        where: { id },
-      });
+      const { error } = await memfireAdmin
+        .from('organizations')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        return next(new ApiError('删除机构失败', 500, 'DELETE_ERROR'));
+      }
 
       sendSuccess(res, null, '机构删除成功');
     } catch (error) {
@@ -166,4 +240,3 @@ export const organizationController = {
     }
   },
 };
-

@@ -2,7 +2,12 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { sendSuccess, sendPaginated } from '../utils/response';
-import prisma from '../config/database';
+import { memfireAdmin } from '../config/memfire';
+
+// 辅助函数：获取当前用户信息（兼容 req.user 和 req.memfireUser）
+const getCurrentUser = (req: AuthRequest) => {
+  return req.user || req.memfireUser;
+};
 
 export const scheduleController = {
   getSchedules: async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -13,72 +18,75 @@ export const scheduleController = {
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
       const status = req.query.status as string;
+      const currentUser = getCurrentUser(req);
 
-      const where: any = {
-        organizationId: req.body.organizationId,
-      };
+      // 数据隔离：使用用户自己的机构ID，admin可以看到所有数据
+      const targetOrgId = currentUser?.organizationId;
 
-      if (classId) {
-        where.classId = classId;
+      let query = memfireAdmin
+        .from('schedules')
+        .select('*')
+        .order('startTime', { ascending: true });
+
+      // Admin without orgId can see all schedules, otherwise filter by orgId
+      if (targetOrgId) {
+        query = query.eq('organizationId', targetOrgId);
       }
 
-      if (startDate || endDate) {
-        where.startTime = {};
-        if (startDate) {
-          where.startTime.gte = new Date(startDate);
-        }
-        if (endDate) {
-          where.startTime.lte = new Date(endDate);
-        }
+      // 班级过滤
+      if (classId) {
+        query = query.eq('classId', classId);
+      }
+
+      // 状态过滤
+      if (status) {
+        query = query.eq('status', status);
+      }
+
+      // 日期范围过滤 - 在数据库层面进行，而不是内存中
+      if (startDate) {
+        query = query.gte('startTime', startDate);
+      }
+      if (endDate) {
+        query = query.lte('startTime', endDate);
+      }
+
+      // 获取总数（用于分页）- 在过滤后计算
+      let countQuery = memfireAdmin
+        .from('schedules')
+        .select('*', { count: 'exact', head: true });
+
+      if (targetOrgId) {
+        countQuery = countQuery.eq('organizationId', targetOrgId);
+      }
+
+      if (classId) {
+        countQuery = countQuery.eq('classId', classId);
       }
 
       if (status) {
-        where.status = status;
+        countQuery = countQuery.eq('status', status);
       }
 
-      const [schedules, total] = await Promise.all([
-        prisma.schedule.findMany({
-          where,
-          include: {
-            class: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-              },
-            },
-            course: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            teacher: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            campus: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-            _count: {
-              select: {
-                attendances: true,
-              },
-            },
-          },
-          skip: (page - 1) * pageSize,
-          take: pageSize,
-          orderBy: { startTime: 'asc' },
-        }),
-        prisma.schedule.count({ where }),
-      ]);
+      if (startDate) {
+        countQuery = countQuery.gte('startTime', startDate);
+      }
+      if (endDate) {
+        countQuery = countQuery.lte('startTime', endDate);
+      }
 
-      sendPaginated(res, schedules, page, pageSize, total);
+      const { count } = await countQuery;
+
+      // 分页 - 在所有过滤之后应用
+      query = query.range((page - 1) * pageSize, (page - 1) * pageSize + pageSize - 1);
+
+      const { data: schedules, error } = await query;
+
+      if (error) {
+        return next(new ApiError('获取排课列表失败', 500, 'QUERY_ERROR'));
+      }
+
+      sendPaginated(res, schedules || [], page, pageSize, count || 0);
     } catch (error) {
       next(error);
     }
@@ -87,45 +95,20 @@ export const scheduleController = {
   getScheduleById: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const schedule = await prisma.schedule.findUnique({
-        where: { id },
-        include: {
-          class: {
-            include: {
-              enrollments: {
-                include: {
-                  student: {
-                    select: {
-                      id: true,
-                      name: true,
-                    },
-                  },
-                },
-              },
-            },
-          },
-          course: true,
-          teacher: true,
-          campus: true,
-          attendances: {
-            include: {
-              student: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-      });
+      const { data: schedule, error } = await memfireAdmin
+        .from('schedules')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
-      if (!schedule) {
+      if (error || !schedule) {
         return next(new ApiError('排课不存在', 404, 'SCHEDULE_NOT_FOUND'));
       }
 
-      if (schedule.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && schedule.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权访问', 403, 'FORBIDDEN'));
       }
 
@@ -144,66 +127,60 @@ export const scheduleController = {
         startTime,
         endTime,
         classroom,
-        isRecurring,
-        recurrenceRule,
         campusId,
       } = req.body;
 
-      const organizationId = req.body.organizationId;
-      const targetCampusId = campusId || req.user?.campusId;
+      const currentUser = getCurrentUser(req);
+      const organizationId = req.body.organizationId || currentUser?.organizationId;
+      const targetCampusId = campusId || currentUser?.campusId;
+
+      if (!organizationId) {
+        return next(new ApiError('必须指定机构', 400, 'MISSING_ORGANIZATION'));
+      }
 
       // 验证班级
-      const classData = await prisma.class.findUnique({
-        where: { id: classId },
-      });
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('id, organizationId, campusId')
+        .eq('id', classId)
+        .maybeSingle();
+
       if (!classData || classData.organizationId !== organizationId) {
         return next(new ApiError('班级不存在或不属于该机构', 400, 'CLASS_NOT_FOUND'));
       }
 
-      // 验证课程
-      if (courseId) {
-        const course = await prisma.course.findUnique({
-          where: { id: courseId },
-        });
-        if (!course || course.organizationId !== organizationId) {
-          return next(new ApiError('课程不存在或不属于该机构', 400, 'COURSE_NOT_FOUND'));
-        }
-      }
-
-      // 验证教练
-      if (teacherId) {
-        const teacher = await prisma.user.findUnique({
-          where: { id: teacherId },
-        });
-        if (!teacher || teacher.organizationId !== organizationId) {
-          return next(new ApiError('教练不存在或不属于该机构', 400, 'TEACHER_NOT_FOUND'));
-        }
-      }
-
       // 验证校区
-      if (targetCampusId) {
-        const campus = await prisma.campus.findUnique({
-          where: { id: targetCampusId },
-        });
+      const finalCampusId = targetCampusId || classData.campusId;
+      if (finalCampusId) {
+        const { data: campus } = await memfireAdmin
+          .from('campuses')
+          .select('id, organizationId')
+          .eq('id', finalCampusId)
+          .maybeSingle();
+
         if (!campus || campus.organizationId !== organizationId) {
           return next(new ApiError('校区不存在或不属于该机构', 400, 'CAMPUS_NOT_FOUND'));
         }
       }
 
-      const schedule = await prisma.schedule.create({
-        data: {
+      const { data: schedule, error } = await memfireAdmin
+        .from('schedules')
+        .insert({
           organizationId,
-          campusId: targetCampusId,
+          campusId: finalCampusId,
           classId,
           courseId,
           teacherId,
-          startTime: new Date(startTime),
-          endTime: new Date(endTime),
+          startTime,
+          endTime,
           classroom,
-          isRecurring,
-          recurrenceRule,
-        },
-      });
+        })
+        .select()
+        .single();
+
+      if (error) {
+        return next(new ApiError('创建排课失败', 500, 'CREATE_ERROR'));
+      }
 
       sendSuccess(res, schedule, '排课创建成功', 201);
     } catch (error) {
@@ -222,31 +199,41 @@ export const scheduleController = {
         status,
         notes,
       } = req.body;
+      const currentUser = getCurrentUser(req);
 
-      const schedule = await prisma.schedule.findUnique({
-        where: { id },
-      });
+      const { data: schedule } = await memfireAdmin
+        .from('schedules')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
       if (!schedule) {
         return next(new ApiError('排课不存在', 404, 'SCHEDULE_NOT_FOUND'));
       }
 
-      if (schedule.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && schedule.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权修改该排课', 403, 'FORBIDDEN'));
       }
 
       const updateData: any = {};
       if (teacherId !== undefined) updateData.teacherId = teacherId;
-      if (startTime) updateData.startTime = new Date(startTime);
-      if (endTime) updateData.endTime = new Date(endTime);
+      if (startTime) updateData.startTime = startTime;
+      if (endTime) updateData.endTime = endTime;
       if (classroom !== undefined) updateData.classroom = classroom;
       if (status) updateData.status = status;
       if (notes !== undefined) updateData.notes = notes;
 
-      const updated = await prisma.schedule.update({
-        where: { id },
-        data: updateData,
-      });
+      const { data: updated, error } = await memfireAdmin
+        .from('schedules')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        return next(new ApiError('更新排课失败', 500, 'UPDATE_ERROR'));
+      }
 
       sendSuccess(res, updated, '排课更新成功');
     } catch (error) {
@@ -257,22 +244,31 @@ export const scheduleController = {
   deleteSchedule: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
+      const currentUser = getCurrentUser(req);
 
-      const schedule = await prisma.schedule.findUnique({
-        where: { id },
-      });
+      const { data: schedule } = await memfireAdmin
+        .from('schedules')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
       if (!schedule) {
         return next(new ApiError('排课不存在', 404, 'SCHEDULE_NOT_FOUND'));
       }
 
-      if (schedule.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && schedule.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权删除该排课', 403, 'FORBIDDEN'));
       }
 
-      await prisma.schedule.delete({
-        where: { id },
-      });
+      const { error } = await memfireAdmin
+        .from('schedules')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        return next(new ApiError('删除排课失败', 500, 'DELETE_ERROR'));
+      }
 
       sendSuccess(res, null, '排课删除成功');
     } catch (error) {
@@ -284,44 +280,54 @@ export const scheduleController = {
     try {
       const { id } = req.params;
       const { newStartTime, newEndTime, notes } = req.body;
+      const currentUser = getCurrentUser(req);
 
-      const schedule = await prisma.schedule.findUnique({
-        where: { id },
-      });
+      const { data: schedule } = await memfireAdmin
+        .from('schedules')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
 
       if (!schedule) {
         return next(new ApiError('排课不存在', 404, 'SCHEDULE_NOT_FOUND'));
       }
 
-      if (schedule.organizationId !== req.body.organizationId) {
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && schedule.organizationId !== currentUser?.organizationId) {
         return next(new ApiError('无权调课', 403, 'FORBIDDEN'));
       }
 
       // 创建新的排课记录，标记为调课
-      const newSchedule = await prisma.schedule.create({
-        data: {
+      const { data: newSchedule, error: insertError } = await memfireAdmin
+        .from('schedules')
+        .insert({
           organizationId: schedule.organizationId,
           campusId: schedule.campusId,
           classId: schedule.classId,
           courseId: schedule.courseId,
           teacherId: schedule.teacherId,
-          startTime: new Date(newStartTime),
-          endTime: new Date(newEndTime),
+          startTime: newStartTime,
+          endTime: newEndTime,
           classroom: schedule.classroom,
           status: 'rescheduled',
           originalScheduleId: schedule.id,
           notes: notes || `调课自 ${schedule.startTime}`,
-        },
-      });
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        return next(new ApiError('调课失败', 500, 'CREATE_ERROR'));
+      }
 
       // 更新原排课状态
-      await prisma.schedule.update({
-        where: { id },
-        data: {
+      await memfireAdmin
+        .from('schedules')
+        .update({
           status: 'rescheduled',
           notes: `已调课至 ${newStartTime}`,
-        },
-      });
+        })
+        .eq('id', id);
 
       sendSuccess(res, newSchedule, '调课成功', 201);
     } catch (error) {
@@ -333,7 +339,7 @@ export const scheduleController = {
     try {
       const {
         classId,
-        teacherId,
+        organizationId,
         recurrenceType,
         startDate,
         endDate,
@@ -341,135 +347,173 @@ export const scheduleController = {
         startTime,
         endTime,
         location,
-        cancelExisting = true, // 默认取消之前的排课
+        teacherId,
       } = req.body;
 
-      const organizationId = req.body.organizationId;
+      const currentUser = getCurrentUser(req);
+      const targetOrgId = organizationId || currentUser?.organizationId;
+
+      if (!targetOrgId) {
+        return next(new ApiError('必须指定机构', 400, 'MISSING_ORGANIZATION'));
+      }
+
+      if (!classId || !startDate || !endDate || !startTime || !endTime) {
+        return next(new ApiError('缺少必要参数', 400, 'INVALID_PARAMS'));
+      }
 
       // 验证班级
-      const classData = await prisma.class.findUnique({
-        where: { id: classId },
-      });
-      if (!classData || classData.organizationId !== organizationId) {
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('id, organizationId, campusId')
+        .eq('id', classId)
+        .maybeSingle();
+
+      if (!classData || classData.organizationId !== targetOrgId) {
         return next(new ApiError('班级不存在或不属于该机构', 400, 'CLASS_NOT_FOUND'));
       }
 
-      // 验证教练
-      if (teacherId) {
-        const teacher = await prisma.user.findUnique({
-          where: { id: teacherId },
-        });
-        if (!teacher || teacher.organizationId !== organizationId) {
-          return next(new ApiError('教练不存在或不属于该机构', 400, 'TEACHER_NOT_FOUND'));
-        }
-      }
-
-      // 如果需要取消之前的排课，将该班级未来的排课状态改为cancelled
-      let cancelledCount = 0;
-      if (cancelExisting) {
-        const result = await prisma.schedule.updateMany({
-          where: {
-            classId,
-            status: 'scheduled',
-            startTime: {
-              gte: new Date(), // 只取消未来的排课
-            },
-          },
-          data: {
-            status: 'cancelled',
-            notes: '已被新排课规则替代',
-          },
-        });
-        cancelledCount = result.count;
-      }
-
+      // 生成排课日期
       const schedules: any[] = [];
       const start = new Date(startDate);
       const end = new Date(endDate);
-      
-      let current = new Date(start);
-      while (current <= end) {
-        let shouldCreate = false;
+      const [startHour, startMinute] = startTime.split(':').map(Number);
+      const [endHour, endMinute] = endTime.split(':').map(Number);
 
-        if (recurrenceType === 'daily') {
-          shouldCreate = true;
-        } else if (recurrenceType === 'weekly' && weekDays && weekDays.length > 0) {
-          const dayOfWeek = current.getDay();
-          shouldCreate = weekDays.includes(dayOfWeek);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dayOfWeek = d.getDay();
+
+        // 检查是否在指定的星期几
+        if (recurrenceType === 'weekly' && weekDays && weekDays.length > 0) {
+          if (!weekDays.includes(dayOfWeek)) {
+            continue;
+          }
         }
 
-        if (shouldCreate) {
-          const year = current.getFullYear();
-          const month = String(current.getMonth() + 1).padStart(2, '0');
-          const day = String(current.getDate()).padStart(2, '0');
-          
-          const startDateTime = new Date(`${year}-${month}-${day}T${startTime}:00`);
-          const endDateTime = new Date(`${year}-${month}-${day}T${endTime}:00`);
-          
-          schedules.push({
-            organizationId,
-            campusId: classData.campusId,
-            classId,
-            teacherId: teacherId || classData.teacherId,
-            startTime: startDateTime,
-            endTime: endDateTime,
-            classroom: location || null,
-            isRecurring: true,
-            recurrenceRule: recurrenceType === 'weekly' 
-              ? `weekly:${weekDays.join(',')}` 
-              : 'daily',
-            status: 'scheduled',
-          });
-        }
+        const scheduleStartTime = new Date(d);
+        scheduleStartTime.setHours(startHour, startMinute, 0, 0);
 
-        current.setDate(current.getDate() + 1);
+        const scheduleEndTime = new Date(d);
+        scheduleEndTime.setHours(endHour, endMinute, 0, 0);
+
+        schedules.push({
+          organizationId: targetOrgId,
+          campusId: classData.campusId,
+          classId,
+          teacherId: teacherId || classData.teacherId,
+          startTime: scheduleStartTime.toISOString(),
+          endTime: scheduleEndTime.toISOString(),
+          classroom: location,
+          status: 'scheduled',
+        });
       }
 
       if (schedules.length === 0) {
-        return next(new ApiError('没有生成任何排课记录', 400, 'NO_SCHEDULES_GENERATED'));
+        return next(new ApiError('没有生成任何排课', 400, 'NO_SCHEDULES'));
       }
 
-      const result = await prisma.schedule.createMany({
-        data: schedules,
-      });
+      // 批量插入排课
+      const { data: createdSchedules, error } = await memfireAdmin
+        .from('schedules')
+        .insert(schedules)
+        .select();
 
-      // 准备排课规则数据
-      const scheduleRuleData = {
-        recurrenceType,
-        startDate,
-        endDate,
-        weekDays,
-        startTime,
-        endTime,
-        location,
-      };
-
-      // 尝试更新班级的排课规则（如果字段不存在则跳过）
-      try {
-        await prisma.class.update({
-          where: { id: classId },
-          data: {
-            scheduleRule: scheduleRuleData as any,
-          },
-        });
-      } catch (updateError) {
-        console.warn('更新排课规则失败（可能字段不存在）:', updateError);
-        // 继续执行，不影响排课创建
+      if (error) {
+        console.error('创建排课失败:', error);
+        return next(new ApiError('创建排课失败', 500, 'CREATE_ERROR'));
       }
 
-      sendSuccess(
-        res, 
-        { 
-          count: result.count, 
-          cancelledCount,
-          scheduleRule: scheduleRuleData,
-        }, 
-        `成功创建 ${result.count} 条排课记录${cancelledCount > 0 ? `，取消了 ${cancelledCount} 条旧排课` : ''}`, 
-        201
-      );
+      sendSuccess(res, {
+        count: createdSchedules?.length || 0,
+        schedules: createdSchedules,
+      }, '排课创建成功', 201);
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // 取消班级的所有待上课排课
+  cancelByClass: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { classId } = req.params;
+      const currentUser = getCurrentUser(req);
+
+      // 验证班级
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('id, organizationId')
+        .eq('id', classId)
+        .maybeSingle();
+
+      if (!classData) {
+        return next(new ApiError('班级不存在', 404, 'CLASS_NOT_FOUND'));
+      }
+
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && classData.organizationId !== currentUser?.organizationId) {
+        return next(new ApiError('无权操作', 403, 'FORBIDDEN'));
+      }
+
+      // 取消所有待上课的排课
+      const { error, count } = await memfireAdmin
+        .from('schedules')
+        .update({ status: 'cancelled' })
+        .eq('classId', classId)
+        .eq('status', 'scheduled');
+
+      if (error) {
+        return next(new ApiError('取消排课失败', 500, 'UPDATE_ERROR'));
+      }
+
+      sendSuccess(res, { cancelledCount: count }, '取消排课成功');
+    } catch (error) {
+      next(error);
+    }
+  },
+
+  // 取消班级从指定日期起的所有未来排课
+  cancelAllFuture: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { classId, fromDate } = req.body;
+      const currentUser = getCurrentUser(req);
+
+      if (!classId || !fromDate) {
+        return next(new ApiError('缺少必要参数', 400, 'INVALID_PARAMS'));
+      }
+
+      // 验证班级
+      const { data: classData } = await memfireAdmin
+        .from('classes')
+        .select('id, organizationId')
+        .eq('id', classId)
+        .maybeSingle();
+
+      if (!classData) {
+        return next(new ApiError('班级不存在', 404, 'CLASS_NOT_FOUND'));
+      }
+
+      // 数据隔离检查
+      if (currentUser?.role !== 'admin' && classData.organizationId !== currentUser?.organizationId) {
+        return next(new ApiError('无权操作', 403, 'FORBIDDEN'));
+      }
+
+      // 取消从指定日期起的待上课排课
+      const startDate = new Date(fromDate);
+      startDate.setHours(0, 0, 0, 0);
+
+      const { error, count } = await memfireAdmin
+        .from('schedules')
+        .update({ status: 'cancelled' })
+        .eq('classId', classId)
+        .eq('status', 'scheduled')
+        .gte('startTime', startDate.toISOString());
+
+      if (error) {
+        return next(new ApiError('取消排课失败', 500, 'UPDATE_ERROR'));
+      }
+
+      sendSuccess(res, { cancelledCount: count }, '取消未来排课成功');
     } catch (error) {
       next(error);
     }
   },
 };
-

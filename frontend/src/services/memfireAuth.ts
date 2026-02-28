@@ -97,7 +97,7 @@ export const memfireAuth = {
 
       return {
         id: user.id,
-        email: user.email,
+        email: user.email ?? null,
         name: (user.user_metadata as any)?.name ?? profile?.name ?? null,
         role: (profile as any)?.role ?? null,
         organizationId: (profile as any)?.organizationId ?? null,
@@ -108,7 +108,7 @@ export const memfireAuth = {
       console.warn('[MemFireAuth] 获取用户 Profile 失败（可忽略）:', e);
       return {
         id: user.id,
-        email: user.email,
+        email: user.email ?? null,
         name: (user.user_metadata as any)?.name ?? null,
       };
     }
@@ -132,7 +132,7 @@ export const memfireAuth = {
     if (!memfire) throw new Error('MemFire 客户端未初始化');
 
     // 首先验证原密码是否正确
-    const { data: { user }, error: signInError } = await memfire.auth.signInWithPassword({
+    const { data: { user: _user }, error: signInError } = await memfire.auth.signInWithPassword({
       email: (await this.getCurrentUser())?.email || '',
       password: oldPassword,
     });

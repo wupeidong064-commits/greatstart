@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Card, DatePicker, Button, message, Divider } from 'antd';
+import { Card, DatePicker, Button, message, Divider, Row, Col, Statistic, Tag } from 'antd';
+import { ArrowUpOutlined, ArrowDownOutlined, TeamOutlined, DollarOutlined, CalendarOutlined, UserOutlined } from '@ant-design/icons';
+import { Line, Column } from '@ant-design/charts';
 import dayjs from 'dayjs';
 import api from '../services/api';
 
@@ -57,6 +59,9 @@ const WeeklySummary = () => {
   const confirmedRevenue = summary.confirmedRevenue || (summary.totalAttendance || 0) * lessonPrice;
   const rosterCount = summary.rosterCount || 0;
   const avgAttendanceRate = summary.avgAttendanceRate || 0;
+  const totalRevenue = summary.totalRevenue || 0;
+  const totalNewStudents = summary.totalNewStudents || 0;
+  const totalNewEnrollments = summary.totalNewEnrollments || 0;
 
   // 上周数据
   const lastWeek = summary.lastWeek || {};
@@ -68,6 +73,7 @@ const WeeklySummary = () => {
   const revenueChange = confirmedRevenue - lastWeekConfirmedRevenue;
   const rosterChange = rosterCount - lastWeekRosterCount;
   const attendanceRateChange = avgAttendanceRate - lastWeekAvgAttendanceRate;
+  const revenueChangePercent = lastWeekConfirmedRevenue > 0 ? ((revenueChange / lastWeekConfirmedRevenue) * 100).toFixed(1) : '0';
 
   // 分析确认收入变化的直接原因
   const getRevenueChangeReason = () => {
@@ -76,7 +82,7 @@ const WeeklySummary = () => {
     }
 
     const reasons: string[] = [];
-    
+
     // 花名册人数变化的影响（基于上周出勤率）
     if (rosterChange !== 0 && lastWeekAvgAttendanceRate > 0) {
       // 估算：假设每周课程数相同，花名册人数变化对收入的影响 = 人数变化 × 上周出勤率 × 课程数 × 单价
@@ -104,6 +110,91 @@ const WeeklySummary = () => {
     return reasons.join('；');
   };
 
+  // 图表配置：每日收入趋势图
+  const revenueChartData = (summary.dailyData || []).map((day: any) => ({
+    date: day.date,
+    value: day.revenue || 0,
+  }));
+
+  const revenueChartConfig = {
+    data: revenueChartData,
+    xField: 'date',
+    yField: 'value',
+    point: {
+      shapeField: 'circle',
+      sizeField: 4,
+    },
+    interaction: {
+      tooltip: {
+        marker: false,
+      },
+    },
+    style: {
+      lineWidth: 2,
+    },
+    smooth: true,
+    color: '#1890ff',
+    axis: {
+      y: {
+        title: '收入 (¥)',
+        labelFormatter: (v: string) => `¥${Number(v).toFixed(0)}`,
+      },
+    },
+  };
+
+  // 图表配置：每日出勤率柱状图
+  const attendanceChartData = (summary.dailyData || []).map((day: any) => ({
+    date: day.date,
+    value: day.attendanceRate || 0,
+  }));
+
+  const attendanceChartConfig = {
+    data: attendanceChartData,
+    xField: 'date',
+    yField: 'value',
+    color: '#52c41a',
+    style: {
+      maxWidth: 40,
+    },
+    axis: {
+      y: {
+        title: '出勤率 (%)',
+        labelFormatter: (v: string) => `${v}%`,
+      },
+    },
+    label: {
+      text: (d: any) => `${d.value}%`,
+      position: 'top' as const,
+    },
+  };
+
+  // 图表配置：周对比图
+  const comparisonChartData = [
+    { type: '本周', category: '确认收入', value: confirmedRevenue },
+    { type: '上周', category: '确认收入', value: lastWeekConfirmedRevenue },
+    { type: '本周', category: '出勤率', value: avgAttendanceRate * 10 }, // 放大10倍便于展示
+    { type: '上周', category: '出勤率', value: lastWeekAvgAttendanceRate * 10 },
+  ];
+
+  const comparisonChartConfig = {
+    data: comparisonChartData,
+    xField: 'category',
+    yField: 'value',
+    colorField: 'type',
+    group: true,
+    style: {
+      maxWidth: 60,
+    },
+    axis: {
+      y: {
+        title: '数值',
+      },
+    },
+    legend: {
+      position: 'top' as const,
+    },
+  };
+
   return (
     <div>
       <Card>
@@ -121,17 +212,132 @@ const WeeklySummary = () => {
           </div>
         </div>
 
+        {/* 关键指标卡片 */}
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={6}>
+            <Card loading={loading}>
+              <Statistic
+                title="确认收入"
+                value={confirmedRevenue}
+                precision={2}
+                prefix={<DollarOutlined />}
+                valueStyle={{ color: '#3f8600' }}
+                suffix={
+                  lastWeekConfirmedRevenue > 0 && (
+                    <Tag color={revenueChange >= 0 ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                      {revenueChange >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                      {Math.abs(Number(revenueChangePercent))}%
+                    </Tag>
+                  )
+                }
+              />
+              <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
+                上周: ¥{lastWeekConfirmedRevenue.toFixed(2)}
+              </div>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card loading={loading}>
+              <Statistic
+                title="花名册人数"
+                value={rosterCount}
+                prefix={<TeamOutlined />}
+                suffix={
+                  lastWeekRosterCount > 0 && rosterChange !== 0 && (
+                    <Tag color={rosterChange >= 0 ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                      {rosterChange >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                      {Math.abs(rosterChange)}人
+                    </Tag>
+                  )
+                }
+              />
+              <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
+                上周: {lastWeekRosterCount}人
+              </div>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card loading={loading}>
+              <Statistic
+                title="平均出勤率"
+                value={avgAttendanceRate}
+                suffix={
+                  <>
+                    %
+                    {lastWeekAvgAttendanceRate > 0 && attendanceRateChange !== 0 && (
+                      <Tag color={attendanceRateChange >= 0 ? 'green' : 'red'} style={{ marginLeft: 8 }}>
+                        {attendanceRateChange >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                        {Math.abs(attendanceRateChange)}%
+                      </Tag>
+                    )}
+                  </>
+                }
+                prefix={<CalendarOutlined />}
+              />
+              <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
+                上周: {lastWeekAvgAttendanceRate}%
+              </div>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card loading={loading}>
+              <Statistic
+                title="新增学员"
+                value={totalNewStudents}
+                prefix={<UserOutlined />}
+                valueStyle={{ color: '#1890ff' }}
+              />
+              <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
+                新增报名: {totalNewEnrollments}人
+              </div>
+            </Card>
+          </Col>
+        </Row>
+
+        {/* 图表区域 */}
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={12}>
+            <Card title="每日收入趋势" loading={loading}>
+              {revenueChartData.length > 0 ? (
+                <Line {...revenueChartConfig} height={200} />
+              ) : (
+                <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                  暂无数据
+                </div>
+              )}
+            </Card>
+          </Col>
+          <Col span={12}>
+            <Card title="每日出勤率" loading={loading}>
+              {attendanceChartData.length > 0 ? (
+                <Column {...attendanceChartConfig} height={200} />
+              ) : (
+                <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                  暂无数据
+                </div>
+              )}
+            </Card>
+          </Col>
+        </Row>
+
+        {/* 周对比图 */}
+        <Card title="本周 vs 上周对比" style={{ marginBottom: 24 }} loading={loading}>
+          {lastWeekConfirmedRevenue > 0 ? (
+            <Column {...comparisonChartConfig} height={200} />
+          ) : (
+            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+              暂无上周数据
+            </div>
+          )}
+        </Card>
+
         {/* 确认收入总结 */}
-        <Card 
-          title="确认收入总结" 
+        <Card
+          title="确认收入分析"
           style={{ marginBottom: 24 }}
           loading={loading}
         >
           <div style={{ fontSize: '16px', lineHeight: '2', whiteSpace: 'pre-line' }}>
-            <div style={{ marginBottom: 16 }}>
-              <strong>本周数据：</strong>周课消收入 ¥{confirmedRevenue.toFixed(2)}，出勤率 {avgAttendanceRate}%，花名册人数 {rosterCount} 人
-            </div>
-            
             {/* 教练员工作分析 */}
             <div style={{ marginBottom: 16 }}>
               <strong>教练员工作分析：</strong>
@@ -210,22 +416,12 @@ const WeeklySummary = () => {
                 )}
               </div>
             </div>
-            
-            {(lastWeekConfirmedRevenue > 0 || summary.lastWeek) && (
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  <div>周课消较上周变化为：{revenueChange >= 0 ? '+' : ''}¥{revenueChange.toFixed(2)}（{revenueChange >= 0 ? '增长' : '下降'} {revenueChange !== 0 && lastWeekConfirmedRevenue > 0 ? Math.abs((revenueChange / lastWeekConfirmedRevenue) * 100).toFixed(1) : '0'}%）</div>
-                  <div>出勤率变化为：{attendanceRateChange >= 0 ? '+' : ''}{attendanceRateChange} 个百分点（{attendanceRateChange >= 0 ? '提升' : '下降'}）</div>
-                  <div>花名册人数变化为：{rosterChange >= 0 ? '+' : ''}{rosterChange} 人（{rosterChange >= 0 ? '增加' : '减少'} {rosterChange !== 0 && lastWeekRosterCount > 0 ? Math.abs((rosterChange / lastWeekRosterCount) * 100).toFixed(1) : '0'}%）</div>
-                </div>
-                
-                {lastWeekConfirmedRevenue > 0 && (
-                  <div style={{ marginBottom: 16, padding: 12, backgroundColor: '#f5f5f5', borderRadius: 4 }}>
-                    <strong>确认收入变化原因分析：</strong>
-                    <div style={{ marginTop: 8 }}>{getRevenueChangeReason()}</div>
-                  </div>
-                )}
-              </>
+
+            {lastWeekConfirmedRevenue > 0 && (
+              <div style={{ padding: 12, backgroundColor: '#f5f5f5', borderRadius: 4 }}>
+                <strong>确认收入变化原因分析：</strong>
+                <div style={{ marginTop: 8 }}>{getRevenueChangeReason()}</div>
+              </div>
             )}
           </div>
         </Card>
@@ -233,8 +429,8 @@ const WeeklySummary = () => {
         <Divider />
 
         {/* 现金流收入总结 */}
-        <Card 
-          title="现金流收入总结" 
+        <Card
+          title="现金流收入总结"
           loading={loading}
         >
           <div style={{ fontSize: '16px', lineHeight: '2', whiteSpace: 'pre-line' }}>
@@ -242,9 +438,9 @@ const WeeklySummary = () => {
             <div style={{ marginBottom: 24 }}>
               <strong style={{ fontSize: '18px' }}>本周数据分析：</strong>
               <div style={{ marginLeft: 20, marginTop: 12 }}>
-                <div><strong>结果指标：</strong>本周新增学员 {summary.totalNewStudents || 0} 人，新增报名 {summary.totalNewEnrollments || 0} 人，新增班级 {summary.newClasses || 0} 个。</div>
+                <div><strong>结果指标：</strong>本周新增学员 {totalNewStudents} 人，新增报名 {totalNewEnrollments} 人，新增班级 {summary.newClasses || 0} 个。</div>
                 <div style={{ marginTop: 8 }}><strong>过程指标：</strong>鱼池添加数 {summary.poolAddedCount || 0} 人，邀约数 {summary.invitationCount || 0} 人，到场数 {summary.attendanceCount || 0} 人。</div>
-                <div style={{ marginTop: 8 }}>本周现金流收入（缴费）为 ¥{(summary.totalRevenue || 0).toFixed(2)}。</div>
+                <div style={{ marginTop: 8 }}>本周现金流收入（缴费）为 ¥{totalRevenue.toFixed(2)}。</div>
                 <div style={{ marginTop: 12, padding: 12, backgroundColor: '#f0f7ff', borderRadius: 4 }}>
                   <strong>续费情况汇总：</strong>
                   <div style={{ marginLeft: 20, marginTop: 8 }}>
@@ -272,13 +468,10 @@ const WeeklySummary = () => {
               <strong style={{ fontSize: '18px' }}>个人工作表现分析：</strong>
               <div style={{ marginLeft: 20, marginTop: 12 }}>
                 {(() => {
-                  const totalNewStudents = summary.totalNewStudents || 0;
-                  const totalNewEnrollments = summary.totalNewEnrollments || 0;
-                  const totalRevenue = summary.totalRevenue || 0;
                   const avgRevenuePerEnrollment = totalNewEnrollments > 0 ? totalRevenue / totalNewEnrollments : 0;
-                  
+
                   const analysis: string[] = [];
-                  
+
                   if (totalNewStudents >= 5) {
                     analysis.push(`新增学员表现优秀，本周新增 ${totalNewStudents} 人，超出平均水平。`);
                   } else if (totalNewStudents >= 3) {
@@ -288,7 +481,7 @@ const WeeklySummary = () => {
                   } else {
                     analysis.push(`本周无新增学员，需要重点关注招生工作。`);
                   }
-                  
+
                   if (totalNewEnrollments >= 8) {
                     analysis.push(`新增报名表现优秀，本周新增报名 ${totalNewEnrollments} 人，转化率较高。`);
                   } else if (totalNewEnrollments >= 5) {
@@ -298,7 +491,7 @@ const WeeklySummary = () => {
                   } else {
                     analysis.push(`本周无新增报名，需要加强销售转化工作。`);
                   }
-                  
+
                   if (avgRevenuePerEnrollment >= 2000) {
                     analysis.push(`客单价表现优秀，平均每单金额 ¥${avgRevenuePerEnrollment.toFixed(2)}，销售质量较高。`);
                   } else if (avgRevenuePerEnrollment >= 1500) {
@@ -306,7 +499,7 @@ const WeeklySummary = () => {
                   } else if (avgRevenuePerEnrollment > 0) {
                     analysis.push(`客单价表现一般，平均每单金额 ¥${avgRevenuePerEnrollment.toFixed(2)}，建议提升销售技巧。`);
                   }
-                  
+
                   if (totalRevenue >= 10000) {
                     analysis.push(`现金流收入表现优秀，本周收入 ¥${totalRevenue.toFixed(2)}，完成度较高。`);
                   } else if (totalRevenue >= 5000) {
@@ -316,7 +509,7 @@ const WeeklySummary = () => {
                   } else {
                     analysis.push(`本周无现金流收入，需要重点关注收款工作。`);
                   }
-                  
+
                   return analysis.map((item, index) => (
                     <div key={index} style={{ marginTop: index > 0 ? 8 : 0 }}>{item}</div>
                   ));
@@ -327,7 +520,7 @@ const WeeklySummary = () => {
             {/* 下周工作建议 */}
             <div style={{ marginBottom: 16 }}>
               <strong style={{ fontSize: '18px' }}>下周工作建议：</strong>
-              
+
               {/* 模块1：目标完成度分析 */}
               {summary.workSuggestions?.module1 && (
                 <div style={{ marginTop: 16, padding: 12, backgroundColor: '#f0f7ff', borderRadius: 4, marginBottom: 12 }}>
@@ -336,9 +529,9 @@ const WeeklySummary = () => {
                     <div style={{ marginBottom: 8 }}>
                       <strong>本周目标完成情况：</strong>
                       <div style={{ marginLeft: 20, marginTop: 4 }}>
-                        <div>新增学员：{summary.totalNewStudents || 0} / {summary.workSuggestions.module1.targets.newStudents}（完成度 {summary.workSuggestions.module1.completion.newStudents}%）</div>
-                        <div>新增报名：{summary.totalNewEnrollments || 0} / {summary.workSuggestions.module1.targets.newEnrollments}（完成度 {summary.workSuggestions.module1.completion.newEnrollments}%）</div>
-                        <div>现金流收入：¥{(summary.totalRevenue || 0).toFixed(2)} / ¥{summary.workSuggestions.module1.targets.totalRevenue}（完成度 {summary.workSuggestions.module1.completion.totalRevenue}%）</div>
+                        <div>新增学员：{totalNewStudents} / {summary.workSuggestions.module1.targets.newStudents}（完成度 {summary.workSuggestions.module1.completion.newStudents}%）</div>
+                        <div>新增报名：{totalNewEnrollments} / {summary.workSuggestions.module1.targets.newEnrollments}（完成度 {summary.workSuggestions.module1.completion.newEnrollments}%）</div>
+                        <div>现金流收入：¥{totalRevenue.toFixed(2)} / ¥{summary.workSuggestions.module1.targets.totalRevenue}（完成度 {summary.workSuggestions.module1.completion.totalRevenue}%）</div>
                         <div>鱼池添加数：{summary.poolAddedCount || 0} / {summary.workSuggestions.module1.targets.poolAddedCount}（完成度 {summary.workSuggestions.module1.completion.poolAddedCount}%）</div>
                       </div>
                     </div>
@@ -405,4 +598,3 @@ const WeeklySummary = () => {
 };
 
 export default WeeklySummary;
-

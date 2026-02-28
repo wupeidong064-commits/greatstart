@@ -1,12 +1,11 @@
 import { Card, Form, Input, Button, message } from 'antd';
 import { useState } from 'react';
-import api from '../services/api';
 
 const Settings = () => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (values: any) => {
+  const handleSubmit = async () => {
     setLoading(true);
     try {
       // TODO: 实现基础设置保存

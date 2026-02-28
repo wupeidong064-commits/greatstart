@@ -8,7 +8,7 @@ const baseURL =
 
 const api = axios.create({
   baseURL,
-  timeout: 20000, // 增加超时时间
+  timeout: 60000, // 增加超时时间到60秒（蜜月期等API较慢）
 });
 
 // 请求拦截器
@@ -31,9 +31,22 @@ api.interceptors.response.use(
     return response.data;
   },
   (error) => {
-    if (error.response?.status === 401) {
-      useAuthStore.getState().clearAuth();
-      window.location.href = '/login';
+    // 401 错误时，只有在已登录状态下才清除认证并跳转
+    // 以下情况不应触发登出：
+    // 1. 登录请求失败
+    // 2. 创建用户请求失败（创建家长、创建工作人员等）
+    const url = error.config?.url || '';
+    const isLoginRequest = url.includes('/auth/login');
+    const isCreateUserRequest = url.includes('/auth/create-parent') ||
+                                 url.includes('/auth/create-staff') ||
+                                 url.includes('/auth/create-manager');
+
+    if (error.response?.status === 401 && !isLoginRequest && !isCreateUserRequest) {
+      const token = useAuthStore.getState().token;
+      if (token) {
+        useAuthStore.getState().clearAuth();
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }
