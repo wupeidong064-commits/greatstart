@@ -9,6 +9,7 @@ if (!memfire) {
 export interface MemfireProfile {
   id: string;
   email: string | null;
+  phone?: string | null;
   name?: string | null;
   role?: string | null;
   organizationId?: string | null;
