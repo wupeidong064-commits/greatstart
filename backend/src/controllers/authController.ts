@@ -841,13 +841,13 @@ export const authController = {
     try {
       const { email, password, name, role, phone, group, organizationId, campusId } = req.body;
 
-      // 验证必填字段（password 可选，未提供时自动生成；phone 必填）
-      if (!name || !role || !phone) {
-        return next(new ApiError('缺少必填字段（姓名、角色、手机号）', 400, 'MISSING_FIELDS'));
+      // 验证必填字段（password 可选，未提供时自动生成；email 必填）
+      if (!name || !role || !email) {
+        return next(new ApiError('缺少必填字段（姓名、角色、邮箱）', 400, 'MISSING_FIELDS'));
       }
 
-      // 验证手机号格式
-      if (!isPhoneNumber(phone)) {
+      // 验证手机号格式（如果提供了手机号）
+      if (phone && !isPhoneNumber(phone)) {
         return next(new ApiError('请输入有效的手机号', 400, 'INVALID_PHONE'));
       }
 
@@ -903,28 +903,22 @@ export const authController = {
         }
       }
 
-      // 1. 使用 MemFire Admin API 创建用户（使用手机号，邮箱可选）
+      // 1. 使用 MemFire Admin API 创建用户（使用邮箱）
       const createUserData: any = {
+        email,
         password: finalPassword,
-        phone,
-        phone_confirm: true, // 自动确认手机号
+        email_confirm: true, // 自动确认邮箱
         user_metadata: {
           name,
         },
       };
 
-      // 如果提供了邮箱，也添加邮箱
-      if (email) {
-        createUserData.email = email;
-        createUserData.email_confirm = true;
-      }
-
       const { data: authData, error: authError } = await memfireAdmin.auth.admin.createUser(createUserData);
 
       if (authError) {
-        // 手机号或邮箱已存在
+        // 邮箱已存在
         if (authError.message.includes('already exists') || authError.message.includes('already been registered')) {
-          return next(new ApiError('手机号或邮箱已被注册', 400, 'USER_EXISTS'));
+          return next(new ApiError('邮箱已被注册', 400, 'USER_EXISTS'));
         }
         return next(new ApiError(authError.message, 400, 'AUTH_ERROR'));
       }
@@ -934,15 +928,14 @@ export const authController = {
         .from('users')
         .insert({
           id: authData.user.id,
-          email: authData.user.email || email || null,
-          phone: authData.user.phone || phone,
+          email: authData.user.email || email,
+          phone: phone || null,
           name,
           role,
           organizationId: finalOrganizationId,
           campusId: finalCampusId || null,
           group: group || null,
           isActive: true,
-          isPhoneUser: true,
         });
 
       if (userError) {
@@ -986,14 +979,14 @@ export const authController = {
 
       console.log('[createParent] 收到创建家长账号请求:', { email, name, phone, studentId, organizationId });
 
-      // 验证必填字段（email 可选，phone 必填）
-      if (!name || !phone) {
+      // 验证必填字段（email 必填，phone 可选）
+      if (!name || !email) {
         console.log('[createParent] 缺少必填字段');
-        return next(new ApiError('缺少必填字段（姓名、手机号）', 400, 'MISSING_FIELDS'));
+        return next(new ApiError('缺少必填字段（姓名、邮箱）', 400, 'MISSING_FIELDS'));
       }
 
-      // 验证手机号格式
-      if (!isPhoneNumber(phone)) {
+      // 验证手机号格式（如果提供了手机号）
+      if (phone && !isPhoneNumber(phone)) {
         return next(new ApiError('请输入有效的手机号', 400, 'INVALID_PHONE'));
       }
 
@@ -1045,30 +1038,24 @@ export const authController = {
           .eq('id', studentId);
       }
 
-      // 1. 使用 MemFire Admin API 创建用户（使用手机号，邮箱可选）
+      // 1. 使用 MemFire Admin API 创建用户（使用邮箱）
       console.log('[createParent] 开始在 MemFire Auth 创建用户...');
       const createUserData: any = {
+        email,
         password: finalPassword,
-        phone,
-        phone_confirm: true, // 自动确认手机号
+        email_confirm: true, // 自动确认邮箱
         user_metadata: {
           name,
         },
       };
 
-      // 如果提供了邮箱，也添加邮箱
-      if (email) {
-        createUserData.email = email;
-        createUserData.email_confirm = true;
-      }
-
       const { data: authData, error: authError } = await memfireAdmin.auth.admin.createUser(createUserData);
 
       if (authError) {
         console.log('[createParent] MemFire Auth 创建用户失败:', authError);
-        // 手机号或邮箱已存在
+        // 邮箱已存在
         if (authError.message.includes('already exists') || authError.message.includes('already been registered')) {
-          return next(new ApiError('手机号或邮箱已被注册', 400, 'USER_EXISTS'));
+          return next(new ApiError('邮箱已被注册', 400, 'USER_EXISTS'));
         }
         return next(new ApiError(authError.message, 400, 'AUTH_ERROR'));
       }
@@ -1083,12 +1070,11 @@ export const authController = {
         .from('users')
         .insert({
           id: authData.user.id,
-          email: authData.user.email || email || null,
-          phone: authData.user.phone || phone,
+          email: authData.user.email || email,
+          phone: phone || null,
           name,
           role: 'parent',
           organizationId: finalOrganizationId,
-          isPhoneUser: true,
         });
 
       if (insertError) {
@@ -1115,6 +1101,76 @@ export const authController = {
       );
     } catch (error) {
       console.log('[createParent] 未捕获的异常:', error);
+      next(error);
+    }
+  },
+
+  // 修改密码（通过后端 API）
+  changePassword: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { oldPassword, newPassword } = req.body;
+      const currentUser = req.memfireUser || req.user;
+
+      if (!currentUser) {
+        return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
+      }
+
+      if (!oldPassword || !newPassword) {
+        return next(new ApiError('缺少必填字段', 400, 'MISSING_FIELDS'));
+      }
+
+      if (newPassword.length < 6) {
+        return next(new ApiError('新密码至少6位', 400, 'INVALID_PASSWORD'));
+      }
+
+      // 获取用户信息
+      const { data: user, error: userError } = await memfireAdmin
+        .from('users')
+        .select('email, phone')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
+      if (userError || !user) {
+        return next(new ApiError('用户不存在', 404, 'USER_NOT_FOUND'));
+      }
+
+      // 验证原密码（使用邮箱或手机号登录）
+      let authError;
+      if (user.email) {
+        const result = await memfireAdmin.auth.signInWithPassword({
+          email: user.email,
+          password: oldPassword,
+        });
+        authError = result.error;
+      } else if (user.phone) {
+        const result = await memfireAdmin.auth.signInWithPassword({
+          phone: user.phone,
+          password: oldPassword,
+        });
+        authError = result.error;
+      } else {
+        return next(new ApiError('用户信息不完整', 400, 'USER_INFO_INCOMPLETE'));
+      }
+
+      if (authError) {
+        logger.warn('修改密码失败：原密码错误', { userId: currentUser.id });
+        return next(new ApiError('原密码错误', 400, 'INVALID_OLD_PASSWORD'));
+      }
+
+      // 使用 Admin API 更新密码
+      const { error: updateError } = await memfireAdmin.auth.admin.updateUserById(
+        currentUser.id,
+        { password: newPassword }
+      );
+
+      if (updateError) {
+        logger.error('更新密码失败', { userId: currentUser.id, error: updateError.message });
+        return next(new ApiError('密码修改失败: ' + updateError.message, 500, 'UPDATE_PASSWORD_ERROR'));
+      }
+
+      logger.info('密码修改成功', { userId: currentUser.id });
+      sendSuccess(res, { success: true }, '密码修改成功');
+    } catch (error) {
       next(error);
     }
   },

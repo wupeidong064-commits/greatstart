@@ -376,24 +376,24 @@ const StaffList = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
             <Form.Item
-              name="phone"
-              label="手机号"
-              rules={[
-                { required: true, message: '请输入手机号' },
-                { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
-              ]}
-            >
-              <Input placeholder="请输入手机号" />
-            </Form.Item>
-
-            <Form.Item
               name="email"
-              label="邮箱（可选）"
+              label="邮箱"
               rules={[
+                { required: true, message: '请输入邮箱' },
                 { type: 'email', message: '请输入有效的邮箱' },
               ]}
             >
-              <Input placeholder="请输入邮箱（可选）" />
+              <Input placeholder="请输入邮箱（用于登录）" />
+            </Form.Item>
+
+            <Form.Item
+              name="phone"
+              label="手机号（可选）"
+              rules={[
+                { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
+              ]}
+            >
+              <Input placeholder="请输入手机号（可选）" />
             </Form.Item>
           </div>
 

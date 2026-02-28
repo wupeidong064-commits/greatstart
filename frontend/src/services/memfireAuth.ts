@@ -9,7 +9,6 @@ if (!memfire) {
 export interface MemfireProfile {
   id: string;
   email: string | null;
-  phone?: string | null;
   name?: string | null;
   role?: string | null;
   organizationId?: string | null;
@@ -115,7 +114,7 @@ export const memfireAuth = {
     }
   },
 
-  // 创建机构管理者（邮箱）
+  // 创建机构管理者
   async createManager(email: string, password: string, name: string, organizationId: string) {
     // 调用后端 API，使用 MemFire Admin API 创建用户（自动确认邮箱）
     const response = await api.post('/auth/create-manager', {
@@ -128,59 +127,18 @@ export const memfireAuth = {
     return response;
   },
 
-  // 创建机构管理者（手机号）
-  async createManagerByPhone(phone: string, password: string, name: string, organizationId: string) {
-    const response = await api.post('/auth/create-manager-phone', {
-      phone,
-      password,
-      name,
-      organizationId,
-    });
-
-    return response;
-  },
-
-  // 修改密码（使用原密码验证）
+  // 修改密码（通过后端 API）
   async changePassword(oldPassword: string, newPassword: string) {
-    if (!memfire) throw new Error('MemFire 客户端未初始化');
-
-    const currentUser = await this.getCurrentUser();
-    if (!currentUser) {
-      return { success: false, error: '用户未登录' };
-    }
-
-    // 首先验证原密码是否正确（支持邮箱或手机号）
-    let signInError;
-    if (currentUser.email) {
-      const result = await memfire.auth.signInWithPassword({
-        email: currentUser.email,
-        password: oldPassword,
+    try {
+      const response = await api.post('/auth/change-password', {
+        oldPassword,
+        newPassword,
       });
-      signInError = result.error;
-    } else if (currentUser.phone) {
-      const result = await memfire.auth.signInWithPassword({
-        phone: currentUser.phone,
-        password: oldPassword,
-      });
-      signInError = result.error;
-    } else {
-      return { success: false, error: '用户信息不完整' };
+      return { success: true, data: response.data };
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error?.message || error.message || '密码修改失败';
+      return { success: false, error: errorMsg };
     }
-
-    if (signInError) {
-      return { success: false, error: '原密码错误' };
-    }
-
-    // 更新密码
-    const { error: updateError } = await memfire.auth.updateUser({
-      password: newPassword,
-    });
-
-    if (updateError) {
-      return { success: false, error: updateError.message || '密码修改失败' };
-    }
-
-    return { success: true, data: { message: '密码修改成功' } };
   },
 
   // 忘记密码 - 发送重置密码邮件

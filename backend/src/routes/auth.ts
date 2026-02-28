@@ -381,3 +381,33 @@ authRoutes.post('/register-phone', registerByPhoneValidation, authController.reg
  *         description: 密码重置成功
  */
 authRoutes.post('/reset-password', resetPasswordValidation, authController.resetPassword);
+
+/**
+ * @swagger
+ * /api/auth/change-password:
+ *   post:
+ *     summary: 修改密码
+ *     tags: [认证]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - oldPassword
+ *               - newPassword
+ *             properties:
+ *               oldPassword:
+ *                 type: string
+ *                 description: 原密码
+ *               newPassword:
+ *                 type: string
+ *                 description: 新密码（至少6位）
+ *     responses:
+ *       200:
+ *         description: 密码修改成功
+ */
+authRoutes.post('/change-password', authenticate, authController.changePassword);

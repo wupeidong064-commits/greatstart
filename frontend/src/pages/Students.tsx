@@ -288,13 +288,13 @@ const Students = () => {
         }
 
         // 如果选择了创建家长账号，同时创建家长账号
-        if (createParent && parentName && studentData.parentPhone) {
+        if (createParent && parentName && parentEmail) {
           try {
             const response = await api.post('/auth/create-parent', {
-              email: parentEmail || undefined,
+              email: parentEmail,
               password: parentPassword || undefined,
               name: parentName,
-              phone: studentData.parentPhone,
+              phone: studentData.parentPhone || undefined,
               studentId: newStudent.id,
             });
             const defaultPassword = response.data?.defaultPassword || parentPassword || '123456';
@@ -853,10 +853,10 @@ const Students = () => {
 
       // 调用创建家长账号API
       const response = await api.post('/auth/create-parent', {
-        email: email || undefined,
+        email,
         password: password || undefined,
         name,
-        phone: parentPhone,
+        phone: parentPhone || undefined,
         studentId: parentAccountStudent.id,
       });
 
@@ -1062,7 +1062,7 @@ const Students = () => {
               删除
             </Button>
           )}
-          {canManageStudents && record.parentPhone && (
+          {canManageStudents && (
             <Button type="link" icon={<UserAddOutlined />} onClick={() => handleOpenParentAccountModal(record)}>
               创建家长账号
             </Button>
@@ -1549,7 +1549,7 @@ const Students = () => {
               {createParentAccount && (
                 <>
                   <Alert
-                    message="创建家长账号后，家长可以使用手机号登录系统，查看学员的课表、出勤记录和缴费信息。"
+                    message="创建家长账号后，家长可以使用邮箱登录系统，查看学员的课表、出勤记录和缴费信息。"
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
@@ -1565,12 +1565,13 @@ const Students = () => {
 
                   <Form.Item
                     name="parentEmail"
-                    label="家长邮箱（可选）"
+                    label="家长邮箱"
                     rules={createParentAccount ? [
+                      { required: true, message: '请输入家长邮箱' },
                       { type: 'email', message: '请输入有效的邮箱地址' },
                     ] : []}
                   >
-                    <Input placeholder="可选，用于接收邮件通知" />
+                    <Input placeholder="请输入家长邮箱（用于登录）" />
                   </Form.Item>
 
                   <Form.Item
@@ -1738,7 +1739,7 @@ const Students = () => {
         <Form form={parentAccountForm} onFinish={handleParentAccountSubmit} layout="vertical">
           <Alert
             message="提示"
-            description="创建家长账号后，家长可以使用手机号登录系统，查看学员的课表、出勤记录和缴费信息。"
+            description="创建家长账号后，家长可以使用邮箱登录系统，查看学员的课表、出勤记录和缴费信息。"
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -1753,25 +1754,25 @@ const Students = () => {
           </Form.Item>
 
           <Form.Item
-            name="parentPhone"
-            label="家长手机号"
+            name="email"
+            label="家长邮箱"
             rules={[
-              { required: true, message: '请输入家长手机号' },
-              { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
+              { required: true, message: '请输入家长邮箱' },
+              { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
-            extra="此手机号将用于登录和关联学员"
+            extra="此邮箱将用于登录"
           >
-            <Input placeholder="用于登录的手机号" />
+            <Input placeholder="请输入家长邮箱（用于登录）" />
           </Form.Item>
 
           <Form.Item
-            name="email"
-            label="家长邮箱（可选）"
+            name="parentPhone"
+            label="家长手机号（可选）"
             rules={[
-              { type: 'email', message: '请输入有效的邮箱地址' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
             ]}
           >
-            <Input placeholder="可选，用于接收邮件通知" />
+            <Input placeholder="可选，请输入手机号" />
           </Form.Item>
 
           <Form.Item
