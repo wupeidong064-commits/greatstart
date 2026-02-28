@@ -755,6 +755,84 @@ export const authController = {
     }
   },
 
+  // 创建机构管理者（使用手机号）
+  createManagerByPhone: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { phone, password, name, organizationId } = req.body;
+
+      // 验证必填字段
+      if (!phone || !password || !name || !organizationId) {
+        return next(new ApiError('缺少必填字段（手机号、密码、姓名、机构）', 400, 'MISSING_FIELDS'));
+      }
+
+      // 验证手机号格式
+      if (!isPhoneNumber(phone)) {
+        return next(new ApiError('请输入有效的手机号', 400, 'INVALID_PHONE'));
+      }
+
+      // 验证机构是否存在
+      const { data: org, error: orgError } = await memfireAdmin
+        .from('organizations')
+        .select('id')
+        .eq('id', organizationId)
+        .maybeSingle();
+
+      if (orgError || !org) {
+        return next(new ApiError('机构不存在', 400, 'ORGANIZATION_NOT_FOUND'));
+      }
+
+      // 1. 使用 MemFire Admin API 创建用户（使用手机号）
+      const { data: authData, error: authError } = await memfireAdmin.auth.admin.createUser({
+        phone,
+        password,
+        phone_confirm: true, // 自动确认手机号
+        user_metadata: {
+          name,
+        },
+      });
+
+      if (authError) {
+        // 手机号已存在
+        if (authError.message.includes('already exists')) {
+          return next(new ApiError('手机号已被注册', 400, 'PHONE_EXISTS'));
+        }
+        return next(new ApiError(authError.message, 400, 'AUTH_ERROR'));
+      }
+
+      // 2. 在 users 表中创建记录（角色为 manager）
+      const { error: userError } = await memfireAdmin
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          phone: authData.user.phone,
+          name,
+          role: 'manager',
+          organizationId,
+        });
+
+      if (userError) {
+        // 如果 users 表操作失败，尝试回滚 MemFire Auth 用户
+        await memfireAdmin.auth.admin.deleteUser(authData.user.id);
+        return next(new ApiError('创建用户失败: ' + userError.message, 500, 'USER_CREATE_ERROR'));
+      }
+
+      sendSuccess(
+        res,
+        {
+          id: authData.user.id,
+          phone: authData.user.phone,
+          name,
+          role: 'manager',
+          organizationId,
+        },
+        '管理者创建成功',
+        201
+      );
+    } catch (error) {
+      next(error);
+    }
+  },
+
   // 创建工作人员（教练、销售等），使用 MemFire Admin API 自动确认邮箱
   createStaff: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

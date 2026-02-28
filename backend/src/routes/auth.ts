@@ -117,6 +117,42 @@ authRoutes.post('/create-manager', authenticate, requireMemFireAdmin, authContro
 
 /**
  * @swagger
+ * /api/auth/create-manager-phone:
+ *   post:
+ *     summary: 使用手机号创建机构管理者
+ *     tags: [认证]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - phone
+ *               - password
+ *               - name
+ *               - organizationId
+ *             properties:
+ *               phone:
+ *                 type: string
+ *                 description: 手机号
+ *               password:
+ *                 type: string
+ *                 description: 密码
+ *               name:
+ *                 type: string
+ *               organizationId:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: 管理者创建成功
+ */
+authRoutes.post('/create-manager-phone', authenticate, requireMemFireAdmin, authController.createManagerByPhone);
+
+/**
+ * @swagger
  * /api/auth/create-staff:
  *   post:
  *     summary: 创建工作人员（教练、销售、教师等）

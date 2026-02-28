@@ -121,8 +121,8 @@ const Organizations = () => {
         return;
       }
 
-      await memfireAuth.createManager(
-        values.email,
+      await memfireAuth.createManagerByPhone(
+        values.phone,
         values.password,
         values.name,
         orgId
@@ -430,14 +430,14 @@ const Organizations = () => {
           </Form.Item>
 
           <Form.Item
-            label="邮箱"
-            name="email"
+            label="手机号"
+            name="phone"
             rules={[
-              { required: true, message: '请输入邮箱' },
-              { type: 'email', message: '请输入正确的邮箱地址' },
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号' },
             ]}
           >
-            <Input placeholder="请输入邮箱（用于登录）" />
+            <Input placeholder="请输入手机号（用于登录）" />
           </Form.Item>
 
           <Form.Item
