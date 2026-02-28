@@ -1,14 +1,47 @@
 import { useState } from 'react';
 import { Form, Input, Button, Card, message, Typography } from 'antd';
-import { UserOutlined, LockOutlined, MailOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, MobileOutlined, SafetyOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
-import { memfireAuth } from '../services/memfireAuth';
+import { authService } from '../services/authService';
 
 const Register = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [form] = Form.useForm();
 
-  const onFinish = async (values: { email: string; password: string; confirmPassword: string; name: string }) => {
+  // 发送验证码
+  const sendSmsCode = async () => {
+    try {
+      const phone = form.getFieldValue('phone');
+      if (!phone || !/^1[3-9]\d{9}$/.test(phone)) {
+        message.error('请输入有效的手机号');
+        return;
+      }
+
+      const response = await authService.sendOtp({ phone });
+      if (response.success) {
+        message.success('验证码已发送');
+        setCountdown(60);
+        const timer = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        message.error(response.message || '发送失败');
+      }
+    } catch (error: any) {
+      console.error('发送验证码错误:', error);
+      message.error(error.response?.data?.message || '发送失败');
+    }
+  };
+
+  const onFinish = async (values: { phone: string; password: string; confirmPassword: string; name: string; smsCode: string }) => {
     if (values.password !== values.confirmPassword) {
       message.error('两次输入的密码不一致');
       return;
@@ -16,13 +49,22 @@ const Register = () => {
 
     setLoading(true);
     try {
-      await memfireAuth.signUp(values.email, values.password, values.name);
+      const response = await authService.registerByPhone({
+        phone: values.phone,
+        password: values.password,
+        name: values.name,
+        smsCode: values.smsCode,
+      });
 
-      message.success('注册成功，请前往邮箱完成验证后再登录');
-      navigate('/login');
+      if (response.success) {
+        message.success('注册成功，请登录');
+        navigate('/login');
+      } else {
+        message.error(response.message || '注册失败');
+      }
     } catch (error: any) {
       console.error('注册错误详情:', error);
-      const errorMessage = error.message || '注册失败，请稍后重试';
+      const errorMessage = error.response?.data?.message || error.message || '注册失败，请稍后重试';
       message.error(errorMessage);
     } finally {
       setLoading(false);
@@ -44,7 +86,14 @@ const Register = () => {
         style={{ width: 420 }}
         styles={{ header: { textAlign: 'center', fontSize: '24px', fontWeight: 'bold' } }}
       >
-        <Form name="register" onFinish={onFinish} autoComplete="off" size="large" layout="vertical">
+        <Form
+          form={form}
+          name="register"
+          onFinish={onFinish}
+          autoComplete="off"
+          size="large"
+          layout="vertical"
+        >
           <Form.Item
             label="姓名"
             name="name"
@@ -57,23 +106,48 @@ const Register = () => {
           </Form.Item>
 
           <Form.Item
-            label="邮箱"
-            name="email"
+            label="手机号"
+            name="phone"
             rules={[
-              { required: true, message: '请输入邮箱' },
-              { type: 'email', message: '请输入有效的邮箱地址' },
+              { required: true, message: '请输入手机号' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入有效的手机号' },
             ]}
           >
             <Input
-              prefix={<MailOutlined />}
-              placeholder="请输入邮箱"
+              prefix={<MobileOutlined />}
+              placeholder="请输入手机号"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="验证码"
+            name="smsCode"
+            rules={[{ required: true, message: '请输入验证码' }]}
+          >
+            <Input
+              prefix={<SafetyOutlined />}
+              placeholder="请输入验证码"
+              addonAfter={
+                <Button
+                  type="link"
+                  size="small"
+                  disabled={countdown > 0}
+                  onClick={sendSmsCode}
+                  style={{ padding: 0, height: 'auto' }}
+                >
+                  {countdown > 0 ? `${countdown}秒后重发` : '获取验证码'}
+                </Button>
+              }
             />
           </Form.Item>
 
           <Form.Item
             label="密码"
             name="password"
-            rules={[{ required: true, message: '请输入密码' }]}
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 6, message: '密码至少6位' },
+            ]}
           >
             <Input.Password
               prefix={<LockOutlined />}
@@ -110,18 +184,3 @@ const Register = () => {
 };
 
 export default Register;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
