@@ -792,11 +792,12 @@ export const authController = {
       });
 
       if (authError) {
+        logger.error('MemFire Auth 创建用户失败', { phone, error: authError.message, code: authError.status });
         // 手机号已存在
-        if (authError.message.includes('already exists')) {
+        if (authError.message.includes('already exists') || authError.message.includes('already been registered')) {
           return next(new ApiError('手机号已被注册', 400, 'PHONE_EXISTS'));
         }
-        return next(new ApiError(authError.message, 400, 'AUTH_ERROR'));
+        return next(new ApiError('创建用户失败: ' + authError.message, 400, 'AUTH_ERROR'));
       }
 
       // 2. 在 users 表中创建记录（角色为 manager）
