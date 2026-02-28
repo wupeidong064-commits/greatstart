@@ -105,9 +105,10 @@ const ExperienceSchedule = () => {
       });
       setData(response.data || []);
       if (response.pagination) {
+        const pagination = response.pagination as { total: number };
         setPagination(prev => ({
           ...prev,
-          total: response.pagination.total || 0,
+          total: pagination.total || 0,
         }));
       }
     } catch (error: any) {
@@ -312,7 +313,8 @@ const ExperienceSchedule = () => {
     setPagination(prev => ({ ...prev, current: 1 }));
   };
 
-  // 获取当前筛选模式的统计信息
+  // 获取当前筛选模式的统计信息（预留）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getFilterStats = () => {
     const stats = {
       pendingConfirm: 0,

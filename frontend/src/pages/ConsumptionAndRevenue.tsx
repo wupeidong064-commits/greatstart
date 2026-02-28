@@ -71,8 +71,10 @@ const ConsumptionAndRevenue = () => {
     totalNewAdded: 0,
     netChange: 0,
   });
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [lostStudents, setLostStudents] = useState<any[]>([]);
   const [showDecreasedOnly, setShowDecreasedOnly] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [lostStudentsModalVisible, setLostStudentsModalVisible] = useState(false);
 
   useEffect(() => {

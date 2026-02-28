@@ -87,7 +87,8 @@ const MyPayments = () => {
 
       const response = await api.get(`/parent/payments/${selectedStudentId}`, { params });
       setPayments(response.data || []);
-      setSummary(response.summary || {
+      const respWithSummary = response as { data: any[]; summary?: { totalAmount: number; paymentByType: Record<string, number> } };
+      setSummary(respWithSummary.summary || {
         totalAmount: 0,
         paymentByType: {},
       });
