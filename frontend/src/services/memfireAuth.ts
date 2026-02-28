@@ -127,30 +127,18 @@ export const memfireAuth = {
     return response;
   },
 
-  // 修改密码（使用原密码验证）
+  // 修改密码（通过后端 API）
   async changePassword(oldPassword: string, newPassword: string) {
-    if (!memfire) throw new Error('MemFire 客户端未初始化');
-
-    // 首先验证原密码是否正确
-    const { data: { user: _user }, error: signInError } = await memfire.auth.signInWithPassword({
-      email: (await this.getCurrentUser())?.email || '',
-      password: oldPassword,
-    });
-
-    if (signInError) {
-      return { success: false, error: '原密码错误' };
+    try {
+      const response = await api.post('/auth/change-password', {
+        oldPassword,
+        newPassword,
+      });
+      return { success: true, data: response.data };
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error?.message || error.message || '密码修改失败';
+      return { success: false, error: errorMsg };
     }
-
-    // 更新密码
-    const { error: updateError } = await memfire.auth.updateUser({
-      password: newPassword,
-    });
-
-    if (updateError) {
-      return { success: false, error: updateError.message || '密码修改失败' };
-    }
-
-    return { success: true, data: { message: '密码修改成功' } };
   },
 
   // 忘记密码 - 发送重置密码邮件

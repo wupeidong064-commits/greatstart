@@ -1104,6 +1104,76 @@ export const authController = {
       next(error);
     }
   },
+
+  // 修改密码（通过后端 API）
+  changePassword: async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const { oldPassword, newPassword } = req.body;
+      const currentUser = req.memfireUser || req.user;
+
+      if (!currentUser) {
+        return next(new ApiError('未认证', 401, 'UNAUTHORIZED'));
+      }
+
+      if (!oldPassword || !newPassword) {
+        return next(new ApiError('缺少必填字段', 400, 'MISSING_FIELDS'));
+      }
+
+      if (newPassword.length < 6) {
+        return next(new ApiError('新密码至少6位', 400, 'INVALID_PASSWORD'));
+      }
+
+      // 获取用户信息
+      const { data: user, error: userError } = await memfireAdmin
+        .from('users')
+        .select('email, phone')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
+      if (userError || !user) {
+        return next(new ApiError('用户不存在', 404, 'USER_NOT_FOUND'));
+      }
+
+      // 验证原密码（使用邮箱或手机号登录）
+      let authError;
+      if (user.email) {
+        const result = await memfireAdmin.auth.signInWithPassword({
+          email: user.email,
+          password: oldPassword,
+        });
+        authError = result.error;
+      } else if (user.phone) {
+        const result = await memfireAdmin.auth.signInWithPassword({
+          phone: user.phone,
+          password: oldPassword,
+        });
+        authError = result.error;
+      } else {
+        return next(new ApiError('用户信息不完整', 400, 'USER_INFO_INCOMPLETE'));
+      }
+
+      if (authError) {
+        logger.warn('修改密码失败：原密码错误', { userId: currentUser.id });
+        return next(new ApiError('原密码错误', 400, 'INVALID_OLD_PASSWORD'));
+      }
+
+      // 使用 Admin API 更新密码
+      const { error: updateError } = await memfireAdmin.auth.admin.updateUserById(
+        currentUser.id,
+        { password: newPassword }
+      );
+
+      if (updateError) {
+        logger.error('更新密码失败', { userId: currentUser.id, error: updateError.message });
+        return next(new ApiError('密码修改失败: ' + updateError.message, 500, 'UPDATE_PASSWORD_ERROR'));
+      }
+
+      logger.info('密码修改成功', { userId: currentUser.id });
+      sendSuccess(res, { success: true }, '密码修改成功');
+    } catch (error) {
+      next(error);
+    }
+  },
 };
 
 // 注册验证规则
