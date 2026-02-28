@@ -1062,7 +1062,7 @@ const Students = () => {
               删除
             </Button>
           )}
-          {canManageStudents && record.parentPhone && (
+          {canManageStudents && (
             <Button type="link" icon={<UserAddOutlined />} onClick={() => handleOpenParentAccountModal(record)}>
               创建家长账号
             </Button>
