@@ -288,13 +288,13 @@ const Students = () => {
         }
 
         // 如果选择了创建家长账号，同时创建家长账号
-        if (createParent && parentName && studentData.parentPhone) {
+        if (createParent && parentName && parentEmail) {
           try {
             const response = await api.post('/auth/create-parent', {
-              email: parentEmail || undefined,
+              email: parentEmail,
               password: parentPassword || undefined,
               name: parentName,
-              phone: studentData.parentPhone,
+              phone: studentData.parentPhone || undefined,
               studentId: newStudent.id,
             });
             const defaultPassword = response.data?.defaultPassword || parentPassword || '123456';
@@ -1565,12 +1565,13 @@ const Students = () => {
 
                   <Form.Item
                     name="parentEmail"
-                    label="家长邮箱（可选）"
+                    label="家长邮箱"
                     rules={createParentAccount ? [
+                      { required: true, message: '请输入家长邮箱' },
                       { type: 'email', message: '请输入有效的邮箱地址' },
                     ] : []}
                   >
-                    <Input placeholder="可选，用于接收邮件通知" />
+                    <Input placeholder="请输入家长邮箱（用于登录）" />
                   </Form.Item>
 
                   <Form.Item
