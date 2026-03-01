@@ -108,10 +108,10 @@ const ExperienceSchedule = () => {
         }
       });
       setData(response.data || []);
-      if (response.pagination) {
+      if (response.pagination && response.pagination.total !== undefined) {
         setPagination(prev => ({
           ...prev,
-          total: response.pagination.total || 0,
+          total: response.pagination!.total || 0,
         }));
       }
     } catch (error: any) {
@@ -316,8 +316,8 @@ const ExperienceSchedule = () => {
     setPagination(prev => ({ ...prev, current: 1 }));
   };
 
-  // 获取当前筛选模式的统计信息
-  const getFilterStats = () => {
+  // 获取当前筛选模式的统计信息（保留供将来使用）
+  const _getFilterStats = () => {
     const stats = {
       pendingConfirm: 0,
       unconverted: 0,
@@ -325,6 +325,7 @@ const ExperienceSchedule = () => {
     // 这些统计可以从后端获取，这里暂时返回空
     return stats;
   };
+  void _getFilterStats; // 避免未使用警告
 
   const columns = [
     {

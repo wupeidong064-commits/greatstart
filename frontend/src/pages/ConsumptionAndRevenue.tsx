@@ -71,9 +71,9 @@ const ConsumptionAndRevenue = () => {
     totalNewAdded: 0,
     netChange: 0,
   });
-  const [lostStudents, setLostStudents] = useState<any[]>([]);
+  const [, setLostStudents] = useState<any[]>([]);
   const [showDecreasedOnly, setShowDecreasedOnly] = useState(false);
-  const [lostStudentsModalVisible, setLostStudentsModalVisible] = useState(false);
+  useState(false); // lostStudentsModalVisible - 保留供将来使用
 
   useEffect(() => {
     fetchStatistics();

@@ -123,7 +123,7 @@ const RenewalStudents = () => {
       // 响应拦截器已经返回 response.data，所以 response 就是后端返回的完整对象
       // 后端 sendPaginated 返回 { success, data, pagination }
       const students = response.data || [];
-      const paginationInfo = response.pagination || {};
+      const paginationInfo = response.pagination || {} as { total?: number; page?: number; pageSize?: number };
 
       console.log('[DEBUG fetchRenewalStudents] 学员数组:', students.length, '条');
       console.log('[DEBUG fetchRenewalStudents] 学员详情:', students);
