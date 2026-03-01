@@ -8,17 +8,25 @@ import { memfireAdmin } from '../config/memfire';
 import {
   validateStudentRow,
   validateClassRow,
+  validateLeadRow,
+  validateExperienceRow,
   normalizeStudentRow,
   normalizeClassRow,
+  normalizeLeadRow,
+  normalizeExperienceRow,
   mapRowToFields,
   STUDENT_COLUMN_MAPPING,
   CLASS_COLUMN_MAPPING,
+  LEAD_COLUMN_MAPPING,
+  EXPERIENCE_COLUMN_MAPPING,
   StudentImportRow,
   ClassImportRow,
+  LeadImportRow,
+  ExperienceImportRow,
 } from '../validators/importValidator';
 
 // 导入类型
-export type ImportType = 'students' | 'classes';
+export type ImportType = 'students' | 'classes' | 'leads' | 'experiences';
 
 // 重复处理策略
 export type DuplicateStrategy = 'skip' | 'update';
@@ -100,13 +108,19 @@ export function generateStudentTemplate(): Buffer {
     '家长电话',
     '家长邮箱',
     '所属班级编码',
+    '开卡时间',
+    '已购课时',
+    '消耗课时',
     '剩余课时',
+    '缴费金额',
+    '销售',
+    '最后上课日期',
     '备注',
   ];
 
   const exampleData = [
-    ['张三', 'M', '2015-03-20', '13800138000', '张父', '13900139000', 'parent@example.com', 'A001', '20', '试听课学员'],
-    ['李四', 'F', '2016-05-10', '13800138001', '李母', '13900139001', '', 'A002', '15', ''],
+    ['张三', 'M', '2015-03-20', '13800138000', '张父', '13900139000', 'parent@example.com', 'A001', '2024-01-01', '50', '10', '40', '5000', '王销售', '2024-02-15', '试听课学员'],
+    ['李四', 'F', '2016-05-10', '13800138001', '李母', '13900139001', '', 'A002', '2024-01-15', '30', '5', '25', '3000', '', '2024-02-20', ''],
   ];
 
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleData]);
@@ -121,7 +135,13 @@ export function generateStudentTemplate(): Buffer {
     { wch: 14 }, // 家长电话
     { wch: 20 }, // 家长邮箱
     { wch: 14 }, // 所属班级编码
+    { wch: 12 }, // 开卡时间
+    { wch: 10 }, // 已购课时
+    { wch: 10 }, // 消耗课时
     { wch: 10 }, // 剩余课时
+    { wch: 10 }, // 缴费金额
+    { wch: 10 }, // 销售
+    { wch: 14 }, // 最后上课日期
     { wch: 20 }, // 备注
   ];
 
@@ -165,6 +185,84 @@ export function generateClassTemplate(): Buffer {
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, '班级导入模板');
+
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
+
+/**
+ * 生成鱼池（线索）导入模板
+ */
+export function generateLeadTemplate(): Buffer {
+  const headers = [
+    '客户姓名',
+    '年龄',
+    '联系方式',
+    '备注',
+    '最近联系时间',
+    '负责人',
+  ];
+
+  const exampleData = [
+    ['张小明', '8', '13800138000', '对篮球感兴趣', '2024-01-15', '王销售'],
+    ['李小红', '10', '13900139000', '朋友推荐', '2024-01-16', '李销售'],
+  ];
+
+  const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleData]);
+
+  worksheet['!cols'] = [
+    { wch: 12 }, // 客户姓名
+    { wch: 6 },  // 年龄
+    { wch: 14 }, // 联系方式
+    { wch: 20 }, // 备注
+    { wch: 14 }, // 最近联系时间
+    { wch: 10 }, // 负责人
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '鱼池导入模板');
+
+  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+}
+
+/**
+ * 生成体验课导入模板
+ */
+export function generateExperienceTemplate(): Buffer {
+  const headers = [
+    '学员姓名',
+    '年龄',
+    '联系方式',
+    '来源',
+    '班级名称',
+    '预约日期',
+    '授课教练',
+    '负责人',
+    '状态',
+    '备注',
+  ];
+
+  const exampleData = [
+    ['张小明', '8', '13800138000', '鱼池转化', '周一基础班', '2024-01-20', '李教练', '王销售', 'pending', '首次体验'],
+    ['李小红', '10', '13900139000', '朋友推荐', '周三进阶班', '2024-01-22', '王教练', '李销售', 'pending', ''],
+  ];
+
+  const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleData]);
+
+  worksheet['!cols'] = [
+    { wch: 12 }, // 学员姓名
+    { wch: 6 },  // 年龄
+    { wch: 14 }, // 联系方式
+    { wch: 10 }, // 来源
+    { wch: 14 }, // 班级名称
+    { wch: 12 }, // 预约日期
+    { wch: 10 }, // 授课教练
+    { wch: 10 }, // 负责人
+    { wch: 10 }, // 状态
+    { wch: 20 }, // 备注
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '体验课导入模板');
 
   return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 }
@@ -237,6 +335,28 @@ export async function previewStudents(
     }, {});
   }
 
+  // 获取所有销售姓名，用于验证
+  const salesNames = rows
+    .map((row) => {
+      const mapped = mapRowToFields(row, STUDENT_COLUMN_MAPPING);
+      return mapped.salesName;
+    })
+    .filter(Boolean);
+
+  let salesMap: Record<string, any> = {};
+  if (salesNames.length > 0) {
+    const { data: salesUsers } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['admin', 'manager', 'sales', 'coach']);
+
+    salesMap = (salesUsers || []).reduce((acc: Record<string, any>, u: any) => {
+      acc[u.name] = u;
+      return acc;
+    }, {});
+  }
+
   // 验证每一行数据
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -266,6 +386,11 @@ export async function previewStudents(
     // 检查班级编码是否存在（仅警告，不阻止导入）
     if (normalized.classCode && !existingClassesMap[normalized.classCode]) {
       item.errors.push(`班级编码 "${normalized.classCode}" 不存在，将自动创建`);
+    }
+
+    // 检查销售是否存在（仅警告）
+    if (normalized.salesName && !salesMap[normalized.salesName]) {
+      item.errors.push(`销售 "${normalized.salesName}" 不存在`);
     }
 
     preview.push(item);
@@ -341,7 +466,7 @@ export async function previewClasses(
       .from('users')
       .select('id, name')
       .eq('organizationId', organizationId)
-      .in('role', ['teacher', 'coach']);
+      .in('role', ['teacher', 'coach', 'manager']);
 
     teachersMap = (teachers || []).reduce((acc: Record<string, any>, t: any) => {
       acc[t.name] = t;
@@ -436,6 +561,22 @@ export async function executeStudentsImport(
     }, {});
   }
 
+  // 获取销售映射
+  const salesNames = data.map((d) => d.salesName).filter(Boolean);
+  let salesMap: Record<string, any> = {};
+  if (salesNames.length > 0) {
+    const { data: salesUsers } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['admin', 'manager', 'sales', 'coach']);
+
+    salesMap = (salesUsers || []).reduce((acc: Record<string, any>, u: any) => {
+      acc[u.name] = u;
+      return acc;
+    }, {});
+  }
+
   // 分批处理
   for (let i = 0; i < data.length; i += BATCH_SIZE) {
     const batch = data.slice(i, i + BATCH_SIZE);
@@ -469,6 +610,16 @@ export async function executeStudentsImport(
           if (item.parentEmail) updateData.parentEmail = item.parentEmail;
           if (item.remainingLessons !== undefined) updateData.remainingLessons = item.remainingLessons;
           if (item.notes) updateData.notes = item.notes;
+
+          // 新增字段更新
+          if (item.cardOpenDate) updateData.cardOpenDate = item.cardOpenDate;
+          if (item.purchasedLessons !== undefined) updateData.purchasedLessons = item.purchasedLessons;
+          if (item.consumedLessons !== undefined) updateData.consumedLessons = item.consumedLessons;
+          if (item.totalPayment !== undefined) updateData.totalPayment = item.totalPayment;
+          if (item.lastClassDate) updateData.lastClassDate = item.lastClassDate;
+          if (item.salesName && salesMap[item.salesName]) {
+            updateData.salesId = salesMap[item.salesName].id;
+          }
 
           const { error } = await memfireAdmin
             .from('students')
@@ -510,6 +661,16 @@ export async function executeStudentsImport(
           if (item.parentEmail) newStudent.parentEmail = item.parentEmail;
           if (item.remainingLessons !== undefined) newStudent.remainingLessons = item.remainingLessons;
           if (item.notes) newStudent.notes = item.notes;
+
+          // 新增字段
+          if (item.cardOpenDate) newStudent.cardOpenDate = item.cardOpenDate;
+          if (item.purchasedLessons !== undefined) newStudent.purchasedLessons = item.purchasedLessons;
+          if (item.consumedLessons !== undefined) newStudent.consumedLessons = item.consumedLessons;
+          if (item.totalPayment !== undefined) newStudent.totalPayment = item.totalPayment;
+          if (item.lastClassDate) newStudent.lastClassDate = item.lastClassDate;
+          if (item.salesName && salesMap[item.salesName]) {
+            newStudent.salesId = salesMap[item.salesName].id;
+          }
 
           const { data: created, error } = await memfireAdmin
             .from('students')
@@ -624,7 +785,7 @@ export async function executeClassesImport(
       .from('users')
       .select('id, name')
       .eq('organizationId', organizationId)
-      .in('role', ['teacher', 'coach']);
+      .in('role', ['teacher', 'coach', 'manager']);
 
     teachersMap = (teachers || []).reduce((acc: Record<string, any>, t: any) => {
       acc[t.name] = t;
@@ -755,12 +916,497 @@ export async function executeClassesImport(
   return result;
 }
 
+/**
+ * 预览鱼池（线索）导入数据
+ */
+export async function previewLeads(
+  buffer: Buffer,
+  organizationId: string
+): Promise<PreviewResult> {
+  const rows = parseExcelFile(buffer);
+
+  if (rows.length === 0) {
+    throw new Error('Excel 文件没有数据');
+  }
+
+  if (rows.length > MAX_ROWS) {
+    throw new Error(`单次导入最多支持 ${MAX_ROWS} 行数据`);
+  }
+
+  const preview: PreviewItem[] = [];
+  const duplicates: DuplicateItem[] = [];
+
+  // 获取所有联系方式，用于检查重复
+  const contacts = rows
+    .map((row) => {
+      const mapped = mapRowToFields(row, LEAD_COLUMN_MAPPING);
+      return mapped.contact;
+    })
+    .filter(Boolean);
+
+  // 批量查询已有的线索
+  let existingLeadsMap: Record<string, any> = {};
+  if (contacts.length > 0) {
+    const { data: existingLeads } = await memfireAdmin
+      .from('leads')
+      .select('*')
+      .eq('organizationId', organizationId)
+      .in('contact', contacts);
+
+    existingLeadsMap = (existingLeads || []).reduce((acc: Record<string, any>, l: any) => {
+      acc[l.contact] = l;
+      return acc;
+    }, {});
+  }
+
+  // 获取负责人列表
+  const assigneeNames = rows
+    .map((row) => {
+      const mapped = mapRowToFields(row, LEAD_COLUMN_MAPPING);
+      return mapped.assigneeName;
+    })
+    .filter(Boolean);
+
+  let assigneeMap: Record<string, any> = {};
+  if (assigneeNames.length > 0) {
+    const { data: assignees } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['admin', 'manager', 'sales', 'coach']);
+
+    assigneeMap = (assignees || []).reduce((acc: Record<string, any>, u: any) => {
+      acc[u.name] = u;
+      return acc;
+    }, {});
+  }
+
+  // 验证每一行数据
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const mapped = mapRowToFields(row, LEAD_COLUMN_MAPPING);
+    const rowData: LeadImportRow = { row: i + 2, ...mapped };
+
+    const validation = validateLeadRow(rowData);
+    const normalized = normalizeLeadRow(rowData);
+
+    const item: PreviewItem = {
+      row: i + 2,
+      data: normalized,
+      isValid: validation.isValid,
+      errors: validation.errors,
+    };
+
+    // 检查重复
+    if (normalized.contact && existingLeadsMap[normalized.contact]) {
+      item.isDuplicate = true;
+      duplicates.push({
+        row: i + 2,
+        data: normalized,
+        existingRecord: existingLeadsMap[normalized.contact],
+      });
+    }
+
+    // 检查负责人是否存在
+    if (normalized.assigneeName && !assigneeMap[normalized.assigneeName]) {
+      item.errors.push(`负责人 "${normalized.assigneeName}" 不存在`);
+    }
+
+    preview.push(item);
+  }
+
+  const valid = preview.filter((p) => p.isValid).length;
+  const invalid = preview.filter((p) => !p.isValid).length;
+
+  return { total: rows.length, valid, invalid, preview, duplicates };
+}
+
+/**
+ * 执行鱼池（线索）导入
+ */
+export async function executeLeadsImport(
+  data: Record<string, any>[],
+  organizationId: string,
+  duplicateStrategy: DuplicateStrategy,
+  duplicates: DuplicateItem[]
+): Promise<ImportResult> {
+  const result: ImportResult = {
+    success: true,
+    summary: { total: data.length, created: 0, updated: 0, skipped: 0, failed: 0 },
+    details: [],
+  };
+
+  // 构建重复数据映射
+  const duplicateMap = new Map<string, any>();
+  for (const dup of duplicates) {
+    if (dup.data.contact) {
+      duplicateMap.set(dup.data.contact, dup.existingRecord);
+    }
+  }
+
+  // 获取负责人映射
+  const assigneeNames = data.map((d) => d.assigneeName).filter(Boolean);
+  let assigneeMap: Record<string, any> = {};
+  if (assigneeNames.length > 0) {
+    const { data: assignees } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['admin', 'manager', 'sales', 'coach']);
+
+    assigneeMap = (assignees || []).reduce((acc: Record<string, any>, u: any) => {
+      acc[u.name] = u;
+      return acc;
+    }, {});
+  }
+
+  // 分批处理
+  for (let i = 0; i < data.length; i += BATCH_SIZE) {
+    const batch = data.slice(i, i + BATCH_SIZE);
+
+    for (const item of batch) {
+      const rowIndex = i + batch.indexOf(item) + 2;
+
+      try {
+        const existingRecord = duplicateMap.get(item.contact);
+
+        if (existingRecord) {
+          if (duplicateStrategy === 'skip') {
+            result.summary.skipped++;
+            result.details.push({
+              row: rowIndex,
+              status: 'skipped',
+              message: `线索已存在（联系方式: ${item.contact}）`,
+            });
+            continue;
+          }
+
+          // 更新
+          const updateData: Record<string, any> = {};
+          if (item.customerName) updateData.customerName = item.customerName;
+          if (item.age !== undefined) updateData.age = item.age;
+          if (item.notes) updateData.notes = item.notes;
+          if (item.lastContactAt) updateData.lastContactAt = item.lastContactAt;
+          if (item.assigneeName && assigneeMap[item.assigneeName]) {
+            updateData.assigneeId = assigneeMap[item.assigneeName].id;
+          }
+
+          const { error } = await memfireAdmin
+            .from('leads')
+            .update(updateData)
+            .eq('id', existingRecord.id);
+
+          if (error) {
+            result.summary.failed++;
+            result.details.push({ row: rowIndex, status: 'failed', message: `更新失败: ${error.message}` });
+            continue;
+          }
+
+          result.summary.updated++;
+          result.details.push({ row: rowIndex, status: 'updated', message: '线索更新成功' });
+        } else {
+          // 创建
+          const newLead: Record<string, any> = {
+            customerName: item.customerName,
+            contact: item.contact,
+            organizationId,
+          };
+
+          if (item.age !== undefined) newLead.age = item.age;
+          if (item.notes) newLead.notes = item.notes;
+          if (item.lastContactAt) newLead.lastContactAt = item.lastContactAt;
+          if (item.assigneeName && assigneeMap[item.assigneeName]) {
+            newLead.assigneeId = assigneeMap[item.assigneeName].id;
+          }
+
+          const { error } = await memfireAdmin
+            .from('leads')
+            .insert(newLead);
+
+          if (error) {
+            result.summary.failed++;
+            result.details.push({ row: rowIndex, status: 'failed', message: `创建失败: ${error.message}` });
+            continue;
+          }
+
+          result.summary.created++;
+          result.details.push({ row: rowIndex, status: 'created', message: '线索创建成功' });
+        }
+      } catch (err: any) {
+        result.summary.failed++;
+        result.details.push({ row: rowIndex, status: 'failed', message: `处理异常: ${err.message}` });
+      }
+    }
+  }
+
+  if (result.summary.failed > 0 && result.summary.created === 0 && result.summary.updated === 0) {
+    result.success = false;
+  }
+
+  return result;
+}
+
+/**
+ * 预览体验课导入数据
+ */
+export async function previewExperiences(
+  buffer: Buffer,
+  organizationId: string
+): Promise<PreviewResult> {
+  const rows = parseExcelFile(buffer);
+
+  if (rows.length === 0) {
+    throw new Error('Excel 文件没有数据');
+  }
+
+  if (rows.length > MAX_ROWS) {
+    throw new Error(`单次导入最多支持 ${MAX_ROWS} 行数据`);
+  }
+
+  const preview: PreviewItem[] = [];
+  const duplicates: DuplicateItem[] = [];
+
+  // 获取教练映射
+  const teacherNames = rows
+    .map((row) => {
+      const mapped = mapRowToFields(row, EXPERIENCE_COLUMN_MAPPING);
+      return mapped.teachingTeacherName;
+    })
+    .filter(Boolean);
+
+  let teacherMap: Record<string, any> = {};
+  if (teacherNames.length > 0) {
+    const { data: teachers } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['teacher', 'coach', 'manager']);
+
+    teacherMap = (teachers || []).reduce((acc: Record<string, any>, t: any) => {
+      acc[t.name] = t;
+      return acc;
+    }, {});
+  }
+
+  // 获取负责人映射
+  const assigneeNames = rows
+    .map((row) => {
+      const mapped = mapRowToFields(row, EXPERIENCE_COLUMN_MAPPING);
+      return mapped.assigneeName;
+    })
+    .filter(Boolean);
+
+  let assigneeMap: Record<string, any> = {};
+  if (assigneeNames.length > 0) {
+    const { data: assignees } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['admin', 'manager', 'sales', 'coach']);
+
+    assigneeMap = (assignees || []).reduce((acc: Record<string, any>, u: any) => {
+      acc[u.name] = u;
+      return acc;
+    }, {});
+  }
+
+  // 获取班级映射
+  const classNames = rows
+    .map((row) => {
+      const mapped = mapRowToFields(row, EXPERIENCE_COLUMN_MAPPING);
+      return mapped.className;
+    })
+    .filter(Boolean);
+
+  let classMap: Record<string, any> = {};
+  if (classNames.length > 0) {
+    const { data: classes } = await memfireAdmin
+      .from('classes')
+      .select('id, name')
+      .eq('organizationId', organizationId);
+
+    classMap = (classes || []).reduce((acc: Record<string, any>, c: any) => {
+      acc[c.name] = c;
+      return acc;
+    }, {});
+  }
+
+  // 验证每一行数据
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const mapped = mapRowToFields(row, EXPERIENCE_COLUMN_MAPPING);
+    const rowData: ExperienceImportRow = { row: i + 2, ...mapped };
+
+    const validation = validateExperienceRow(rowData);
+    const normalized = normalizeExperienceRow(rowData);
+
+    const item: PreviewItem = {
+      row: i + 2,
+      data: normalized,
+      isValid: validation.isValid,
+      errors: validation.errors,
+    };
+
+    // 检查教练是否存在
+    if (normalized.teachingTeacherName && !teacherMap[normalized.teachingTeacherName]) {
+      item.errors.push(`教练 "${normalized.teachingTeacherName}" 不存在`);
+    }
+
+    // 检查负责人是否存在
+    if (normalized.assigneeName && !assigneeMap[normalized.assigneeName]) {
+      item.errors.push(`负责人 "${normalized.assigneeName}" 不存在`);
+    }
+
+    // 检查班级是否存在
+    if (normalized.className && !classMap[normalized.className]) {
+      item.errors.push(`班级 "${normalized.className}" 不存在`);
+    }
+
+    preview.push(item);
+  }
+
+  const valid = preview.filter((p) => p.isValid).length;
+  const invalid = preview.filter((p) => !p.isValid).length;
+
+  return { total: rows.length, valid, invalid, preview, duplicates };
+}
+
+/**
+ * 执行体验课导入
+ */
+export async function executeExperiencesImport(
+  data: Record<string, any>[],
+  organizationId: string
+): Promise<ImportResult> {
+  const result: ImportResult = {
+    success: true,
+    summary: { total: data.length, created: 0, updated: 0, skipped: 0, failed: 0 },
+    details: [],
+  };
+
+  // 获取教练映射
+  const teacherNames = data.map((d) => d.teachingTeacherName).filter(Boolean);
+  let teacherMap: Record<string, any> = {};
+  if (teacherNames.length > 0) {
+    const { data: teachers } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['teacher', 'coach', 'manager']);
+
+    teacherMap = (teachers || []).reduce((acc: Record<string, any>, t: any) => {
+      acc[t.name] = t;
+      return acc;
+    }, {});
+  }
+
+  // 获取负责人映射
+  const assigneeNames = data.map((d) => d.assigneeName).filter(Boolean);
+  let assigneeMap: Record<string, any> = {};
+  if (assigneeNames.length > 0) {
+    const { data: assignees } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('role', ['admin', 'manager', 'sales', 'coach']);
+
+    assigneeMap = (assignees || []).reduce((acc: Record<string, any>, u: any) => {
+      acc[u.name] = u;
+      return acc;
+    }, {});
+  }
+
+  // 获取班级映射
+  const classNames = data.map((d) => d.className).filter(Boolean);
+  let classMap: Record<string, any> = {};
+  if (classNames.length > 0) {
+    const { data: classes } = await memfireAdmin
+      .from('classes')
+      .select('id, name')
+      .eq('organizationId', organizationId);
+
+    classMap = (classes || []).reduce((acc: Record<string, any>, c: any) => {
+      acc[c.name] = c;
+      return acc;
+    }, {});
+  }
+
+  // 分批处理
+  for (let i = 0; i < data.length; i += BATCH_SIZE) {
+    const batch = data.slice(i, i + BATCH_SIZE);
+
+    for (const item of batch) {
+      const rowIndex = i + batch.indexOf(item) + 2;
+
+      try {
+        const newExperience: Record<string, any> = {
+          studentName: item.studentName,
+          contact: item.contact,
+          organizationId,
+          status: item.status || 'pending',
+        };
+
+        if (item.age !== undefined) newExperience.age = item.age;
+        if (item.source) newExperience.source = item.source;
+        if (item.scheduleDate) newExperience.scheduleDate = item.scheduleDate;
+        if (item.notes) newExperience.notes = item.notes;
+
+        // 设置班级
+        if (item.className && classMap[item.className]) {
+          newExperience.classId = classMap[item.className].id;
+          newExperience.className = item.className;
+        }
+
+        // 设置授课教练
+        if (item.teachingTeacherName && teacherMap[item.teachingTeacherName]) {
+          newExperience.teachingTeacherId = teacherMap[item.teachingTeacherName].id;
+          newExperience.teachingTeacherName = item.teachingTeacherName;
+        }
+
+        // 设置负责人
+        if (item.assigneeName && assigneeMap[item.assigneeName]) {
+          newExperience.assigneeId = assigneeMap[item.assigneeName].id;
+          newExperience.assigneeName = item.assigneeName;
+        }
+
+        const { error } = await memfireAdmin
+          .from('experience_lessons')
+          .insert(newExperience);
+
+        if (error) {
+          result.summary.failed++;
+          result.details.push({ row: rowIndex, status: 'failed', message: `创建失败: ${error.message}` });
+          continue;
+        }
+
+        result.summary.created++;
+        result.details.push({ row: rowIndex, status: 'created', message: '体验课创建成功' });
+      } catch (err: any) {
+        result.summary.failed++;
+        result.details.push({ row: rowIndex, status: 'failed', message: `处理异常: ${err.message}` });
+      }
+    }
+  }
+
+  if (result.summary.failed > 0 && result.summary.created === 0) {
+    result.success = false;
+  }
+
+  return result;
+}
+
 export const importService = {
   parseExcelFile,
   generateStudentTemplate,
   generateClassTemplate,
+  generateLeadTemplate,
+  generateExperienceTemplate,
   previewStudents,
   previewClasses,
+  previewLeads,
+  previewExperiences,
   executeStudentsImport,
   executeClassesImport,
+  executeLeadsImport,
+  executeExperiencesImport,
 };

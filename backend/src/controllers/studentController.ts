@@ -327,7 +327,7 @@ export const studentController = {
 
   createStudent: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { name, gender, birthDate, phone, parentName, parentPhone, campusId, organizationId, remainingLessons, source } = req.body;
+      const { name, gender, birthDate, phone, parentName, parentPhone, campusId, organizationId, remainingLessons, source, cardOpenDate, purchasedLessons, consumedLessons, totalPayment, salesId, lastClassDate } = req.body;
       const currentUser = getCurrentUser(req);
 
       // 数据隔离：使用用户自己的机构ID
@@ -367,6 +367,13 @@ export const studentController = {
           remainingLessons: remainingLessons || 0,
           source,
           status: 'active',
+          // 新增字段
+          cardOpenDate,
+          purchasedLessons: purchasedLessons || 0,
+          consumedLessons: consumedLessons || 0,
+          totalPayment: totalPayment || 0,
+          salesId,
+          lastClassDate,
         })
         .select()
         .single();
@@ -384,7 +391,7 @@ export const studentController = {
   updateStudent: async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
-      const { name, gender, birthDate, phone, parentName, parentPhone, campusId, status, deleteReason, expectedRecallDate, renewalStatus, noRenewalReason, noRenewalDate, remainingLessons, refundReason, refundDate } = req.body;
+      const { name, gender, birthDate, phone, parentName, parentPhone, campusId, status, deleteReason, expectedRecallDate, renewalStatus, noRenewalReason, noRenewalDate, remainingLessons, refundReason, refundDate, cardOpenDate, purchasedLessons, consumedLessons, totalPayment, salesId, lastClassDate } = req.body;
       const currentUser = getCurrentUser(req);
 
       const { data: existing } = await memfireAdmin
@@ -412,6 +419,14 @@ export const studentController = {
       if (campusId) updateData.campusId = campusId;
       if (status) updateData.status = status;
       if (remainingLessons !== undefined) updateData.remainingLessons = remainingLessons;
+
+      // 新增字段更新
+      if (cardOpenDate !== undefined) updateData.cardOpenDate = cardOpenDate;
+      if (purchasedLessons !== undefined) updateData.purchasedLessons = purchasedLessons;
+      if (consumedLessons !== undefined) updateData.consumedLessons = consumedLessons;
+      if (totalPayment !== undefined) updateData.totalPayment = totalPayment;
+      if (salesId !== undefined) updateData.salesId = salesId;
+      if (lastClassDate !== undefined) updateData.lastClassDate = lastClassDate;
 
       // 续费相关字段更新
       if (renewalStatus !== undefined) updateData.renewalStatus = renewalStatus;

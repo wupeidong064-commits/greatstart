@@ -78,6 +78,7 @@ model User {
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
   campus         Campus?       @relation(fields: [campusId], references: [id], onDelete: SetNull)
   taughtClasses  Class[]       @relation("ClassTeacher")
+  salesStudents  Student[]     @relation("StudentSales")
   schedules      Schedule[]
   attendances    Attendance[]
   enrollments    Enrollment[]
@@ -107,11 +108,22 @@ model Student {
   emergencyPhone  String?  // 紧急联系电话
   notes          String?  // 备注
   status         String   @default("active") // active, inactive, graduated
+
+  // 课时与缴费相关字段
+  cardOpenDate     DateTime?  // 开卡时间
+  purchasedLessons Int        @default(0) // 已购课时
+  consumedLessons  Int        @default(0) // 消耗课时
+  remainingLessons Int        @default(0) // 剩余课时
+  totalPayment     Decimal?   @default(0) // 缴费金额
+  salesId          String?    // 销售ID（关联用户）
+  lastClassDate    DateTime?  // 最后上课日期
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   campus         Campus?      @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  sales          User?        @relation("StudentSales", fields: [salesId], references: [id], onDelete: SetNull)
   enrollments    Enrollment[]
   attendances    Attendance[]
   payments       Payment[]
@@ -120,6 +132,7 @@ model Student {
   @@index([campusId])
   @@index([name])
   @@index([status])
+  @@index([salesId])
   @@map("students")
 }
 

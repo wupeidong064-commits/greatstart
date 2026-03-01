@@ -803,7 +803,6 @@ const Classes = () => {
               <TimePicker.RangePicker
                 style={{ width: '100%' }}
                 format="HH:mm"
-                minuteStep={15}
               />
             </Form.Item>
             <Row gutter={16}>
@@ -889,15 +888,14 @@ const Classes = () => {
             }
           </Form.Item>
 
-          <Form.Item 
-            name="timeRange" 
-            label="上课时段" 
+          <Form.Item
+            name="timeRange"
+            label="上课时段"
             rules={[{ required: true, message: '请选择上课时段' }]}
           >
-            <TimePicker.RangePicker 
-              style={{ width: '100%' }} 
+            <TimePicker.RangePicker
+              style={{ width: '100%' }}
               format="HH:mm"
-              minuteStep={15}
             />
           </Form.Item>
 

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse, Segmented } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, CheckCircleOutlined, ReloadOutlined, ClockCircleOutlined, UserDeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, CheckCircleOutlined, ReloadOutlined, ClockCircleOutlined, UserDeleteOutlined, FileExcelOutlined } from '@ant-design/icons';
 import api from '../services/api';
 import { dataService } from '../services/dataService';
 import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
+import ImportModal from '../components/ImportModal';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -62,6 +63,9 @@ const ExperienceSchedule = () => {
   const [sourceType, setSourceType] = useState<'new' | 'lead'>('new');
   const [leadsList, setLeadsList] = useState<LeadInfo[]>([]);
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+
+  // 批量导入相关状态
+  const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -561,6 +565,9 @@ const ExperienceSchedule = () => {
         <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
           新增体验课
         </Button>
+        <Button icon={<FileExcelOutlined />} onClick={() => setBatchImportModalVisible(true)}>
+          批量导入
+        </Button>
         <RangePicker
           value={statsDateRange}
           onChange={handleStatsDateChange}
@@ -760,6 +767,14 @@ const ExperienceSchedule = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 批量导入 Modal */}
+      <ImportModal
+        visible={batchImportModalVisible}
+        type="experiences"
+        onClose={() => setBatchImportModalVisible(false)}
+        onSuccess={fetchData}
+      />
     </div>
   );
 };

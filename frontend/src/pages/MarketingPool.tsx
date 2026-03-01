@@ -1,11 +1,12 @@
 import { Table, Button, Space, message, Modal, Form, Input, InputNumber, DatePicker, Select } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { dataService } from '../services/dataService';
 import { normalizeRole } from '../utils/dataFilter';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
+import ImportModal from '../components/ImportModal';
 
 interface StaffUser {
   id: string;
@@ -24,6 +25,9 @@ const MarketingPool = () => {
   const [staffList, setStaffList] = useState<StaffUser[]>([]);
   const [selectedAssignee, setSelectedAssignee] = useState<string | undefined>(undefined);
   const [searchKeyword, setSearchKeyword] = useState('');
+
+  // 批量导入相关状态
+  const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
 
   // 权限检查
   const user = useAuthStore((state) => state.user);
@@ -269,9 +273,14 @@ const MarketingPool = () => {
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>营销与销售（鱼池）</h1>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-          新增线索
-        </Button>
+        <Space>
+          <Button icon={<FileExcelOutlined />} onClick={() => setBatchImportModalVisible(true)}>
+            批量导入
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+            新增线索
+          </Button>
+        </Space>
       </div>
 
       {/* 筛选栏 */}
@@ -391,6 +400,14 @@ const MarketingPool = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 批量导入 Modal */}
+      <ImportModal
+        visible={batchImportModalVisible}
+        type="leads"
+        onClose={() => setBatchImportModalVisible(false)}
+        onSuccess={fetchData}
+      />
     </div>
   );
 };

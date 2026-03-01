@@ -60,6 +60,9 @@ const Students = () => {
   // 批量导入相关状态
   const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
 
+  // 销售列表（用于表单选择）
+  const [salesList, setSalesList] = useState<any[]>([]);
+
   // 权限检查
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
   const canManageStudents = normalizedRole === 'admin' || normalizedRole === 'manager';
@@ -152,7 +155,20 @@ const Students = () => {
     form.resetFields();
     setCreateParentAccount(false); // 重置选项
     fetchClasses(); // 获取班级列表用于选择
+    fetchSalesList(); // 获取销售列表
     setModalVisible(true);
+  };
+
+  // 获取销售列表
+  const fetchSalesList = async () => {
+    try {
+      const response = await api.get('/users', {
+        params: { role: 'sales,manager,admin,coach', pageSize: 1000 }
+      });
+      setSalesList(response.data || []);
+    } catch (error: any) {
+      console.error('获取销售列表失败:', error);
+    }
   };
 
   // 注意：新增学员功能在此页面，但真正的"新增学员"统计应从成单信息表中获取
@@ -168,9 +184,13 @@ const Students = () => {
       ...record,
       classId: classId,
       birthDate: record.birthDate ? dayjs(record.birthDate) : null,
+      cardOpenDate: record.cardOpenDate ? dayjs(record.cardOpenDate) : null,
+      lastClassDate: record.lastClassDate ? dayjs(record.lastClassDate) : null,
+      salesId: record.salesId || undefined,
     });
     setCreateParentAccount(false); // 编辑时不创建家长账号
     fetchClasses(); // 获取班级列表用于选择
+    fetchSalesList(); // 获取销售列表
     setModalVisible(true);
   };
 
@@ -194,7 +214,7 @@ const Students = () => {
   const handleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
-      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, remainingLessons, totalLessonsPurchased, courseType, phone, refundDate, refundReason, ...restData } = values;
+      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, remainingLessons, totalLessonsPurchased, courseType, phone, refundDate, refundReason, cardOpenDate, purchasedLessons, consumedLessons, totalPayment, salesId, lastClassDate, ...restData } = values;
 
       // 处理出生日期格式
       const studentData = {
@@ -205,6 +225,13 @@ const Students = () => {
         remainingLessons: editingStudent
           ? (remainingLessons !== undefined && remainingLessons !== null ? remainingLessons : editingStudent.remainingLessons)
           : (remainingLessons || 0),
+        // 新增字段
+        cardOpenDate: cardOpenDate ? cardOpenDate.format('YYYY-MM-DD') : null,
+        purchasedLessons: purchasedLessons || 0,
+        consumedLessons: consumedLessons || 0,
+        totalPayment: totalPayment || 0,
+        salesId: salesId || null,
+        lastClassDate: lastClassDate ? lastClassDate.format('YYYY-MM-DD') : null,
       };
 
       if (editingStudent) {
@@ -218,6 +245,13 @@ const Students = () => {
           birthDate: studentData.birthDate,
           campusId: studentData.campusId,
           status: studentData.status,
+          // 新增字段
+          cardOpenDate: studentData.cardOpenDate,
+          purchasedLessons: studentData.purchasedLessons,
+          consumedLessons: studentData.consumedLessons,
+          totalPayment: studentData.totalPayment,
+          salesId: studentData.salesId,
+          lastClassDate: studentData.lastClassDate,
         };
         // 处理退费相关字段
         if (studentData.status === 'refunded') {
@@ -967,22 +1001,50 @@ const Students = () => {
       key: 'phone',
     },
     {
-      title: '课时',
+      title: '课时信息',
       key: 'lessons',
       render: (_: any, record: any) => {
         const remaining = record.remainingLessons ?? 0;
-        const total = record.totalLessonsPurchased ?? 0;
+        const purchased = record.purchasedLessons ?? 0;
+        const consumed = record.consumedLessons ?? 0;
         return (
           <div>
             <div>
-              剩余 <strong>{remaining}</strong> 节
+              剩余 <strong style={{ color: remaining <= 5 ? '#ff4d4f' : '#1890ff' }}>{remaining}</strong> 节
             </div>
             <div style={{ fontSize: 12, color: '#999' }}>
-              累计 {total} 节
+              已购 {purchased} / 已消 {consumed}
             </div>
           </div>
         );
       },
+    },
+    {
+      title: '开卡时间',
+      dataIndex: 'cardOpenDate',
+      key: 'cardOpenDate',
+      width: 100,
+      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
+    },
+    {
+      title: '缴费金额',
+      dataIndex: 'totalPayment',
+      key: 'totalPayment',
+      width: 100,
+      render: (amount: number) => amount ? `¥${amount}` : '-',
+    },
+    {
+      title: '销售',
+      key: 'sales',
+      width: 80,
+      render: (_: any, record: any) => record.sales?.name || '-',
+    },
+    {
+      title: '最后上课',
+      dataIndex: 'lastClassDate',
+      key: 'lastClassDate',
+      width: 100,
+      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
     },
     {
       title: '负责教练',
@@ -1471,25 +1533,184 @@ const Students = () => {
           {!editingStudent && (
             <div style={{ background: '#fff7e6', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid #ffd591' }}>
               <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#fa8c16' }}>
-                💰 课时登记
+                💰 课时与缴费登记
               </div>
               <div style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>
-                新报名或续费时，填入新增课时数
+                新报名或续费时，填入相关信息
               </div>
 
-              <Form.Item
-                name="remainingLessons"
-                label="新增课时"
-                style={{ marginBottom: 0 }}
-                initialValue={0}
-              >
-                <InputNumber
-                  min={0}
-                  placeholder="新增课时"
-                  style={{ width: '100%' }}
-                  addonAfter="节"
-                />
-              </Form.Item>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item
+                  name="cardOpenDate"
+                  label="开卡时间"
+                >
+                  <DatePicker
+                    style={{ width: '100%' }}
+                    format="YYYY-MM-DD"
+                    placeholder="选择开卡时间"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="remainingLessons"
+                  label="剩余课时"
+                  initialValue={0}
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="剩余课时"
+                    style={{ width: '100%' }}
+                    addonAfter="节"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="purchasedLessons"
+                  label="已购课时"
+                  initialValue={0}
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="已购课时"
+                    style={{ width: '100%' }}
+                    addonAfter="节"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="totalPayment"
+                  label="缴费金额"
+                  initialValue={0}
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="缴费金额"
+                    style={{ width: '100%' }}
+                    prefix="¥"
+                    precision={2}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="salesId"
+                  label="销售"
+                >
+                  <Select
+                    placeholder="选择销售"
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    filterOption={(input, option) =>
+                      (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                    }
+                    options={salesList.map((sales: any) => ({
+                      label: sales.name,
+                      value: sales.id,
+                    }))}
+                  />
+                </Form.Item>
+              </div>
+            </div>
+          )}
+
+          {/* 编辑模式下的课时与缴费信息 */}
+          {editingStudent && (
+            <div style={{ background: '#fff7e6', padding: 16, borderRadius: 8, marginBottom: 16, border: '1px solid #ffd591' }}>
+              <div style={{ marginBottom: 12, fontWeight: 'bold', color: '#fa8c16' }}>
+                💰 课时与缴费信息
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item
+                  name="cardOpenDate"
+                  label="开卡时间"
+                >
+                  <DatePicker
+                    style={{ width: '100%' }}
+                    format="YYYY-MM-DD"
+                    placeholder="选择开卡时间"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="remainingLessons"
+                  label="剩余课时"
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="剩余课时"
+                    style={{ width: '100%' }}
+                    addonAfter="节"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="purchasedLessons"
+                  label="已购课时"
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="已购课时"
+                    style={{ width: '100%' }}
+                    addonAfter="节"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="consumedLessons"
+                  label="消耗课时"
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="消耗课时"
+                    style={{ width: '100%' }}
+                    addonAfter="节"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="totalPayment"
+                  label="缴费金额"
+                >
+                  <InputNumber
+                    min={0}
+                    placeholder="缴费金额"
+                    style={{ width: '100%' }}
+                    prefix="¥"
+                    precision={2}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="salesId"
+                  label="销售"
+                >
+                  <Select
+                    placeholder="选择销售"
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    filterOption={(input, option) =>
+                      (option?.label as string)?.toLowerCase().includes(input.toLowerCase())
+                    }
+                    options={salesList.map((sales: any) => ({
+                      label: sales.name,
+                      value: sales.id,
+                    }))}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="lastClassDate"
+                  label="最后上课日期"
+                >
+                  <DatePicker
+                    style={{ width: '100%' }}
+                    format="YYYY-MM-DD"
+                    placeholder="选择最后上课日期"
+                  />
+                </Form.Item>
+              </div>
             </div>
           )}
 
