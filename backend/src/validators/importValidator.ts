@@ -11,6 +11,88 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // 日期正则 YYYY-MM-DD
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * 解析并规范化日期字符串
+ * 支持多种格式：YYYY-MM-DD, YYYY/MM/DD, M/D/YYYY, Excel 序列号等
+ */
+export function parseDate(value: any): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  // 如果已经是 YYYY-MM-DD 格式
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    // YYYY-MM-DD
+    if (DATE_REGEX.test(trimmed)) {
+      return trimmed;
+    }
+
+    // YYYY/MM/DD -> YYYY-MM-DD
+    if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(trimmed)) {
+      const parts = trimmed.split('/');
+      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    }
+
+    // M/D/YYYY 或 MM/DD/YYYY -> YYYY-MM-DD
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+      const parts = trimmed.split('/');
+      return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+    }
+
+    // 带时间的格式 YYYY-MM-DD HH:mm:ss -> 只取日期部分
+    if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+      return trimmed.substring(0, 10);
+    }
+
+    // 尝试解析为日期
+    const date = new Date(trimmed);
+    if (!isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  // Excel 序列号（数字类型）
+  if (typeof value === 'number') {
+    // Excel 日期序列号从 1900-01-01 开始（但有 bug，认为 1900 是闰年）
+    // 1900-03-01 之后的日期需要减 1
+    const excelEpoch = new Date(1899, 11, 30); // 1899-12-30
+    const date = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
+
+    if (!isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  // Date 对象
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
+}
+
+/**
+ * 验证日期字符串是否有效
+ */
+export function isValidDate(value: any): boolean {
+  const parsed = parseDate(value);
+  if (!parsed) return false;
+
+  const date = new Date(parsed);
+  return !isNaN(date.getTime());
+}
+
 export interface ValidationResult {
   isValid: boolean;
   errors: string[];
@@ -93,13 +175,12 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
 
   // 出生日期验证
   if (row.birthDate) {
-    if (!DATE_REGEX.test(row.birthDate)) {
+    if (!isValidDate(row.birthDate)) {
       errors.push('出生日期格式错误，应为 YYYY-MM-DD');
     } else {
-      const date = new Date(row.birthDate);
-      if (isNaN(date.getTime())) {
-        errors.push('出生日期无效');
-      } else if (date > new Date()) {
+      const parsed = parseDate(row.birthDate);
+      const date = new Date(parsed!);
+      if (date > new Date()) {
         errors.push('出生日期不能晚于今天');
       }
     }
@@ -121,7 +202,7 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
   }
 
   // 开卡时间验证
-  if (row.cardOpenDate && !DATE_REGEX.test(row.cardOpenDate)) {
+  if (row.cardOpenDate && !isValidDate(row.cardOpenDate)) {
     errors.push('开卡时间格式错误，应为 YYYY-MM-DD');
   }
 
@@ -158,7 +239,7 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
   }
 
   // 最后上课日期验证
-  if (row.lastClassDate && !DATE_REGEX.test(row.lastClassDate)) {
+  if (row.lastClassDate && !isValidDate(row.lastClassDate)) {
     errors.push('最后上课日期格式错误，应为 YYYY-MM-DD');
   }
 
@@ -223,8 +304,9 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
   }
 
   // 出生日期
-  if (row.birthDate && DATE_REGEX.test(row.birthDate)) {
-    data.birthDate = row.birthDate;
+  const birthDateParsed = parseDate(row.birthDate);
+  if (birthDateParsed) {
+    data.birthDate = birthDateParsed;
   }
 
   // 联系电话
@@ -249,8 +331,9 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
   }
 
   // 开卡时间
-  if (row.cardOpenDate && DATE_REGEX.test(row.cardOpenDate)) {
-    data.cardOpenDate = row.cardOpenDate;
+  const cardOpenDateParsed = parseDate(row.cardOpenDate);
+  if (cardOpenDateParsed) {
+    data.cardOpenDate = cardOpenDateParsed;
   }
 
   // 已购课时
@@ -291,8 +374,9 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
   }
 
   // 最后上课日期
-  if (row.lastClassDate && DATE_REGEX.test(row.lastClassDate)) {
-    data.lastClassDate = row.lastClassDate;
+  const lastClassDateParsed = parseDate(row.lastClassDate);
+  if (lastClassDateParsed) {
+    data.lastClassDate = lastClassDateParsed;
   }
 
   // 备注
@@ -457,7 +541,7 @@ export function validateLeadRow(row: LeadImportRow): ValidationResult {
   }
 
   // 最近联系时间验证
-  if (row.lastContactAt && !DATE_REGEX.test(row.lastContactAt)) {
+  if (row.lastContactAt && !isValidDate(row.lastContactAt)) {
     errors.push('最近联系时间格式错误，应为 YYYY-MM-DD');
   }
 
@@ -494,7 +578,7 @@ export function validateExperienceRow(row: ExperienceImportRow): ValidationResul
   }
 
   // 预约日期验证
-  if (row.scheduleDate && !DATE_REGEX.test(row.scheduleDate)) {
+  if (row.scheduleDate && !isValidDate(row.scheduleDate)) {
     errors.push('预约日期格式错误，应为 YYYY-MM-DD');
   }
 
@@ -529,8 +613,9 @@ export function normalizeLeadRow(row: LeadImportRow): Record<string, any> {
     data.notes = row.notes.trim();
   }
 
-  if (row.lastContactAt && DATE_REGEX.test(row.lastContactAt)) {
-    data.lastContactAt = row.lastContactAt;
+  const lastContactAtParsed = parseDate(row.lastContactAt);
+  if (lastContactAtParsed) {
+    data.lastContactAt = lastContactAtParsed;
   }
 
   if (row.assigneeName) {
@@ -564,8 +649,9 @@ export function normalizeExperienceRow(row: ExperienceImportRow): Record<string,
     data.className = row.className.trim();
   }
 
-  if (row.scheduleDate && DATE_REGEX.test(row.scheduleDate)) {
-    data.scheduleDate = row.scheduleDate;
+  const scheduleDateParsed = parseDate(row.scheduleDate);
+  if (scheduleDateParsed) {
+    data.scheduleDate = scheduleDateParsed;
   }
 
   if (row.teachingTeacherName) {
