@@ -258,29 +258,40 @@ const ImportModal: React.FC<ImportModalProps> = ({
     onClose();
   };
 
+  // 日期格式化函数（处理时区问题）
+  const formatDate = (dateStr: string | undefined) => {
+    if (!dateStr) return '-';
+    // 如果是 YYYY-MM-DD 格式，直接返回，避免时区转换
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return dateStr;
+    }
+    return dateStr;
+  };
+
   // 预览表格列配置
   const previewColumns = type === 'students'
     ? [
-        { title: '行号', dataIndex: 'row', key: 'row', width: 60 },
-        { title: '学员姓名', dataIndex: ['data', 'name'], key: 'name', width: 80 },
+        { title: '行', dataIndex: 'row', key: 'row', width: 50, fixed: 'left' as const },
+        { title: '姓名', dataIndex: ['data', 'name'], key: 'name', width: 80, fixed: 'left' as const },
         { title: '性别', dataIndex: ['data', 'gender'], key: 'gender', width: 50, render: (v: string) => v === 'M' ? '男' : v === 'F' ? '女' : '-' },
-        { title: '联系电话', dataIndex: ['data', 'phone'], key: 'phone', width: 100 },
-        { title: '家长电话', dataIndex: ['data', 'parentPhone'], key: 'parentPhone', width: 100 },
-        { title: '班级编码', dataIndex: ['data', 'classCode'], key: 'classCode', width: 80 },
-        { title: '开卡时间', dataIndex: ['data', 'cardOpenDate'], key: 'cardOpenDate', width: 90 },
+        { title: '联系电话', dataIndex: ['data', 'phone'], key: 'phone', width: 110 },
+        { title: '家长电话', dataIndex: ['data', 'parentPhone'], key: 'parentPhone', width: 110 },
+        { title: '班级', dataIndex: ['data', 'classCode'], key: 'classCode', width: 80 },
+        { title: '开卡', dataIndex: ['data', 'cardOpenDate'], key: 'cardOpenDate', width: 100, render: formatDate },
         { title: '已购', dataIndex: ['data', 'purchasedLessons'], key: 'purchasedLessons', width: 60 },
         { title: '已消', dataIndex: ['data', 'consumedLessons'], key: 'consumedLessons', width: 60 },
         { title: '剩余', dataIndex: ['data', 'remainingLessons'], key: 'remainingLessons', width: 60 },
-        { title: '缴费', dataIndex: ['data', 'totalPayment'], key: 'totalPayment', width: 70, render: (v: number) => v ? `¥${v}` : '-' },
+        { title: '缴费', dataIndex: ['data', 'totalPayment'], key: 'totalPayment', width: 80, render: (v: number) => v ? `¥${v}` : '-' },
         { title: '销售', dataIndex: ['data', 'salesName'], key: 'salesName', width: 70 },
-        { title: '最后上课', dataIndex: ['data', 'lastClassDate'], key: 'lastClassDate', width: 90 },
+        { title: '最后上课', dataIndex: ['data', 'lastClassDate'], key: 'lastClassDate', width: 100, render: formatDate },
         {
           title: '状态',
           key: 'status',
           width: 80,
+          fixed: 'right' as const,
           render: (_: any, record: PreviewItem) => {
             if (!record.isValid) {
-              return <Tag color="red">数据错误</Tag>;
+              return <Tag color="red">错误</Tag>;
             }
             if (record.isDuplicate) {
               return <Tag color="orange">重复</Tag>;
@@ -289,10 +300,11 @@ const ImportModal: React.FC<ImportModalProps> = ({
           },
         },
         {
-          title: '错误信息',
+          title: '错误',
           dataIndex: 'errors',
           key: 'errors',
-          width: 150,
+          width: 120,
+          fixed: 'right' as const,
           render: (errors: string[]) => errors?.length > 0 ? (
             <Text type="danger" style={{ fontSize: 12 }}>
               {errors.join('; ')}
@@ -302,81 +314,70 @@ const ImportModal: React.FC<ImportModalProps> = ({
       ]
     : type === 'classes'
     ? [
-        { title: '行号', dataIndex: 'row', key: 'row', width: 60 },
-        { title: '班级名称', dataIndex: ['data', 'name'], key: 'name' },
-        { title: '班级编码', dataIndex: ['data', 'code'], key: 'code' },
-        { title: '课程类型', dataIndex: ['data', 'courseType'], key: 'courseType' },
-        { title: '班级水平', dataIndex: ['data', 'level'], key: 'level' },
-        { title: '容量', dataIndex: ['data', 'capacity'], key: 'capacity' },
-        { title: '负责教练', dataIndex: ['data', 'teacherName'], key: 'teacherName' },
-        {
-          title: '状态',
-          key: 'status',
-          render: (_: any, record: PreviewItem) => {
-            if (!record.isValid) {
-              return <Tag color="red">数据错误</Tag>;
-            }
-            if (record.isDuplicate) {
-              return <Tag color="orange">重复</Tag>;
-            }
-            return <Tag color="green">正常</Tag>;
-          },
-        },
-        {
-          title: '错误信息',
-          dataIndex: 'errors',
-          key: 'errors',
-          render: (errors: string[]) => errors?.length > 0 ? (
-            <Text type="danger" style={{ fontSize: 12 }}>
-              {errors.join('; ')}
-            </Text>
-          ) : '-',
-        },
-      ]
-    : type === 'leads'
-    ? [
-        { title: '行号', dataIndex: 'row', key: 'row', width: 60 },
-        { title: '客户姓名', dataIndex: ['data', 'customerName'], key: 'customerName', width: 100 },
-        { title: '年龄', dataIndex: ['data', 'age'], key: 'age', width: 60 },
-        { title: '联系方式', dataIndex: ['data', 'contact'], key: 'contact', width: 120 },
-        { title: '备注', dataIndex: ['data', 'notes'], key: 'notes', width: 150 },
-        { title: '最近联系', dataIndex: ['data', 'lastContactAt'], key: 'lastContactAt', width: 100 },
-        { title: '负责人', dataIndex: ['data', 'assigneeName'], key: 'assigneeName', width: 80 },
+        { title: '行', dataIndex: 'row', key: 'row', width: 50 },
+        { title: '班级名称', dataIndex: ['data', 'name'], key: 'name', width: 120 },
+        { title: '编码', dataIndex: ['data', 'code'], key: 'code', width: 100 },
+        { title: '类型', dataIndex: ['data', 'courseType'], key: 'courseType', width: 80 },
+        { title: '水平', dataIndex: ['data', 'level'], key: 'level', width: 80 },
+        { title: '容量', dataIndex: ['data', 'capacity'], key: 'capacity', width: 60 },
+        { title: '教练', dataIndex: ['data', 'teacherName'], key: 'teacherName', width: 100 },
         {
           title: '状态',
           key: 'status',
           width: 80,
           render: (_: any, record: PreviewItem) => {
-            if (!record.isValid) {
-              return <Tag color="red">数据错误</Tag>;
-            }
-            if (record.isDuplicate) {
-              return <Tag color="orange">重复</Tag>;
-            }
+            if (!record.isValid) return <Tag color="red">错误</Tag>;
+            if (record.isDuplicate) return <Tag color="orange">重复</Tag>;
             return <Tag color="green">正常</Tag>;
           },
         },
         {
-          title: '错误信息',
+          title: '错误',
           dataIndex: 'errors',
           key: 'errors',
-          width: 150,
+          width: 120,
           render: (errors: string[]) => errors?.length > 0 ? (
-            <Text type="danger" style={{ fontSize: 12 }}>
-              {errors.join('; ')}
-            </Text>
+            <Text type="danger" style={{ fontSize: 12 }}>{errors.join('; ')}</Text>
+          ) : '-',
+        },
+      ]
+    : type === 'leads'
+    ? [
+        { title: '行', dataIndex: 'row', key: 'row', width: 50 },
+        { title: '客户姓名', dataIndex: ['data', 'customerName'], key: 'customerName', width: 100 },
+        { title: '年龄', dataIndex: ['data', 'age'], key: 'age', width: 60 },
+        { title: '联系方式', dataIndex: ['data', 'contact'], key: 'contact', width: 110 },
+        { title: '最近联系', dataIndex: ['data', 'lastContactAt'], key: 'lastContactAt', width: 100, render: formatDate },
+        { title: '负责人', dataIndex: ['data', 'assigneeName'], key: 'assigneeName', width: 80 },
+        { title: '备注', dataIndex: ['data', 'notes'], key: 'notes', width: 120, ellipsis: true },
+        {
+          title: '状态',
+          key: 'status',
+          width: 80,
+          render: (_: any, record: PreviewItem) => {
+            if (!record.isValid) return <Tag color="red">错误</Tag>;
+            if (record.isDuplicate) return <Tag color="orange">重复</Tag>;
+            return <Tag color="green">正常</Tag>;
+          },
+        },
+        {
+          title: '错误',
+          dataIndex: 'errors',
+          key: 'errors',
+          width: 120,
+          render: (errors: string[]) => errors?.length > 0 ? (
+            <Text type="danger" style={{ fontSize: 12 }}>{errors.join('; ')}</Text>
           ) : '-',
         },
       ]
     : [ // experiences
-        { title: '行号', dataIndex: 'row', key: 'row', width: 60 },
-        { title: '学员姓名', dataIndex: ['data', 'studentName'], key: 'studentName', width: 80 },
+        { title: '行', dataIndex: 'row', key: 'row', width: 50 },
+        { title: '学员姓名', dataIndex: ['data', 'studentName'], key: 'studentName', width: 90 },
         { title: '年龄', dataIndex: ['data', 'age'], key: 'age', width: 50 },
-        { title: '联系方式', dataIndex: ['data', 'contact'], key: 'contact', width: 100 },
-        { title: '来源', dataIndex: ['data', 'source'], key: 'source', width: 80 },
+        { title: '联系方式', dataIndex: ['data', 'contact'], key: 'contact', width: 110 },
+        { title: '预约日期', dataIndex: ['data', 'scheduleDate'], key: 'scheduleDate', width: 100, render: formatDate },
         { title: '班级', dataIndex: ['data', 'className'], key: 'className', width: 100 },
-        { title: '预约日期', dataIndex: ['data', 'scheduleDate'], key: 'scheduleDate', width: 90 },
-        { title: '授课教练', dataIndex: ['data', 'teachingTeacherName'], key: 'teachingTeacherName', width: 80 },
+        { title: '教练', dataIndex: ['data', 'teachingTeacherName'], key: 'teachingTeacherName', width: 80 },
         { title: '负责人', dataIndex: ['data', 'assigneeName'], key: 'assigneeName', width: 70 },
         { title: '状态', dataIndex: ['data', 'status'], key: 'status', width: 70 },
         {
@@ -384,21 +385,17 @@ const ImportModal: React.FC<ImportModalProps> = ({
           key: 'importStatus',
           width: 80,
           render: (_: any, record: PreviewItem) => {
-            if (!record.isValid) {
-              return <Tag color="red">数据错误</Tag>;
-            }
+            if (!record.isValid) return <Tag color="red">错误</Tag>;
             return <Tag color="green">正常</Tag>;
           },
         },
         {
-          title: '错误信息',
+          title: '错误',
           dataIndex: 'errors',
           key: 'errors',
-          width: 150,
+          width: 120,
           render: (errors: string[]) => errors?.length > 0 ? (
-            <Text type="danger" style={{ fontSize: 12 }}>
-              {errors.join('; ')}
-            </Text>
+            <Text type="danger" style={{ fontSize: 12 }}>{errors.join('; ')}</Text>
           ) : '-',
         },
       ];
@@ -430,7 +427,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
       open={visible}
       onCancel={handleClose}
       footer={null}
-      width={900}
+      width={1100}
       destroyOnClose
     >
       <Steps
@@ -549,9 +546,10 @@ const ImportModal: React.FC<ImportModalProps> = ({
             columns={previewColumns}
             dataSource={previewData.preview}
             rowKey="row"
-            scroll={{ x: 800, y: 300 }}
-            pagination={{ pageSize: 10 }}
+            scroll={{ x: 1300, y: 350 }}
+            pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
             size="small"
+            bordered
           />
 
           <Divider />
