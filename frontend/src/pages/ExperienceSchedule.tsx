@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse, Segmented } from 'antd';
+import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse, Segmented, Alert } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, CheckCircleOutlined, ReloadOutlined, ClockCircleOutlined, UserDeleteOutlined, FileExcelOutlined } from '@ant-design/icons';
 import api from '../services/api';
 import { dataService } from '../services/dataService';
@@ -66,6 +66,11 @@ const ExperienceSchedule = () => {
 
   // 批量导入相关状态
   const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
+
+  // 批量选择相关状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchStatusModalVisible, setBatchStatusModalVisible] = useState(false);
+  const [batchStatusForm] = Form.useForm();
 
   useEffect(() => {
     fetchData();
@@ -234,6 +239,84 @@ const ExperienceSchedule = () => {
         }
       },
     });
+  };
+
+  // 批量删除体验课
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的记录');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 条记录吗？此操作不可恢复。`,
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          let successCount = 0;
+          let failCount = 0;
+
+          for (const id of selectedRowKeys) {
+            try {
+              await api.delete(`/experience-lessons/${id}`);
+              successCount++;
+            } catch {
+              failCount++;
+            }
+          }
+
+          if (failCount === 0) {
+            message.success(`成功删除 ${successCount} 条记录`);
+          } else {
+            message.warning(`成功删除 ${successCount} 条，失败 ${failCount} 条`);
+          }
+
+          setSelectedRowKeys([]);
+          fetchData();
+        } catch (error: any) {
+          console.error('批量删除失败:', error);
+          message.error(error.message || '批量删除失败');
+        }
+      },
+    });
+  };
+
+  // 批量更新状态
+  const handleBatchStatusUpdate = async (values: any) => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要更新的记录');
+      return;
+    }
+
+    try {
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const id of selectedRowKeys) {
+        try {
+          await api.put(`/experience-lessons/${id}/status`, { status: values.status });
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      }
+
+      if (failCount === 0) {
+        message.success(`成功更新 ${successCount} 条记录`);
+      } else {
+        message.warning(`成功更新 ${successCount} 条，失败 ${failCount} 条`);
+      }
+
+      setSelectedRowKeys([]);
+      setBatchStatusModalVisible(false);
+      batchStatusForm.resetFields();
+      fetchData();
+    } catch (error: any) {
+      console.error('批量更新失败:', error);
+      message.error(error.message || '批量更新失败');
+    }
   };
 
   const handleStatusChange = async (id: string, status: string) => {
@@ -578,6 +661,16 @@ const ExperienceSchedule = () => {
         />
       </div>
 
+      {/* 批量操作栏 */}
+      {selectedRowKeys.length > 0 && (
+        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>已选择 <strong>{selectedRowKeys.length}</strong> 条记录</span>
+          <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          <Button size="small" onClick={() => setBatchStatusModalVisible(true)}>批量更新状态</Button>
+          <Button size="small" danger onClick={handleBatchDelete}>批量删除</Button>
+        </div>
+      )}
+
       <Collapse ghost style={{ marginBottom: 16 }} defaultActiveKey={[]}>
         <Collapse.Panel header="教练转化率（点击展开）" key="statsPanel">
           <Table
@@ -607,6 +700,17 @@ const ExperienceSchedule = () => {
         dataSource={data}
         loading={loading}
         rowKey="id"
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (newSelectedRowKeys: React.Key[]) => {
+            setSelectedRowKeys(newSelectedRowKeys);
+          },
+          selections: [
+            Table.SELECTION_ALL,
+            Table.SELECTION_INVERT,
+            Table.SELECTION_NONE,
+          ],
+        }}
         title={getTableTitle}
         pagination={{
           current: pagination.current,
@@ -776,6 +880,34 @@ const ExperienceSchedule = () => {
         onClose={() => setBatchImportModalVisible(false)}
         onSuccess={fetchData}
       />
+
+      {/* 批量更新状态 Modal */}
+      <Modal
+        title="批量更新状态"
+        open={batchStatusModalVisible}
+        onCancel={() => {
+          setBatchStatusModalVisible(false);
+          batchStatusForm.resetFields();
+        }}
+        onOk={() => batchStatusForm.submit()}
+        width={400}
+      >
+        <Form form={batchStatusForm} onFinish={handleBatchStatusUpdate} layout="vertical">
+          <Alert
+            message={`确定要更新选中的 ${selectedRowKeys.length} 条记录的状态吗？`}
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+          <Form.Item name="status" label="新状态" rules={[{ required: true, message: '请选择状态' }]}>
+            <Select placeholder="请选择状态">
+              <Option value="pending">待上课</Option>
+              <Option value="completed">到场</Option>
+              <Option value="cancelled">已取消</Option>
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

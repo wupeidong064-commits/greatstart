@@ -29,6 +29,9 @@ const MarketingPool = () => {
   // 批量导入相关状态
   const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
 
+  // 批量选择相关状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
   // 权限检查
   const user = useAuthStore((state) => state.user);
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
@@ -147,6 +150,48 @@ const MarketingPool = () => {
           fetchData();
         } catch (error: any) {
           message.error(error.message || '删除失败');
+        }
+      },
+    });
+  };
+
+  // 批量删除线索
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的线索');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 条线索吗？此操作不可恢复。`,
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          let successCount = 0;
+          let failCount = 0;
+
+          for (const id of selectedRowKeys) {
+            try {
+              await api.delete(`/leads/${id}`);
+              successCount++;
+            } catch {
+              failCount++;
+            }
+          }
+
+          if (failCount === 0) {
+            message.success(`成功删除 ${successCount} 条线索`);
+          } else {
+            message.warning(`成功删除 ${successCount} 条，失败 ${failCount} 条`);
+          }
+
+          setSelectedRowKeys([]);
+          fetchData();
+        } catch (error: any) {
+          console.error('批量删除失败:', error);
+          message.error(error.message || '批量删除失败');
         }
       },
     });
@@ -325,11 +370,31 @@ const MarketingPool = () => {
         </Space>
       )}
 
+      {/* 批量操作栏 */}
+      {selectedRowKeys.length > 0 && (
+        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>已选择 <strong>{selectedRowKeys.length}</strong> 条线索</span>
+          <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          <Button size="small" danger onClick={handleBatchDelete}>批量删除</Button>
+        </div>
+      )}
+
       <Table
         columns={columns}
         dataSource={data}
         loading={loading}
         rowKey="id"
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (newSelectedRowKeys: React.Key[]) => {
+            setSelectedRowKeys(newSelectedRowKeys);
+          },
+          selections: [
+            Table.SELECTION_ALL,
+            Table.SELECTION_INVERT,
+            Table.SELECTION_NONE,
+          ],
+        }}
         pagination={{
           current: pagination.current,
           pageSize: pagination.pageSize,
