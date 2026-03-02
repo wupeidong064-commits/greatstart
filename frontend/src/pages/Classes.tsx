@@ -42,6 +42,9 @@ const Classes = () => {
 
   const [newlyCreatedClassId, setNewlyCreatedClassId] = useState<string | null>(null);
 
+  // 批量选择相关状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+
   // 批量导入相关状态
   const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
 
@@ -369,6 +372,114 @@ const Classes = () => {
         } catch (error: any) {
           console.error('删除失败:', error);
           message.error(error.message || '删除失败');
+        }
+      },
+    });
+  };
+
+  // 批量删除
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的班级');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个班级吗？此操作不可恢复。`,
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          let successCount = 0;
+          let failCount = 0;
+
+          for (const id of selectedRowKeys) {
+            try {
+              await api.delete(`/classes/${id}`);
+              successCount++;
+            } catch {
+              failCount++;
+            }
+          }
+
+          if (failCount === 0) {
+            message.success(`成功删除 ${successCount} 个班级`);
+          } else {
+            message.warning(`成功删除 ${successCount} 个，失败 ${failCount} 个`);
+          }
+
+          setSelectedRowKeys([]);
+          fetchClasses();
+        } catch (error: any) {
+          console.error('批量删除失败:', error);
+          message.error(error.message || '批量删除失败');
+        }
+      },
+    });
+  };
+
+  // 批量停课
+  const handleBatchSuspend = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要停课的班级');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认批量停课',
+      content: `确定要将选中的 ${selectedRowKeys.length} 个班级设置为停课状态吗？`,
+      okText: '确认停课',
+      onOk: async () => {
+        try {
+          let successCount = 0;
+
+          for (const id of selectedRowKeys) {
+            try {
+              await api.put(`/classes/${id}`, { status: 'inactive' });
+              successCount++;
+            } catch {}
+          }
+
+          message.success(`已停课 ${successCount} 个班级`);
+          setSelectedRowKeys([]);
+          fetchClasses();
+        } catch (error: any) {
+          console.error('批量停课失败:', error);
+          message.error(error.message || '批量停课失败');
+        }
+      },
+    });
+  };
+
+  // 批量复课
+  const handleBatchResume = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要复课的班级');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认批量复课',
+      content: `确定要将选中的 ${selectedRowKeys.length} 个班级恢复为活跃状态吗？`,
+      okText: '确认复课',
+      onOk: async () => {
+        try {
+          let successCount = 0;
+
+          for (const id of selectedRowKeys) {
+            try {
+              await api.put(`/classes/${id}`, { status: 'active' });
+              successCount++;
+            } catch {}
+          }
+
+          message.success(`已复课 ${successCount} 个班级`);
+          setSelectedRowKeys([]);
+          fetchClasses();
+        } catch (error: any) {
+          console.error('批量复课失败:', error);
+          message.error(error.message || '批量复课失败');
         }
       },
     });
@@ -721,8 +832,39 @@ const Classes = () => {
         </span>
       </div>
 
+      {/* 批量操作栏 */}
+      {canEdit && selectedRowKeys.length > 0 && (
+        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>已选择 <strong>{selectedRowKeys.length}</strong> 个班级</span>
+          <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          <Button size="small" onClick={handleBatchSuspend}>批量停课</Button>
+          <Button size="small" onClick={handleBatchResume}>批量复课</Button>
+          <Button size="small" danger onClick={handleBatchDelete}>批量删除</Button>
+        </div>
+      )}
+
       {/* 班级列表 */}
-      <Table columns={columns} dataSource={filteredClasses} loading={loading} rowKey="id" />
+      <Table
+        columns={columns}
+        dataSource={filteredClasses}
+        loading={loading}
+        rowKey="id"
+        rowSelection={
+          canEdit
+            ? {
+                selectedRowKeys,
+                onChange: (newSelectedRowKeys: React.Key[]) => {
+                  setSelectedRowKeys(newSelectedRowKeys);
+                },
+                selections: [
+                  Table.SELECTION_ALL,
+                  Table.SELECTION_INVERT,
+                  Table.SELECTION_NONE,
+                ],
+              }
+            : undefined
+        }
+      />
 
       <Modal
         title={editingClass ? '编辑班级' : '新增班级'}
