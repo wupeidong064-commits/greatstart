@@ -1342,21 +1342,17 @@ const Students = () => {
         dataSource={students}
         loading={loading}
         rowKey="id"
-        rowSelection={
-          canManageStudents
-            ? {
-                selectedRowKeys,
-                onChange: (newSelectedRowKeys: React.Key[]) => {
-                  setSelectedRowKeys(newSelectedRowKeys);
-                },
-                selections: [
-                  Table.SELECTION_ALL,
-                  Table.SELECTION_INVERT,
-                  Table.SELECTION_NONE,
-                ],
-              }
-            : undefined
-        }
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (newSelectedRowKeys: React.Key[]) => {
+            setSelectedRowKeys(newSelectedRowKeys);
+          },
+          selections: [
+            Table.SELECTION_ALL,
+            Table.SELECTION_INVERT,
+            Table.SELECTION_NONE,
+          ],
+        }}
         pagination={{
           ...pagination,
           onChange: (page, pageSize) => {
