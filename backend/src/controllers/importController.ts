@@ -31,19 +31,33 @@ export const importController = {
     try {
       const { type } = req.params;
 
-      if (!['students', 'classes'].includes(type)) {
+      const validTypes = ['students', 'classes', 'leads', 'experiences'];
+      if (!validTypes.includes(type)) {
         return next(new ApiError('无效的模板类型', 400, 'INVALID_TEMPLATE_TYPE'));
       }
 
       let buffer: Buffer;
       let filename: string;
 
-      if (type === 'students') {
-        buffer = importService.generateStudentTemplate();
-        filename = '学员导入模板.xlsx';
-      } else {
-        buffer = importService.generateClassTemplate();
-        filename = '班级导入模板.xlsx';
+      switch (type) {
+        case 'students':
+          buffer = importService.generateStudentTemplate();
+          filename = '学员导入模板.xlsx';
+          break;
+        case 'classes':
+          buffer = importService.generateClassTemplate();
+          filename = '班级导入模板.xlsx';
+          break;
+        case 'leads':
+          buffer = importService.generateLeadTemplate();
+          filename = '鱼池导入模板.xlsx';
+          break;
+        case 'experiences':
+          buffer = importService.generateExperienceTemplate();
+          filename = '体验课导入模板.xlsx';
+          break;
+        default:
+          return next(new ApiError('无效的模板类型', 400, 'INVALID_TEMPLATE_TYPE'));
       }
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -75,7 +89,8 @@ export const importController = {
         return next(new ApiError('请上传文件', 400, 'FILE_REQUIRED'));
       }
 
-      if (!['students', 'classes'].includes(type)) {
+      const validTypes = ['students', 'classes', 'leads', 'experiences'];
+      if (!validTypes.includes(type)) {
         return next(new ApiError('无效的导入类型', 400, 'INVALID_IMPORT_TYPE'));
       }
 
@@ -90,10 +105,21 @@ export const importController = {
       }
 
       let previewResult;
-      if (type === 'students') {
-        previewResult = await importService.previewStudents(file.buffer, organizationId, campusId);
-      } else {
-        previewResult = await importService.previewClasses(file.buffer, organizationId, campusId);
+      switch (type) {
+        case 'students':
+          previewResult = await importService.previewStudents(file.buffer, organizationId, campusId);
+          break;
+        case 'classes':
+          previewResult = await importService.previewClasses(file.buffer, organizationId, campusId);
+          break;
+        case 'leads':
+          previewResult = await importService.previewLeads(file.buffer, organizationId);
+          break;
+        case 'experiences':
+          previewResult = await importService.previewExperiences(file.buffer, organizationId);
+          break;
+        default:
+          return next(new ApiError('无效的导入类型', 400, 'INVALID_IMPORT_TYPE'));
       }
 
       sendSuccess(res, previewResult);
@@ -127,7 +153,8 @@ export const importController = {
         duplicates,
       } = req.body;
 
-      if (!['students', 'classes'].includes(type)) {
+      const validTypes = ['students', 'classes', 'leads', 'experiences'];
+      if (!validTypes.includes(type)) {
         return next(new ApiError('无效的导入类型', 400, 'INVALID_IMPORT_TYPE'));
       }
 
@@ -140,23 +167,42 @@ export const importController = {
       }
 
       let result;
-      if (type === 'students') {
-        result = await importService.executeStudentsImport(
-          data,
-          organizationId,
-          campusId,
-          duplicateStrategy as DuplicateStrategy,
-          createMissingClasses !== false, // 默认为 true
-          duplicates || []
-        );
-      } else {
-        result = await importService.executeClassesImport(
-          data,
-          organizationId,
-          campusId,
-          duplicateStrategy as DuplicateStrategy,
-          duplicates || []
-        );
+      switch (type) {
+        case 'students':
+          result = await importService.executeStudentsImport(
+            data,
+            organizationId,
+            campusId,
+            duplicateStrategy as DuplicateStrategy,
+            createMissingClasses !== false,
+            duplicates || []
+          );
+          break;
+        case 'classes':
+          result = await importService.executeClassesImport(
+            data,
+            organizationId,
+            campusId,
+            duplicateStrategy as DuplicateStrategy,
+            duplicates || []
+          );
+          break;
+        case 'leads':
+          result = await importService.executeLeadsImport(
+            data,
+            organizationId,
+            duplicateStrategy as DuplicateStrategy,
+            duplicates || []
+          );
+          break;
+        case 'experiences':
+          result = await importService.executeExperiencesImport(
+            data,
+            organizationId
+          );
+          break;
+        default:
+          return next(new ApiError('无效的导入类型', 400, 'INVALID_IMPORT_TYPE'));
       }
 
       sendSuccess(res, result, result.success ? '导入完成' : '导入部分失败');
@@ -173,7 +219,8 @@ export const importController = {
     try {
       const { type, details } = req.body;
 
-      if (!['students', 'classes'].includes(type)) {
+      const validTypes = ['students', 'classes', 'leads', 'experiences'];
+      if (!validTypes.includes(type)) {
         return next(new ApiError('无效的导出类型', 400, 'INVALID_EXPORT_TYPE'));
       }
 
@@ -203,9 +250,15 @@ export const importController = {
 
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-      const filename = type === 'students' ? '学员导入失败记录.xlsx' : '班级导入失败记录.xlsx';
+      const filenameMap: Record<string, string> = {
+        students: '学员导入失败记录.xlsx',
+        classes: '班级导入失败记录.xlsx',
+        leads: '鱼池导入失败记录.xlsx',
+        experiences: '体验课导入失败记录.xlsx',
+      };
+
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filenameMap[type])}`);
       res.send(buffer);
     } catch (error) {
       next(error);

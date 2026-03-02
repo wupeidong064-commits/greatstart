@@ -94,8 +94,7 @@ const MyAttendances = () => {
 
       const response = await api.get(`/parent/attendances/${selectedStudentId}`, { params });
       setAttendances(response.data || []);
-      const respWithStats = response as { data: any[]; stats?: { present: number; absent: number; late: number; leave: number; attendanceRate: number } };
-      setStats(respWithStats.stats || {
+      setStats((response as any).stats || {
         present: 0,
         absent: 0,
         late: 0,

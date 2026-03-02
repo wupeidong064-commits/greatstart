@@ -1,4 +1,4 @@
-import { Card, Table, Button, Space, Tag, message, Progress, Modal, Form, Input, DatePicker } from 'antd';
+import { Card, Table, Button, Space, Tag, message, Progress, Modal, Form, Input, DatePicker, Select } from 'antd';
 import { UsergroupAddOutlined, FileExcelOutlined, DeleteOutlined, UserAddOutlined, BarChartOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import api from '../services/api';
@@ -7,6 +7,7 @@ import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
+const { Option } = Select;
 
 const Teachers = () => {
   // 获取当前用户和权限
@@ -33,9 +34,36 @@ const Teachers = () => {
     dayjs(),
   ]);
 
+  // 人员筛选
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string | undefined>(undefined);
+  const [teacherOptions, setTeacherOptions] = useState<any[]>([]);
+
   useEffect(() => {
     fetchTeachers();
-  }, [mainDateRange]);
+  }, [mainDateRange, selectedTeacherId]);
+
+  // 获取教练员选项列表（用于筛选）
+  const fetchTeacherOptions = async () => {
+    try {
+      // 使用 /users/teachers 端点，它已经正确过滤了教练、教师和管理员
+      const response = await api.get('/users/teachers');
+      console.log('教练员选项响应:', response);
+      // axios 拦截器已返回 response.data，所以这里 response 就是后端的 { success, data }
+      const data = response.data || [];
+      console.log('教练员选项数据:', data);
+      // 只保留 coach, teacher, manager 角色的用户用于筛选
+      const filteredData = data.filter((user: any) =>
+        ['coach', 'teacher', 'manager'].includes(user.role)
+      );
+      setTeacherOptions(filteredData);
+    } catch (error: any) {
+      console.error('获取教练员列表失败:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchTeacherOptions();
+  }, []);
 
   useEffect(() => {
     if (managementModalVisible) {
@@ -50,6 +78,9 @@ const Teachers = () => {
       if (mainDateRange && mainDateRange[0] && mainDateRange[1]) {
         params.startDate = mainDateRange[0].format('YYYY-MM-DD');
         params.endDate = mainDateRange[1].format('YYYY-MM-DD');
+      }
+      if (selectedTeacherId) {
+        params.teacherId = selectedTeacherId;
       }
       const response = await api.get('/users/coach-statistics', { params });
       setTeachers(response.data || []);
@@ -345,7 +376,7 @@ const Teachers = () => {
         </Space>
       </div>
       <Card title={
-        <Space>
+        <Space wrap>
           <span>时间筛选：</span>
           <RangePicker
             value={mainDateRange}
@@ -354,11 +385,30 @@ const Teachers = () => {
             allowClear
             placeholder={['开始日期', '结束日期']}
           />
+          <span style={{ marginLeft: 16 }}>人员筛选：</span>
+          <Select
+            style={{ width: 150 }}
+            placeholder="选择教练员"
+            allowClear
+            showSearch
+            optionFilterProp="children"
+            value={selectedTeacherId}
+            onChange={(value) => setSelectedTeacherId(value)}
+          >
+            {teacherOptions.map((teacher: any) => (
+              <Option key={teacher.id} value={teacher.id}>
+                {teacher.name}
+              </Option>
+            ))}
+          </Select>
           <Button type="primary" onClick={fetchTeachers} loading={loading}>
             查询
           </Button>
-          {mainDateRange && (
-            <Button onClick={() => { setMainDateRange(null); setTimeout(fetchTeachers, 100); }}>
+          {(mainDateRange || selectedTeacherId) && (
+            <Button onClick={() => {
+              setMainDateRange([dayjs().startOf('month'), dayjs()]);
+              setSelectedTeacherId(undefined);
+            }}>
               重置
             </Button>
           )}

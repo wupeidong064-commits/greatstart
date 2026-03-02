@@ -37,7 +37,7 @@ const Layout = () => {
       keys.push('/operation');
       // 如果是出勤相关页面，也展开出勤管理子菜单
       if (path.startsWith('/attendances')) {
-        keys.push('/attendances');
+        keys.push('/attendances-menu');
       }
     }
     if (path.startsWith('/cashflow')) {
@@ -47,7 +47,7 @@ const Layout = () => {
     if (path === '/students/renewal') {
       keys.push('/cashflow');
     } else if (path.startsWith('/students')) {
-      keys.push('/students');
+      keys.push('/students-menu');
     }
     if (path.startsWith('/teachers')) {
       keys.push('/staff-management');
@@ -133,7 +133,7 @@ const Layout = () => {
             label: '每周排课',
           }] : []),
           {
-            key: '/attendances',
+            key: '/attendances-menu',
             label: '出勤管理',
             children: [
               {
@@ -192,7 +192,7 @@ const Layout = () => {
     // 学员管理 - admin/manager/coach 可见
     if (permissions.canViewAllStudents || normalizedRole === 'coach') {
       items.push({
-        key: '/students',
+        key: '/students-menu',
         icon: <UserOutlined />,
         label: normalizedRole === 'coach' ? '我的学员' : '学员管理',
         children: [

@@ -1,4 +1,4 @@
-import { Card, Table, Tag, message, Button, Space, Modal, Form, Input, DatePicker } from 'antd';
+import { Card, Table, Tag, message, Button, Space, Modal, Form, Input, DatePicker, Select } from 'antd';
 import { UserAddOutlined, FileExcelOutlined, DeleteOutlined, UsergroupAddOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import api from '../services/api';
@@ -8,6 +8,7 @@ import { normalizeRole } from '../utils/dataFilter';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
+const { Option } = Select;
 
 const TeacherDashboard = () => {
   const [loading, setLoading] = useState(false);
@@ -18,6 +19,10 @@ const TeacherDashboard = () => {
   const [addForm] = Form.useForm();
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 
+  // 人员筛选
+  const [selectedSalesId, setSelectedSalesId] = useState<string | undefined>(undefined);
+  const [salesOptions, setSalesOptions] = useState<any[]>([]);
+
   // 权限检查
   const user = useAuthStore((state) => state.user);
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
@@ -25,13 +30,34 @@ const TeacherDashboard = () => {
 
   useEffect(() => {
     fetchSalesData();
-  }, []);
+  }, [selectedSalesId]);
 
   useEffect(() => {
     if (managementModalVisible) {
       fetchTeachers();
     }
   }, [managementModalVisible]);
+
+  // 获取销售选项列表（用于筛选）
+  const fetchSalesOptions = async () => {
+    try {
+      // 使用 /users/teachers 端点，它已经正确过滤了销售相关角色
+      const response = await api.get('/users/teachers');
+      // axios 拦截器已返回 response.data，所以这里 response 就是后端的 { success, data }
+      const data = response.data || [];
+      // 只保留销售相关角色的用户用于筛选
+      const filteredData = data.filter((user: any) =>
+        ['sales', 'coach', 'teacher', 'manager'].includes(user.role)
+      );
+      setSalesOptions(filteredData);
+    } catch (error: any) {
+      console.error('获取销售列表失败:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchSalesOptions();
+  }, []);
 
   const fetchSalesData = async () => {
     setLoading(true);
@@ -40,6 +66,9 @@ const TeacherDashboard = () => {
       if (dateRange && dateRange[0] && dateRange[1]) {
         params.startDate = dateRange[0].format('YYYY-MM-DD');
         params.endDate = dateRange[1].format('YYYY-MM-DD');
+      }
+      if (selectedSalesId) {
+        params.salesId = selectedSalesId;
       }
       const response = await api.get('/users/sales-statistics', { params });
       const data = response.data || [];
@@ -292,7 +321,7 @@ const TeacherDashboard = () => {
         </Space>
       </div>
       <Card title={
-        <Space>
+        <Space wrap>
           <span>时间筛选：</span>
           <RangePicker
             value={dateRange}
@@ -301,11 +330,30 @@ const TeacherDashboard = () => {
             allowClear
             placeholder={['开始日期', '结束日期']}
           />
+          <span style={{ marginLeft: 16 }}>人员筛选：</span>
+          <Select
+            style={{ width: 150 }}
+            placeholder="选择销售人员"
+            allowClear
+            showSearch
+            optionFilterProp="children"
+            value={selectedSalesId}
+            onChange={(value) => setSelectedSalesId(value)}
+          >
+            {salesOptions.map((sales: any) => (
+              <Option key={sales.id} value={sales.id}>
+                {sales.name}
+              </Option>
+            ))}
+          </Select>
           <Button type="primary" onClick={fetchSalesData} loading={loading}>
             查询
           </Button>
-          {dateRange && (
-            <Button onClick={() => { setDateRange(null); setTimeout(fetchSalesData, 100); }}>
+          {(dateRange || selectedSalesId) && (
+            <Button onClick={() => {
+              setDateRange(null);
+              setSelectedSalesId(undefined);
+            }}>
               重置
             </Button>
           )}

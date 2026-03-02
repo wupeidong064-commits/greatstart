@@ -11,6 +11,88 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // 日期正则 YYYY-MM-DD
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * 解析并规范化日期字符串
+ * 支持多种格式：YYYY-MM-DD, YYYY/MM/DD, M/D/YYYY, Excel 序列号等
+ */
+export function parseDate(value: any): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  // 如果已经是 YYYY-MM-DD 格式
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    // YYYY-MM-DD
+    if (DATE_REGEX.test(trimmed)) {
+      return trimmed;
+    }
+
+    // YYYY/MM/DD -> YYYY-MM-DD
+    if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(trimmed)) {
+      const parts = trimmed.split('/');
+      return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    }
+
+    // M/D/YYYY 或 MM/DD/YYYY -> YYYY-MM-DD
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+      const parts = trimmed.split('/');
+      return `${parts[2]}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+    }
+
+    // 带时间的格式 YYYY-MM-DD HH:mm:ss -> 只取日期部分
+    if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+      return trimmed.substring(0, 10);
+    }
+
+    // 尝试解析为日期
+    const date = new Date(trimmed);
+    if (!isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  // Excel 序列号（数字类型）
+  if (typeof value === 'number') {
+    // Excel 日期序列号从 1900-01-01 开始（但有 bug，认为 1900 是闰年）
+    // 1900-03-01 之后的日期需要减 1
+    const excelEpoch = new Date(1899, 11, 30); // 1899-12-30
+    const date = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
+
+    if (!isNaN(date.getTime())) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  // Date 对象
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
+}
+
+/**
+ * 验证日期字符串是否有效
+ */
+export function isValidDate(value: any): boolean {
+  const parsed = parseDate(value);
+  if (!parsed) return false;
+
+  const date = new Date(parsed);
+  return !isNaN(date.getTime());
+}
+
 export interface ValidationResult {
   isValid: boolean;
   errors: string[];
@@ -26,7 +108,13 @@ export interface StudentImportRow {
   parentPhone?: string;
   parentEmail?: string;
   classCode?: string;
-  remainingLessons?: string;
+  cardOpenDate?: string;       // 开卡时间
+  purchasedLessons?: string;   // 已购课时
+  consumedLessons?: string;    // 消耗课时
+  remainingLessons?: string;   // 剩余课时
+  totalPayment?: string;       // 缴费金额
+  salesName?: string;          // 销售姓名
+  lastClassDate?: string;      // 最后上课日期
   notes?: string;
 }
 
@@ -39,6 +127,32 @@ export interface ClassImportRow {
   capacity?: string;
   teacherName?: string;
   status?: string;
+}
+
+// 鱼池（线索）导入行
+export interface LeadImportRow {
+  row: number;
+  customerName?: string;   // 客户姓名
+  age?: string;            // 年龄
+  contact?: string;        // 联系方式
+  notes?: string;          // 备注
+  lastContactAt?: string;  // 最近联系时间
+  assigneeName?: string;   // 负责人姓名
+}
+
+// 体验课导入行
+export interface ExperienceImportRow {
+  row: number;
+  studentName?: string;        // 学员姓名
+  age?: string;                // 年龄
+  contact?: string;            // 联系方式
+  source?: string;             // 来源
+  className?: string;          // 班级名称
+  scheduleDate?: string;       // 预约日期
+  teachingTeacherName?: string; // 授课教练
+  assigneeName?: string;       // 负责人
+  status?: string;             // 状态
+  notes?: string;              // 备注
 }
 
 /**
@@ -61,13 +175,12 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
 
   // 出生日期验证
   if (row.birthDate) {
-    if (!DATE_REGEX.test(row.birthDate)) {
+    if (!isValidDate(row.birthDate)) {
       errors.push('出生日期格式错误，应为 YYYY-MM-DD');
     } else {
-      const date = new Date(row.birthDate);
-      if (isNaN(date.getTime())) {
-        errors.push('出生日期无效');
-      } else if (date > new Date()) {
+      const parsed = parseDate(row.birthDate);
+      const date = new Date(parsed!);
+      if (date > new Date()) {
         errors.push('出生日期不能晚于今天');
       }
     }
@@ -88,12 +201,46 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
     errors.push('家长邮箱格式错误');
   }
 
+  // 开卡时间验证
+  if (row.cardOpenDate && !isValidDate(row.cardOpenDate)) {
+    errors.push('开卡时间格式错误，应为 YYYY-MM-DD');
+  }
+
+  // 已购课时验证
+  if (row.purchasedLessons) {
+    const lessons = parseInt(row.purchasedLessons, 10);
+    if (isNaN(lessons) || lessons < 0) {
+      errors.push('已购课时必须是非负整数');
+    }
+  }
+
+  // 消耗课时验证
+  if (row.consumedLessons) {
+    const lessons = parseInt(row.consumedLessons, 10);
+    if (isNaN(lessons) || lessons < 0) {
+      errors.push('消耗课时必须是非负整数');
+    }
+  }
+
   // 剩余课时验证
   if (row.remainingLessons) {
     const lessons = parseInt(row.remainingLessons, 10);
     if (isNaN(lessons) || lessons < 0) {
       errors.push('剩余课时必须是非负整数');
     }
+  }
+
+  // 缴费金额验证
+  if (row.totalPayment) {
+    const amount = parseFloat(row.totalPayment);
+    if (isNaN(amount) || amount < 0) {
+      errors.push('缴费金额必须是非负数');
+    }
+  }
+
+  // 最后上课日期验证
+  if (row.lastClassDate && !isValidDate(row.lastClassDate)) {
+    errors.push('最后上课日期格式错误，应为 YYYY-MM-DD');
   }
 
   return {
@@ -157,8 +304,9 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
   }
 
   // 出生日期
-  if (row.birthDate && DATE_REGEX.test(row.birthDate)) {
-    data.birthDate = row.birthDate;
+  const birthDateParsed = parseDate(row.birthDate);
+  if (birthDateParsed) {
+    data.birthDate = birthDateParsed;
   }
 
   // 联系电话
@@ -182,12 +330,53 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
     data.classCode = row.classCode.trim();
   }
 
+  // 开卡时间
+  const cardOpenDateParsed = parseDate(row.cardOpenDate);
+  if (cardOpenDateParsed) {
+    data.cardOpenDate = cardOpenDateParsed;
+  }
+
+  // 已购课时
+  if (row.purchasedLessons) {
+    const lessons = parseInt(row.purchasedLessons, 10);
+    if (!isNaN(lessons) && lessons >= 0) {
+      data.purchasedLessons = lessons;
+    }
+  }
+
+  // 消耗课时
+  if (row.consumedLessons) {
+    const lessons = parseInt(row.consumedLessons, 10);
+    if (!isNaN(lessons) && lessons >= 0) {
+      data.consumedLessons = lessons;
+    }
+  }
+
   // 剩余课时
   if (row.remainingLessons) {
     const lessons = parseInt(row.remainingLessons, 10);
     if (!isNaN(lessons) && lessons >= 0) {
       data.remainingLessons = lessons;
     }
+  }
+
+  // 缴费金额
+  if (row.totalPayment) {
+    const amount = parseFloat(row.totalPayment);
+    if (!isNaN(amount) && amount >= 0) {
+      data.totalPayment = amount;
+    }
+  }
+
+  // 销售姓名
+  if (row.salesName) {
+    data.salesName = row.salesName.trim();
+  }
+
+  // 最后上课日期
+  const lastClassDateParsed = parseDate(row.lastClassDate);
+  if (lastClassDateParsed) {
+    data.lastClassDate = lastClassDateParsed;
   }
 
   // 备注
@@ -255,8 +444,20 @@ export const STUDENT_COLUMN_MAPPING: Record<string, string> = {
   '家长邮箱': 'parentEmail',
   '所属班级编码': 'classCode',
   '班级编码': 'classCode',
+  '开卡时间': 'cardOpenDate',
+  '开卡日期': 'cardOpenDate',
+  '已购课时': 'purchasedLessons',
+  '购买课时': 'purchasedLessons',
+  '消耗课时': 'consumedLessons',
+  '已消课时': 'consumedLessons',
   '剩余课时': 'remainingLessons',
   '课时': 'remainingLessons',
+  '缴费金额': 'totalPayment',
+  '累计缴费': 'totalPayment',
+  '销售': 'salesName',
+  '销售姓名': 'salesName',
+  '最后上课日期': 'lastClassDate',
+  '最后上课': 'lastClassDate',
   '备注': 'notes',
 };
 
@@ -274,6 +475,205 @@ export const CLASS_COLUMN_MAPPING: Record<string, string> = {
   '教练': 'teacherName',
   '状态': 'status',
 };
+
+// 鱼池（线索）列名映射
+export const LEAD_COLUMN_MAPPING: Record<string, string> = {
+  '客户姓名': 'customerName',
+  '姓名': 'customerName',
+  '年龄': 'age',
+  '联系方式': 'contact',
+  '电话': 'contact',
+  '手机号': 'contact',
+  '备注': 'notes',
+  '最近联系时间': 'lastContactAt',
+  '最近联系': 'lastContactAt',
+  '负责人': 'assigneeName',
+  '销售': 'assigneeName',
+};
+
+// 体验课列名映射
+export const EXPERIENCE_COLUMN_MAPPING: Record<string, string> = {
+  '学员姓名': 'studentName',
+  '姓名': 'studentName',
+  '年龄': 'age',
+  '联系方式': 'contact',
+  '电话': 'contact',
+  '手机号': 'contact',
+  '来源': 'source',
+  '班级名称': 'className',
+  '班级': 'className',
+  '预约日期': 'scheduleDate',
+  '上课日期': 'scheduleDate',
+  '日期': 'scheduleDate',
+  '授课教练': 'teachingTeacherName',
+  '教练': 'teachingTeacherName',
+  '老师': 'teachingTeacherName',
+  '负责人': 'assigneeName',
+  '销售': 'assigneeName',
+  '状态': 'status',
+  '备注': 'notes',
+};
+
+/**
+ * 验证鱼池（线索）导入数据
+ */
+export function validateLeadRow(row: LeadImportRow): ValidationResult {
+  const errors: string[] = [];
+
+  // 必填字段：客户姓名
+  if (!row.customerName || row.customerName.trim() === '') {
+    errors.push('客户姓名不能为空');
+  }
+
+  // 必填字段：联系方式
+  if (!row.contact || row.contact.trim() === '') {
+    errors.push('联系方式不能为空');
+  } else if (!PHONE_REGEX.test(row.contact)) {
+    errors.push('联系方式格式错误');
+  }
+
+  // 年龄验证
+  if (row.age) {
+    const age = parseInt(row.age, 10);
+    if (isNaN(age) || age < 0 || age > 150) {
+      errors.push('年龄必须是0-150之间的整数');
+    }
+  }
+
+  // 最近联系时间验证
+  if (row.lastContactAt && !isValidDate(row.lastContactAt)) {
+    errors.push('最近联系时间格式错误，应为 YYYY-MM-DD');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * 验证体验课导入数据
+ */
+export function validateExperienceRow(row: ExperienceImportRow): ValidationResult {
+  const errors: string[] = [];
+
+  // 必填字段：学员姓名
+  if (!row.studentName || row.studentName.trim() === '') {
+    errors.push('学员姓名不能为空');
+  }
+
+  // 必填字段：联系方式
+  if (!row.contact || row.contact.trim() === '') {
+    errors.push('联系方式不能为空');
+  } else if (!PHONE_REGEX.test(row.contact)) {
+    errors.push('联系方式格式错误');
+  }
+
+  // 年龄验证
+  if (row.age) {
+    const age = parseInt(row.age, 10);
+    if (isNaN(age) || age < 0 || age > 150) {
+      errors.push('年龄必须是0-150之间的整数');
+    }
+  }
+
+  // 预约日期验证
+  if (row.scheduleDate && !isValidDate(row.scheduleDate)) {
+    errors.push('预约日期格式错误，应为 YYYY-MM-DD');
+  }
+
+  // 状态验证
+  if (row.status && !['pending', 'completed', 'no-show', 'cancelled', 'converted'].includes(row.status.toLowerCase())) {
+    errors.push('状态必须是 pending、completed、no-show、cancelled 或 converted');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * 规范化鱼池（线索）数据
+ */
+export function normalizeLeadRow(row: LeadImportRow): Record<string, any> {
+  const data: Record<string, any> = {};
+
+  data.customerName = row.customerName?.trim();
+  data.contact = row.contact?.trim();
+
+  if (row.age) {
+    const age = parseInt(row.age, 10);
+    if (!isNaN(age) && age >= 0) {
+      data.age = age;
+    }
+  }
+
+  if (row.notes) {
+    data.notes = row.notes.trim();
+  }
+
+  const lastContactAtParsed = parseDate(row.lastContactAt);
+  if (lastContactAtParsed) {
+    data.lastContactAt = lastContactAtParsed;
+  }
+
+  if (row.assigneeName) {
+    data.assigneeName = row.assigneeName.trim();
+  }
+
+  return data;
+}
+
+/**
+ * 规范化体验课数据
+ */
+export function normalizeExperienceRow(row: ExperienceImportRow): Record<string, any> {
+  const data: Record<string, any> = {};
+
+  data.studentName = row.studentName?.trim();
+  data.contact = row.contact?.trim();
+
+  if (row.age) {
+    const age = parseInt(row.age, 10);
+    if (!isNaN(age) && age >= 0) {
+      data.age = age;
+    }
+  }
+
+  if (row.source) {
+    data.source = row.source.trim();
+  }
+
+  if (row.className) {
+    data.className = row.className.trim();
+  }
+
+  const scheduleDateParsed = parseDate(row.scheduleDate);
+  if (scheduleDateParsed) {
+    data.scheduleDate = scheduleDateParsed;
+  }
+
+  if (row.teachingTeacherName) {
+    data.teachingTeacherName = row.teachingTeacherName.trim();
+  }
+
+  if (row.assigneeName) {
+    data.assigneeName = row.assigneeName.trim();
+  }
+
+  if (row.status) {
+    data.status = row.status.toLowerCase();
+  } else {
+    data.status = 'pending';
+  }
+
+  if (row.notes) {
+    data.notes = row.notes.trim();
+  }
+
+  return data;
+}
 
 /**
  * 将 Excel 行数据映射到字段名

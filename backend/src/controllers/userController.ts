@@ -66,9 +66,10 @@ export const userController = {
         query = query.eq('organizationId', targetOrganizationId);
       }
 
-      // 应用角色过滤
+      // 应用角色过滤（支持逗号分隔的多个角色）
       if (role) {
-        query = query.eq('role', role);
+        const roles = role.includes(',') ? role.split(',').map(r => r.trim()) : [role];
+        query = query.in('role', roles);
       }
 
       // 应用分页
@@ -83,7 +84,10 @@ export const userController = {
       // 获取总数（先获取所有符合条件的用户）
       let countQuery = memfireAdmin.from('users').select('*', { count: 'exact', head: true });
       if (targetOrganizationId) countQuery = countQuery.eq('organizationId', targetOrganizationId);
-      if (role) countQuery = countQuery.eq('role', role);
+      if (role) {
+        const roles = role.includes(',') ? role.split(',').map(r => r.trim()) : [role];
+        countQuery = countQuery.in('role', roles);
+      }
 
       const { count } = await countQuery;
 
@@ -412,39 +416,67 @@ export const userController = {
     try {
       const currentUser = getCurrentUser(req);
       const targetOrgId = currentUser?.organizationId;
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, teacherId } = req.query;
 
       if (!targetOrgId) {
         return next(new ApiError('未分配机构', 403, 'FORBIDDEN'));
       }
 
-      // 并行查询所有基础数据
+      // 先获取所有班级，找出有负责班级的用户ID
+      const { data: allClassesData } = await memfireAdmin
+        .from('classes')
+        .select('id, teacherId')
+        .eq('organizationId', targetOrgId)
+        .eq('status', 'active');
+
+      // 获取所有有负责班级的用户ID（去重）
+      const teacherIdsWithClasses = [...new Set((allClassesData || []).map((c: any) => c.teacherId).filter(Boolean))];
+
+      // 构建教练查询：包含 coach/teacher 角色，以及有负责班级的 manager
+      let coachesQuery = memfireAdmin
+        .from('users')
+        .select('id, name, email, phone, role')
+        .eq('organizationId', targetOrgId)
+        .eq('isActive', true);
+
+      // 如果指定了特定教师ID，则只查询该教师
+      if (teacherId) {
+        coachesQuery = coachesQuery.eq('id', teacherId as string);
+      } else {
+        // 否则查询：1) coach/teacher 角色的用户，2) 有负责班级的 manager
+        const { data: coachUsers } = await memfireAdmin
+          .from('users')
+          .select('id')
+          .eq('organizationId', targetOrgId)
+          .in('role', ['coach', 'teacher'])
+          .eq('isActive', true);
+
+        const coachUserIds = (coachUsers || []).map((u: any) => u.id);
+
+        // 合并：coach/teacher 角色的用户 + 有负责班级的用户
+        const allTeacherIds = [...new Set([...coachUserIds, ...teacherIdsWithClasses])];
+
+        if (allTeacherIds.length === 0) {
+          return sendSuccess(res, [], '获取成功');
+        }
+
+        coachesQuery = coachesQuery.in('id', allTeacherIds);
+      }
+
+      const { data: coaches, error: coachError } = await coachesQuery;
+
+      // 并行查询其他基础数据
       const [
-        { data: coaches, error: coachError },
         { data: allStudents },
-        { data: allClasses },
         { data: allEnrollments },
         { data: allSchedules },
         { data: allAttendances },
       ] = await Promise.all([
-        // 教练列表
-        memfireAdmin
-          .from('users')
-          .select('id, name, email, phone')
-          .eq('organizationId', targetOrgId)
-          .in('role', ['coach', 'teacher'])
-          .eq('isActive', true),
         // 所有学员
         memfireAdmin
           .from('students')
           .select('id, status, renewalStatus, notes, updatedAt')
           .eq('organizationId', targetOrgId),
-        // 所有班级
-        memfireAdmin
-          .from('classes')
-          .select('id, teacherId')
-          .eq('organizationId', targetOrgId)
-          .eq('status', 'active'),
         // 所有报名记录
         memfireAdmin
           .from('enrollments')
@@ -466,6 +498,9 @@ export const userController = {
       if (coachError) {
         return next(new ApiError('获取教练列表失败', 500, 'QUERY_ERROR'));
       }
+
+      // 使用之前查询的班级数据
+      const allClasses = allClassesData;
 
       // 获取成单记录
       let conversionsQuery = memfireAdmin
@@ -672,10 +707,23 @@ export const userController = {
     try {
       const currentUser = getCurrentUser(req);
       const targetOrgId = currentUser?.organizationId;
-      const { startDate, endDate } = req.query;
+      const { startDate, endDate, salesId } = req.query;
 
       if (!targetOrgId) {
         return next(new ApiError('未分配机构', 403, 'FORBIDDEN'));
+      }
+
+      // 构建销售人员查询
+      let salesQuery = memfireAdmin
+        .from('users')
+        .select('id, name, email, phone, role')
+        .eq('organizationId', targetOrgId)
+        .in('role', ['sales', 'coach', 'teacher', 'manager', 'admin'])
+        .eq('isActive', true);
+
+      // 如果指定了特定销售ID，则只查询该销售
+      if (salesId) {
+        salesQuery = salesQuery.eq('id', salesId as string);
       }
 
       // 并行查询所有基础数据
@@ -686,12 +734,7 @@ export const userController = {
         { data: allConversions },
       ] = await Promise.all([
         // 销售人员列表
-        memfireAdmin
-          .from('users')
-          .select('id, name, email, phone, role')
-          .eq('organizationId', targetOrgId)
-          .in('role', ['sales', 'coach', 'teacher', 'manager', 'admin'])
-          .eq('isActive', true),
+        salesQuery,
         // 所有线索
         memfireAdmin
           .from('leads')

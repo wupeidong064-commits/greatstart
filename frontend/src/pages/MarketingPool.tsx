@@ -1,11 +1,12 @@
 import { Table, Button, Space, message, Modal, Form, Input, InputNumber, DatePicker, Select } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import api from '../services/api';
 import { dataService } from '../services/dataService';
 import { normalizeRole } from '../utils/dataFilter';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
+import ImportModal from '../components/ImportModal';
 
 interface StaffUser {
   id: string;
@@ -24,6 +25,12 @@ const MarketingPool = () => {
   const [staffList, setStaffList] = useState<StaffUser[]>([]);
   const [selectedAssignee, setSelectedAssignee] = useState<string | undefined>(undefined);
   const [searchKeyword, setSearchKeyword] = useState('');
+
+  // 批量导入相关状态
+  const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
+
+  // 批量选择相关状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
   // 权限检查
   const user = useAuthStore((state) => state.user);
@@ -143,6 +150,48 @@ const MarketingPool = () => {
           fetchData();
         } catch (error: any) {
           message.error(error.message || '删除失败');
+        }
+      },
+    });
+  };
+
+  // 批量删除线索
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的线索');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认批量删除',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 条线索吗？此操作不可恢复。`,
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          let successCount = 0;
+          let failCount = 0;
+
+          for (const id of selectedRowKeys) {
+            try {
+              await api.delete(`/leads/${id}`);
+              successCount++;
+            } catch {
+              failCount++;
+            }
+          }
+
+          if (failCount === 0) {
+            message.success(`成功删除 ${successCount} 条线索`);
+          } else {
+            message.warning(`成功删除 ${successCount} 条，失败 ${failCount} 条`);
+          }
+
+          setSelectedRowKeys([]);
+          fetchData();
+        } catch (error: any) {
+          console.error('批量删除失败:', error);
+          message.error(error.message || '批量删除失败');
         }
       },
     });
@@ -269,9 +318,14 @@ const MarketingPool = () => {
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>营销与销售（鱼池）</h1>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-          新增线索
-        </Button>
+        <Space>
+          <Button icon={<FileExcelOutlined />} onClick={() => setBatchImportModalVisible(true)}>
+            批量导入
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+            新增线索
+          </Button>
+        </Space>
       </div>
 
       {/* 筛选栏 */}
@@ -316,11 +370,31 @@ const MarketingPool = () => {
         </Space>
       )}
 
+      {/* 批量操作栏 */}
+      {selectedRowKeys.length > 0 && (
+        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>已选择 <strong>{selectedRowKeys.length}</strong> 条线索</span>
+          <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          <Button size="small" danger onClick={handleBatchDelete}>批量删除</Button>
+        </div>
+      )}
+
       <Table
         columns={columns}
         dataSource={data}
         loading={loading}
         rowKey="id"
+        rowSelection={{
+          selectedRowKeys,
+          onChange: (newSelectedRowKeys: React.Key[]) => {
+            setSelectedRowKeys(newSelectedRowKeys);
+          },
+          selections: [
+            Table.SELECTION_ALL,
+            Table.SELECTION_INVERT,
+            Table.SELECTION_NONE,
+          ],
+        }}
         pagination={{
           current: pagination.current,
           pageSize: pagination.pageSize,
@@ -391,6 +465,14 @@ const MarketingPool = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 批量导入 Modal */}
+      <ImportModal
+        visible={batchImportModalVisible}
+        type="leads"
+        onClose={() => setBatchImportModalVisible(false)}
+        onSuccess={fetchData}
+      />
     </div>
   );
 };
