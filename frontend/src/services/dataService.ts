@@ -34,6 +34,7 @@ export interface LeadInfo {
   customerName: string;
   age?: number;
   contact: string;
+  source?: string;
   assigneeId?: string;
   assigneeName?: string;
   status?: string;

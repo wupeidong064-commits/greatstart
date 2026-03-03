@@ -19,6 +19,7 @@ export const experienceLessonController = {
       const assigneeId = req.query.assigneeId as string;
       const status = req.query.status as string;
       const unconvertedOnly = req.query.unconvertedOnly === 'true';
+      const studentName = req.query.studentName as string;
 
       const currentUser = getCurrentUser(req);
       const targetOrgId = currentUser?.organizationId;
@@ -39,6 +40,10 @@ export const experienceLessonController = {
       }
       if (assigneeId) {
         query = query.eq('assigneeId', assigneeId);
+      }
+      // 学员名称筛选（模糊匹配）
+      if (studentName) {
+        query = query.ilike('studentName', `%${studentName}%`);
       }
 
       // 支持多状态筛选（逗号分隔）
@@ -354,13 +359,84 @@ export const experienceLessonController = {
     try {
       const currentUser = getCurrentUser(req);
       const targetOrgId = currentUser?.organizationId;
+      const teachingTeacherId = req.query.teachingTeacherId as string;
+      const assigneeId = req.query.assigneeId as string;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
 
       if (!targetOrgId) {
         return next(new ApiError('未分配机构', 403, 'FORBIDDEN'));
       }
 
-      // 简化版本：返回空数组，实际需要复杂的聚合查询
-      sendSuccess(res, []);
+      // 构建查询：获取所有体验课
+      let query = memfireAdmin
+        .from('experience_lessons')
+        .select('teachingTeacherId, teachingTeacherName, status')
+        .eq('organizationId', targetOrgId);
+
+      // 按上课教练筛选
+      if (teachingTeacherId) {
+        query = query.eq('teachingTeacherId', teachingTeacherId);
+      }
+
+      // 按负责人筛选
+      if (assigneeId) {
+        query = query.eq('assigneeId', assigneeId);
+      }
+
+      // 按日期范围筛选（按 scheduleDate）
+      if (startDate) {
+        query = query.gte('scheduleDate', startDate);
+      }
+      if (endDate) {
+        query = query.lte('scheduleDate', endDate);
+      }
+
+      const { data: lessons, error } = await query;
+
+      if (error) {
+        console.error('获取教练转化率数据失败:', error);
+        return next(new ApiError('获取教练转化率失败', 500, 'QUERY_ERROR'));
+      }
+
+      // 按教练分组统计
+      const statsMap = new Map<string, { teacherId: string; teacherName: string; total: number; converted: number }>();
+
+      for (const lesson of lessons || []) {
+        const teacherId = lesson.teachingTeacherId;
+        const teacherName = lesson.teachingTeacherName || '未知教练';
+
+        if (!teacherId) continue; // 跳过没有教练的记录
+
+        if (!statsMap.has(teacherId)) {
+          statsMap.set(teacherId, {
+            teacherId,
+            teacherName,
+            total: 0,
+            converted: 0,
+          });
+        }
+
+        const stats = statsMap.get(teacherId)!;
+        stats.total++;
+        if (lesson.status === 'converted') {
+          stats.converted++;
+        }
+      }
+
+      // 转换为数组并计算转化率
+      const result = Array.from(statsMap.values()).map(stats => ({
+        teacherId: stats.teacherId,
+        teacherName: stats.teacherName,
+        total: stats.total,
+        converted: stats.converted,
+        conversionRate: stats.total > 0 ? Math.round((stats.converted / stats.total) * 100) : 0,
+      }));
+
+      // 按转化率降序排序
+      result.sort((a, b) => b.conversionRate - a.conversionRate);
+
+      sendSuccess(res, result);
     } catch (error) {
       next(error);
     }

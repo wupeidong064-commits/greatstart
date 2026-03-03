@@ -216,8 +216,28 @@ export const studentController = {
           console.log('[DEBUG getStudents] 查询到的 classes:', classes?.length || 0, '条');
           console.log('[DEBUG getStudents] classes 数据:', classes);
 
+          // 批量获取教师信息
+          const teacherIds = (classes || []).map((c: any) => c.teacherId).filter(Boolean);
+          const uniqueTeacherIds = Array.from(new Set(teacherIds));
+          let teachersMap: Record<string, any> = {};
+
+          if (uniqueTeacherIds.length > 0) {
+            const { data: teachers } = await memfireAdmin
+              .from('users')
+              .select('id, name')
+              .in('id', uniqueTeacherIds);
+
+            teachersMap = (teachers || []).reduce((acc: Record<string, any>, u: any) => {
+              acc[u.id] = { id: u.id, name: u.name };
+              return acc;
+            }, {});
+          }
+
           classesMap = (classes || []).reduce((acc: Record<string, any>, c: any) => {
-            acc[c.id] = c;
+            acc[c.id] = {
+              ...c,
+              teacher: c.teacherId ? teachersMap[c.teacherId] || null : null,
+            };
             return acc;
           }, {});
         }
@@ -237,10 +257,28 @@ export const studentController = {
 
       console.log('[DEBUG getStudents] enrollmentsMap keys:', Object.keys(enrollmentsMap));
 
-      // 将 enrollments 数据附加到每个学员
+      // 批量获取销售信息
+      const salesIds = (filteredStudents || []).map((s: any) => s.salesId).filter(Boolean);
+      const uniqueSalesIds = Array.from(new Set(salesIds));
+      let salesMap: Record<string, any> = {};
+
+      if (uniqueSalesIds.length > 0) {
+        const { data: salesUsers } = await memfireAdmin
+          .from('users')
+          .select('id, name')
+          .in('id', uniqueSalesIds);
+
+        salesMap = (salesUsers || []).reduce((acc: Record<string, any>, u: any) => {
+          acc[u.id] = { id: u.id, name: u.name };
+          return acc;
+        }, {});
+      }
+
+      // 将 enrollments 数据和销售信息附加到每个学员
       const studentsWithEnrollments = (filteredStudents || []).map((s: any) => ({
         ...s,
         enrollments: enrollmentsMap[s.id] || [],
+        sales: s.salesId ? salesMap[s.salesId] || null : null,
       }));
 
       console.log('[DEBUG getStudents] 返回给前端的学员数:', studentsWithEnrollments.length);
@@ -303,8 +341,28 @@ export const studentController = {
             .select('id, name, code, teacherId')
             .in('id', classIds);
 
+          // 批量获取教师信息
+          const teacherIds = (classes || []).map((c: any) => c.teacherId).filter(Boolean);
+          const uniqueTeacherIds = Array.from(new Set(teacherIds));
+          let teachersMap: Record<string, any> = {};
+
+          if (uniqueTeacherIds.length > 0) {
+            const { data: teachers } = await memfireAdmin
+              .from('users')
+              .select('id, name')
+              .in('id', uniqueTeacherIds);
+
+            teachersMap = (teachers || []).reduce((acc: Record<string, any>, u: any) => {
+              acc[u.id] = { id: u.id, name: u.name };
+              return acc;
+            }, {});
+          }
+
           classesMap = (classes || []).reduce((acc: Record<string, any>, c: any) => {
-            acc[c.id] = c;
+            acc[c.id] = {
+              ...c,
+              teacher: c.teacherId ? teachersMap[c.teacherId] || null : null,
+            };
             return acc;
           }, {});
         }
