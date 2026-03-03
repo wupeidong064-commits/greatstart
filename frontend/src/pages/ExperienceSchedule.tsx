@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Space, message, Modal, Form, Input, Select, DatePicker, Tag, InputNumber, Radio, Collapse, Segmented, Alert } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, CheckCircleOutlined, ReloadOutlined, ClockCircleOutlined, UserDeleteOutlined, FileExcelOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UserAddOutlined, ImportOutlined, CheckCircleOutlined, ReloadOutlined, ClockCircleOutlined, UserDeleteOutlined, FileExcelOutlined, SearchOutlined } from '@ant-design/icons';
 import api from '../services/api';
 import { dataService } from '../services/dataService';
 import { getDataScopeFilter, normalizeRole } from '../utils/dataFilter';
@@ -10,6 +10,23 @@ import ImportModal from '../components/ImportModal';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
+const { Search } = Input;
+
+// 统一的来源选项（与鱼池表保持一致）
+const SOURCE_OPTIONS = [
+  { value: 'meituan', label: '美团', color: 'yellow' },
+  { value: 'groundPromotion', label: '地推', color: 'green' },
+  { value: 'telemarketing', label: '电销', color: 'blue' },
+  { value: 'walkIn', label: '上门', color: 'orange' },
+  { value: 'referral', label: '转介绍', color: 'purple' },
+  { value: 'crossIndustry', label: '异业', color: 'cyan' },
+];
+
+// 来源映射（用于兼容旧数据）
+const SOURCE_MAP: Record<string, { text: string; color: string }> = {};
+SOURCE_OPTIONS.forEach(opt => {
+  SOURCE_MAP[opt.value] = { text: opt.label, color: opt.color };
+});
 
 interface StaffUser {
   id: string;
@@ -30,6 +47,7 @@ interface LeadInfo {
   customerName: string;
   age?: number;
   contact: string;
+  source?: string;
   assigneeId?: string;
   assigneeName?: string;
 }
@@ -53,6 +71,7 @@ const ExperienceSchedule = () => {
   const [staffList, setStaffList] = useState<StaffUser[]>([]);
   const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
+  const [studentNameSearch, setStudentNameSearch] = useState<string>('');
   const [conversionStats, setConversionStats] = useState<any[]>([]);
   const [statsDateRange, setStatsDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
 
@@ -77,7 +96,7 @@ const ExperienceSchedule = () => {
     fetchClasses();
     fetchStaffList();
     fetchLeadsList();
-  }, [pagination.current, pagination.pageSize, teacherFilter, assigneeFilter, filterMode]);
+  }, [pagination.current, pagination.pageSize, teacherFilter, assigneeFilter, filterMode, studentNameSearch]);
 
   useEffect(() => {
     fetchTeacherStats();
@@ -110,6 +129,7 @@ const ExperienceSchedule = () => {
           assigneeId: assigneeFilter || filter.assigneeId || undefined,
           status: statusParam || undefined,
           unconvertedOnly,
+          studentName: studentNameSearch || undefined,
         }
       });
       setData(response.data || []);
@@ -197,6 +217,7 @@ const ExperienceSchedule = () => {
         studentName: lead.customerName,
         age: lead.age,
         contact: lead.contact,
+        source: lead.source,
         assigneeId: lead.assigneeId,
       });
     }
@@ -396,6 +417,12 @@ const ExperienceSchedule = () => {
     setTeacherFilter(null);
     setAssigneeFilter(null);
     setFilterMode('all');
+    setStudentNameSearch('');
+    setPagination(prev => ({ ...prev, current: 1 }));
+  };
+
+  const handleSearch = (value: string) => {
+    setStudentNameSearch(value);
     setPagination(prev => ({ ...prev, current: 1 }));
   };
 
@@ -436,13 +463,7 @@ const ExperienceSchedule = () => {
       key: 'source',
       width: 90,
       render: (source: string) => {
-        const sourceMap: Record<string, { text: string; color: string }> = {
-          telemarketing: { text: '电销', color: 'blue' },
-          groundPromotion: { text: '地推', color: 'green' },
-          referral: { text: '转介绍', color: 'purple' },
-          walkIn: { text: '上门', color: 'orange' },
-        };
-        const sourceInfo = sourceMap[source] || { text: source || '-', color: 'default' };
+        const sourceInfo = SOURCE_MAP[source] || { text: source || '-', color: 'default' };
         return <Tag color={sourceInfo.color}>{sourceInfo.text}</Tag>;
       },
     },
@@ -634,10 +655,19 @@ const ExperienceSchedule = () => {
               </Option>
             ))}
           </Select>
+          <Search
+            placeholder="搜索学员姓名"
+            allowClear
+            style={{ width: 180 }}
+            value={studentNameSearch}
+            onChange={(e) => setStudentNameSearch(e.target.value)}
+            onSearch={handleSearch}
+            enterButton={<SearchOutlined />}
+          />
           <Button
             icon={<ReloadOutlined />}
             onClick={handleResetFilters}
-            disabled={!teacherFilter && !assigneeFilter && filterMode === 'all'}
+            disabled={!teacherFilter && !assigneeFilter && filterMode === 'all' && !studentNameSearch}
           >
             重置筛选
           </Button>
@@ -801,10 +831,11 @@ const ExperienceSchedule = () => {
             </Form.Item>
             <Form.Item name="source" label="来源" rules={[{ required: true, message: '请选择来源' }]}>
               <Select placeholder="请选择来源">
-                <Option value="telemarketing">电销</Option>
-                <Option value="groundPromotion">地推</Option>
-                <Option value="referral">转介绍</Option>
-                <Option value="walkIn">上门</Option>
+                {SOURCE_OPTIONS.map(opt => (
+                  <Option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </Option>
+                ))}
               </Select>
             </Form.Item>
           </div>

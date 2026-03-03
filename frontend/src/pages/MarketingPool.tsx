@@ -1,4 +1,4 @@
-import { Table, Button, Space, message, Modal, Form, Input, InputNumber, DatePicker, Select } from 'antd';
+import { Table, Button, Space, message, Modal, Form, Input, InputNumber, DatePicker, Select, Tag } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import api from '../services/api';
@@ -7,6 +7,16 @@ import { normalizeRole } from '../utils/dataFilter';
 import { useAuthStore } from '../store/authStore';
 import dayjs from 'dayjs';
 import ImportModal from '../components/ImportModal';
+
+// 统一的来源选项
+const SOURCE_OPTIONS = [
+  { value: 'meituan', label: '美团', color: 'yellow' },
+  { value: 'groundPromotion', label: '地推', color: 'green' },
+  { value: 'telemarketing', label: '电销', color: 'blue' },
+  { value: 'walkIn', label: '上门', color: 'orange' },
+  { value: 'referral', label: '转介绍', color: 'purple' },
+  { value: 'crossIndustry', label: '异业', color: 'cyan' },
+];
 
 interface StaffUser {
   id: string;
@@ -208,6 +218,7 @@ const MarketingPool = () => {
           customerName: values.customerName,
           age: values.age || null,
           contact: values.contact,
+          source: values.source || null,
           notes: values.notes || null,
           lastContactAt: values.lastContactAt ? values.lastContactAt.toISOString() : undefined,
           assigneeId: values.assigneeId || null,
@@ -216,11 +227,12 @@ const MarketingPool = () => {
         await api.put(`/leads/${editingRecord.id}`, submitData);
         message.success('更新成功');
       } else {
-        // 新增时提交：姓名、年龄、联系方式、备注、负责人
+        // 新增时提交：姓名、年龄、联系方式、来源、备注、负责人
         const submitData = {
           customerName: values.customerName,
           age: values.age || null,
           contact: values.contact,
+          source: values.source || null,
           notes: values.notes || null,
           assigneeId: values.assigneeId || null,
           assigneeName: selectedStaff?.name || null,
@@ -266,6 +278,19 @@ const MarketingPool = () => {
       width: 150,
     },
     {
+      title: '来源',
+      dataIndex: 'source',
+      key: 'source',
+      width: 100,
+      render: (source: string) => {
+        const sourceOption = SOURCE_OPTIONS.find(opt => opt.value === source);
+        if (sourceOption) {
+          return <Tag color={sourceOption.color}>{sourceOption.label}</Tag>;
+        }
+        return source || '-';
+      },
+    },
+    {
       title: '负责人',
       dataIndex: 'assigneeName',
       key: 'assigneeName',
@@ -290,6 +315,7 @@ const MarketingPool = () => {
       title: '备注',
       dataIndex: 'notes',
       key: 'notes',
+      width: 300,
       ellipsis: true,
       render: (text: string) => text || '-',
     },
@@ -403,7 +429,7 @@ const MarketingPool = () => {
           showTotal: (total) => `共 ${total} 条记录`,
         }}
         onChange={handleTableChange}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 1280 }}
       />
       <Modal
         title={editingRecord ? '编辑线索' : '新增线索'}
@@ -421,6 +447,15 @@ const MarketingPool = () => {
           </Form.Item>
           <Form.Item name="contact" label="联系方式" rules={[{ required: true, message: '请输入联系方式' }]}>
             <Input placeholder="请输入联系方式（手机号）" />
+          </Form.Item>
+          <Form.Item name="source" label="来源">
+            <Select placeholder="请选择来源" allowClear>
+              {SOURCE_OPTIONS.map(opt => (
+                <Select.Option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
           {/* 非管理人员不能修改负责人，防止翘单 */}
           {canManageAll ? (
