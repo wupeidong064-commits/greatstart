@@ -2,6 +2,31 @@
  * 批量导入数据验证器
  */
 
+/**
+ * 根据出生日期计算年龄（每年1月1日自动更新）
+ * @param birthDate 出生日期 YYYY-MM-DD 格式
+ * @returns 年龄
+ */
+export function calculateAge(birthDate: string): number {
+  if (!birthDate) return 0;
+
+  const birth = new Date(birthDate);
+  if (isNaN(birth.getTime())) return 0;
+
+  // 使用当年的1月1日来计算年龄
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const birthYear = birth.getFullYear();
+
+  // 年龄 = 当前年份 - 出生年份
+  let age = currentYear - birthYear;
+
+  // 如果生日还没到（例如今天是2024年1月1日，出生日期是2024年12月31日）
+  // 这种情况下年龄应该减1
+  // 但根据用户需求，年龄在1月1日更新，所以我们只用年份差
+  return Math.max(0, age);
+}
+
 // 手机号正则（中国大陆）
 const PHONE_REGEX = /^1[3-9]\d{9}$/;
 
@@ -14,19 +39,32 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 /**
  * 解析并规范化日期字符串
  * 支持多种格式：YYYY-MM-DD, YYYY/MM/DD, M/D/YYYY, Excel 序列号等
+ * 使用 UTC 方法避免时区转换导致的日期偏移
  */
 export function parseDate(value: any): string | null {
   if (value === null || value === undefined || value === '') {
     return null;
   }
 
-  // 如果已经是 YYYY-MM-DD 格式
+  // 如果已经是 YYYY-MM-DD 格式，直接返回
   if (typeof value === 'string') {
     const trimmed = value.trim();
 
     // YYYY-MM-DD
     if (DATE_REGEX.test(trimmed)) {
       return trimmed;
+    }
+
+    // ISO 8601 格式 (YYYY-MM-DDTHH:mm:ss.sssZ 或类似) - 从 Excel 日期转换而来
+    if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+      const date = new Date(trimmed);
+      if (!isNaN(date.getTime())) {
+        // 使用 UTC 方法获取日期，避免时区转换
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
     }
 
     // YYYY/MM/DD -> YYYY-MM-DD
@@ -46,12 +84,13 @@ export function parseDate(value: any): string | null {
       return trimmed.substring(0, 10);
     }
 
-    // 尝试解析为日期
+    // 其他格式的字符串，尝试解析
     const date = new Date(trimmed);
     if (!isNaN(date.getTime())) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+      // 使用 UTC 方法避免时区问题
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
   }
@@ -64,18 +103,19 @@ export function parseDate(value: any): string | null {
     const date = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
 
     if (!isNaN(date.getTime())) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+      // 使用 UTC 方法
+      const year = date.getUTCFullYear();
+      const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(date.getUTCDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
   }
 
-  // Date 对象
+  // Date 对象 - 使用 UTC 方法避免时区转换
   if (value instanceof Date) {
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
+    const year = value.getUTCFullYear();
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(value.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 
@@ -102,26 +142,24 @@ export interface StudentImportRow {
   row: number;
   name?: string;
   gender?: string;
-  birthDate?: string;
+  age?: string;                // 年龄
   phone?: string;
   parentName?: string;
   parentPhone?: string;
   parentEmail?: string;
-  classCode?: string;
-  cardOpenDate?: string;       // 开卡时间
+  className?: string;          // 所属班级名称
+  teacherName?: string;        // 负责教练姓名
   purchasedLessons?: string;   // 已购课时
   consumedLessons?: string;    // 消耗课时
   remainingLessons?: string;   // 剩余课时
   totalPayment?: string;       // 缴费金额
   salesName?: string;          // 销售姓名
-  lastClassDate?: string;      // 最后上课日期
   notes?: string;
 }
 
 export interface ClassImportRow {
   row: number;
   name?: string;
-  code?: string;
   courseType?: string;
   level?: string;
   capacity?: string;
@@ -173,16 +211,11 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
     errors.push('性别必须是 M（男）或 F（女）');
   }
 
-  // 出生日期验证
-  if (row.birthDate) {
-    if (!isValidDate(row.birthDate)) {
-      errors.push('出生日期格式错误，应为 YYYY-MM-DD');
-    } else {
-      const parsed = parseDate(row.birthDate);
-      const date = new Date(parsed!);
-      if (date > new Date()) {
-        errors.push('出生日期不能晚于今天');
-      }
+  // 年龄验证
+  if (row.age) {
+    const age = parseInt(row.age, 10);
+    if (isNaN(age) || age < 0 || age > 150) {
+      errors.push('年龄必须是0-150之间的整数');
     }
   }
 
@@ -199,11 +232,6 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
   // 家长邮箱验证
   if (row.parentEmail && !EMAIL_REGEX.test(row.parentEmail)) {
     errors.push('家长邮箱格式错误');
-  }
-
-  // 开卡时间验证
-  if (row.cardOpenDate && !isValidDate(row.cardOpenDate)) {
-    errors.push('开卡时间格式错误，应为 YYYY-MM-DD');
   }
 
   // 已购课时验证
@@ -238,11 +266,6 @@ export function validateStudentRow(row: StudentImportRow): ValidationResult {
     }
   }
 
-  // 最后上课日期验证
-  if (row.lastClassDate && !isValidDate(row.lastClassDate)) {
-    errors.push('最后上课日期格式错误，应为 YYYY-MM-DD');
-  }
-
   return {
     isValid: errors.length === 0,
     errors,
@@ -258,11 +281,6 @@ export function validateClassRow(row: ClassImportRow): ValidationResult {
   // 必填字段：班级名称
   if (!row.name || row.name.trim() === '') {
     errors.push('班级名称不能为空');
-  }
-
-  // 必填字段：班级编码
-  if (!row.code || row.code.trim() === '') {
-    errors.push('班级编码不能为空');
   }
 
   // 必填字段：课程类型
@@ -303,10 +321,15 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
     data.gender = (gender === '男' ? 'M' : gender === '女' ? 'F' : gender);
   }
 
-  // 出生日期
-  const birthDateParsed = parseDate(row.birthDate);
-  if (birthDateParsed) {
-    data.birthDate = birthDateParsed;
+  // 年龄 - 转换为出生日期（根据当前年份计算，假设生日为1月1日）
+  if (row.age) {
+    const age = parseInt(row.age, 10);
+    if (!isNaN(age) && age >= 0) {
+      // 根据年龄计算出生日期：当前年份 - 年龄，月份和日期设为 1-1
+      const currentYear = new Date().getFullYear();
+      const birthYear = currentYear - age;
+      data.birthDate = `${birthYear}-01-01`;
+    }
   }
 
   // 联系电话
@@ -325,15 +348,14 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
     data.parentEmail = row.parentEmail.trim().toLowerCase();
   }
 
-  // 班级编码
-  if (row.classCode) {
-    data.classCode = row.classCode.trim();
+  // 班级名称
+  if (row.className) {
+    data.className = row.className.trim();
   }
 
-  // 开卡时间
-  const cardOpenDateParsed = parseDate(row.cardOpenDate);
-  if (cardOpenDateParsed) {
-    data.cardOpenDate = cardOpenDateParsed;
+  // 负责教练姓名
+  if (row.teacherName) {
+    data.teacherName = row.teacherName.trim();
   }
 
   // 已购课时
@@ -373,12 +395,6 @@ export function normalizeStudentRow(row: StudentImportRow): Record<string, any> 
     data.salesName = row.salesName.trim();
   }
 
-  // 最后上课日期
-  const lastClassDateParsed = parseDate(row.lastClassDate);
-  if (lastClassDateParsed) {
-    data.lastClassDate = lastClassDateParsed;
-  }
-
   // 备注
   if (row.notes) {
     data.notes = row.notes.trim();
@@ -394,7 +410,6 @@ export function normalizeClassRow(row: ClassImportRow): Record<string, any> {
   const data: Record<string, any> = {};
 
   data.name = row.name?.trim();
-  data.code = row.code?.trim();
   data.courseType = row.courseType?.trim();
 
   // 班级水平
@@ -434,18 +449,19 @@ export const STUDENT_COLUMN_MAPPING: Record<string, string> = {
   '学员姓名': 'name',
   '姓名': 'name',
   '性别': 'gender',
-  '出生日期': 'birthDate',
-  '生日': 'birthDate',
+  '年龄': 'age',
   '联系电话': 'phone',
   '手机号': 'phone',
   '家长姓名': 'parentName',
   '家长电话': 'parentPhone',
   '家长手机': 'parentPhone',
   '家长邮箱': 'parentEmail',
-  '所属班级编码': 'classCode',
-  '班级编码': 'classCode',
-  '开卡时间': 'cardOpenDate',
-  '开卡日期': 'cardOpenDate',
+  '所属班级名称': 'className',
+  '班级名称': 'className',
+  '班级': 'className',
+  '负责教练': 'teacherName',
+  '教练': 'teacherName',
+  '授课教练': 'teacherName',
   '已购课时': 'purchasedLessons',
   '购买课时': 'purchasedLessons',
   '消耗课时': 'consumedLessons',
@@ -456,15 +472,12 @@ export const STUDENT_COLUMN_MAPPING: Record<string, string> = {
   '累计缴费': 'totalPayment',
   '销售': 'salesName',
   '销售姓名': 'salesName',
-  '最后上课日期': 'lastClassDate',
-  '最后上课': 'lastClassDate',
   '备注': 'notes',
 };
 
 export const CLASS_COLUMN_MAPPING: Record<string, string> = {
   '班级名称': 'name',
-  '班级编码': 'code',
-  '编码': 'code',
+  '班级': 'name',
   '课程类型': 'courseType',
   '类型': 'courseType',
   '班级水平': 'level',
@@ -700,7 +713,12 @@ export function mapRowToFields(
     }
 
     if (fieldName && value !== undefined && value !== null && value !== '') {
-      result[fieldName] = String(value);
+      // 保留 Date 对象，其他值转换为字符串
+      if (value instanceof Date) {
+        result[fieldName] = value;
+      } else {
+        result[fieldName] = String(value);
+      }
     }
   }
 

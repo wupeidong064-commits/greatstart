@@ -105,7 +105,6 @@ const ImportModal: React.FC<ImportModalProps> = ({
 
   // 策略选择
   const [duplicateStrategy, setDuplicateStrategy] = useState<DuplicateStrategy>('skip');
-  const [createMissingClasses, setCreateMissingClasses] = useState(true);
 
   // 导入结果
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
@@ -217,7 +216,6 @@ const ImportModal: React.FC<ImportModalProps> = ({
         type,
         data: validData,
         duplicateStrategy,
-        createMissingClasses,
         duplicates: previewData.duplicates,
       });
 
@@ -249,7 +247,6 @@ const ImportModal: React.FC<ImportModalProps> = ({
     setImportResult(null);
     setImportProgress(0);
     setDuplicateStrategy('skip');
-    setCreateMissingClasses(true);
   };
 
   // 关闭弹窗
@@ -258,32 +255,22 @@ const ImportModal: React.FC<ImportModalProps> = ({
     onClose();
   };
 
-  // 日期格式化函数（处理时区问题）
-  const formatDate = (dateStr: string | undefined) => {
-    if (!dateStr) return '-';
-    // 如果是 YYYY-MM-DD 格式，直接返回，避免时区转换
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      return dateStr;
-    }
-    return dateStr;
-  };
-
   // 预览表格列配置
   const previewColumns = type === 'students'
     ? [
         { title: '行', dataIndex: 'row', key: 'row', width: 50, fixed: 'left' as const },
         { title: '姓名', dataIndex: ['data', 'name'], key: 'name', width: 80, fixed: 'left' as const },
         { title: '性别', dataIndex: ['data', 'gender'], key: 'gender', width: 50, render: (v: string) => v === 'M' ? '男' : v === 'F' ? '女' : '-' },
+        { title: '年龄', dataIndex: ['data', 'age'], key: 'age', width: 50 },
         { title: '联系电话', dataIndex: ['data', 'phone'], key: 'phone', width: 110 },
         { title: '家长电话', dataIndex: ['data', 'parentPhone'], key: 'parentPhone', width: 110 },
-        { title: '班级', dataIndex: ['data', 'classCode'], key: 'classCode', width: 80 },
-        { title: '开卡', dataIndex: ['data', 'cardOpenDate'], key: 'cardOpenDate', width: 100, render: formatDate },
+        { title: '班级', dataIndex: ['data', 'className'], key: 'className', width: 100 },
+        { title: '教练', dataIndex: ['data', 'teacherName'], key: 'teacherName', width: 80 },
         { title: '已购', dataIndex: ['data', 'purchasedLessons'], key: 'purchasedLessons', width: 60 },
         { title: '已消', dataIndex: ['data', 'consumedLessons'], key: 'consumedLessons', width: 60 },
         { title: '剩余', dataIndex: ['data', 'remainingLessons'], key: 'remainingLessons', width: 60 },
         { title: '缴费', dataIndex: ['data', 'totalPayment'], key: 'totalPayment', width: 80, render: (v: number) => v ? `¥${v}` : '-' },
         { title: '销售', dataIndex: ['data', 'salesName'], key: 'salesName', width: 70 },
-        { title: '最后上课', dataIndex: ['data', 'lastClassDate'], key: 'lastClassDate', width: 100, render: formatDate },
         {
           title: '状态',
           key: 'status',
@@ -316,7 +303,6 @@ const ImportModal: React.FC<ImportModalProps> = ({
     ? [
         { title: '行', dataIndex: 'row', key: 'row', width: 50 },
         { title: '班级名称', dataIndex: ['data', 'name'], key: 'name', width: 120 },
-        { title: '编码', dataIndex: ['data', 'code'], key: 'code', width: 100 },
         { title: '类型', dataIndex: ['data', 'courseType'], key: 'courseType', width: 80 },
         { title: '水平', dataIndex: ['data', 'level'], key: 'level', width: 80 },
         { title: '容量', dataIndex: ['data', 'capacity'], key: 'capacity', width: 60 },
@@ -347,7 +333,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
         { title: '客户姓名', dataIndex: ['data', 'customerName'], key: 'customerName', width: 100 },
         { title: '年龄', dataIndex: ['data', 'age'], key: 'age', width: 60 },
         { title: '联系方式', dataIndex: ['data', 'contact'], key: 'contact', width: 110 },
-        { title: '最近联系', dataIndex: ['data', 'lastContactAt'], key: 'lastContactAt', width: 100, render: formatDate },
+        { title: '最近联系', dataIndex: ['data', 'lastContactAt'], key: 'lastContactAt', width: 100 },
         { title: '负责人', dataIndex: ['data', 'assigneeName'], key: 'assigneeName', width: 80 },
         { title: '备注', dataIndex: ['data', 'notes'], key: 'notes', width: 120, ellipsis: true },
         {
@@ -375,7 +361,7 @@ const ImportModal: React.FC<ImportModalProps> = ({
         { title: '学员姓名', dataIndex: ['data', 'studentName'], key: 'studentName', width: 90 },
         { title: '年龄', dataIndex: ['data', 'age'], key: 'age', width: 50 },
         { title: '联系方式', dataIndex: ['data', 'contact'], key: 'contact', width: 110 },
-        { title: '预约日期', dataIndex: ['data', 'scheduleDate'], key: 'scheduleDate', width: 100, render: formatDate },
+        { title: '预约日期', dataIndex: ['data', 'scheduleDate'], key: 'scheduleDate', width: 100 },
         { title: '班级', dataIndex: ['data', 'className'], key: 'className', width: 100 },
         { title: '教练', dataIndex: ['data', 'teachingTeacherName'], key: 'teachingTeacherName', width: 80 },
         { title: '负责人', dataIndex: ['data', 'assigneeName'], key: 'assigneeName', width: 70 },
@@ -528,17 +514,6 @@ const ImportModal: React.FC<ImportModalProps> = ({
                 <Radio value="skip">跳过（保留原数据）</Radio>
                 <Radio value="update">覆盖更新</Radio>
               </Radio.Group>
-            </div>
-          )}
-
-          {type === 'students' && (
-            <div style={{ marginBottom: 16 }}>
-              <Checkbox
-                checked={createMissingClasses}
-                onChange={(e) => setCreateMissingClasses(e.target.checked)}
-              >
-                班级编码不存在时自动创建班级
-              </Checkbox>
             </div>
           )}
 

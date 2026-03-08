@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Table, Button, Input, Space, Modal, Form, message, Tag, Select, DatePicker, InputNumber, Alert, Checkbox } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, SearchOutlined, ReloadOutlined, MinusCircleOutlined, PlusCircleOutlined, DownloadOutlined, UserAddOutlined, ImportOutlined, FileExcelOutlined } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
-import { normalizeRole } from '../utils/dataFilter';
+import { normalizeRole, calculateAge } from '../utils/dataFilter';
 import api from '../services/api';
 import dayjs from 'dayjs';
 import ImportModal from '../components/ImportModal';
@@ -190,7 +190,8 @@ const Students = () => {
     form.setFieldsValue({
       ...record,
       classId: classId,
-      birthDate: record.birthDate ? dayjs(record.birthDate) : null,
+      // 将出生日期转换为年龄
+      age: record.birthDate ? calculateAge(record.birthDate) : undefined,
       cardOpenDate: record.cardOpenDate ? dayjs(record.cardOpenDate) : null,
       lastClassDate: record.lastClassDate ? dayjs(record.lastClassDate) : null,
       salesId: record.salesId || undefined,
@@ -263,13 +264,23 @@ const Students = () => {
   const handleSubmit = async (values: any) => {
     try {
       const { user } = useAuthStore.getState();
-      const { classId, birthDate, createParent, parentEmail, parentName, parentPassword, remainingLessons, totalLessonsPurchased, courseType, phone, refundDate, refundReason, cardOpenDate, purchasedLessons, consumedLessons, totalPayment, salesId, lastClassDate, ...restData } = values;
+      const { classId, age, birthDate, createParent, parentEmail, parentName, parentPassword, remainingLessons, totalLessonsPurchased, courseType, phone, refundDate, refundReason, cardOpenDate, purchasedLessons, consumedLessons, totalPayment, salesId, lastClassDate, ...restData } = values;
 
-      // 处理出生日期格式
+      // 处理年龄/出生日期：如果有年龄，转换为出生日期；否则使用原有的出生日期
+      let calculatedBirthDate = null;
+      if (age !== undefined && age !== null) {
+        // 根据年龄计算出生日期：当前年份 - 年龄，设为1月1日
+        const currentYear = new Date().getFullYear();
+        const birthYear = currentYear - age;
+        calculatedBirthDate = `${birthYear}-01-01`;
+      } else if (birthDate) {
+        calculatedBirthDate = birthDate.format('YYYY-MM-DD');
+      }
+
       const studentData = {
         ...restData,
         phone: phone || restData.contact, // 兼容成单信息导入
-        birthDate: birthDate ? birthDate.format('YYYY-MM-DD') : null,
+        birthDate: calculatedBirthDate,
         // 编辑时：如果没有填写课时，保持原值；新增时：剩余课时 = 已购课时
         remainingLessons: editingStudent
           ? (remainingLessons !== undefined && remainingLessons !== null ? remainingLessons : editingStudent.remainingLessons)
@@ -1053,6 +1064,15 @@ const Students = () => {
       render: (gender: string) => (gender === 'M' ? '男' : gender === 'F' ? '女' : '-'),
     },
     {
+      title: '年龄',
+      key: 'age',
+      width: 70,
+      render: (_: any, record: any) => {
+        const age = record.birthDate ? calculateAge(record.birthDate) : 0;
+        return age > 0 ? `${age}岁` : '-';
+      },
+    },
+    {
       title: '课时信息',
       key: 'lessons',
       width: 120,
@@ -1128,36 +1148,36 @@ const Students = () => {
       title: '操作',
       key: 'action',
       render: (_: any, record: any) => (
-        <Space wrap>
-          <Button type="link" icon={<SearchOutlined />} onClick={() => handleViewDetail(record)}>
+        <Space size="small" wrap style={{ lineHeight: 1.2 }}>
+          <Button type="link" style={{ padding: '2px 4px', height: 'auto' }} icon={<SearchOutlined />} onClick={() => handleViewDetail(record)}>
             查询
           </Button>
           {canManageStudents && (
-            <Button type="link" icon={<PlusCircleOutlined />} onClick={() => handleAddLessons(record)}>
+            <Button type="link" style={{ padding: '2px 4px', height: 'auto' }} icon={<UserAddOutlined />} onClick={() => handleOpenParentAccountModal(record)}>
+              家长账号
+            </Button>
+          )}
+          {canManageStudents && (
+            <Button type="link" style={{ padding: '2px 4px', height: 'auto' }} icon={<PlusCircleOutlined />} onClick={() => handleAddLessons(record)}>
               增课
             </Button>
           )}
-          <Button type="link" icon={<MinusCircleOutlined />} onClick={() => handleDeductLessons(record)}>
+          <Button type="link" style={{ padding: '2px 4px', height: 'auto' }} icon={<MinusCircleOutlined />} onClick={() => handleDeductLessons(record)}>
             划课
           </Button>
           {canManageStudents && (
-            <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+            <Button type="link" style={{ padding: '2px 4px', height: 'auto' }} icon={<EditOutlined />} onClick={() => handleEdit(record)}>
               编辑
             </Button>
           )}
           {canManageStudents && (
-            <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
+            <Button type="link" danger style={{ padding: '2px 4px', height: 'auto' }} icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
               删除
-            </Button>
-          )}
-          {canManageStudents && (
-            <Button type="link" icon={<UserAddOutlined />} onClick={() => handleOpenParentAccountModal(record)}>
-              创建家长账号
             </Button>
           )}
         </Space>
       ),
-      width: 360,
+      width: 280,
     },
   ];
 
@@ -1517,12 +1537,12 @@ const Students = () => {
               <Select.Option value="F">女</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item name="birthDate" label="出生日期">
-            <DatePicker 
-              format="YYYY-MM-DD" 
-              style={{ width: '100%' }} 
-              placeholder="选择出生日期"
-              disabledDate={(current) => current && current > dayjs().endOf('day')}
+          <Form.Item name="age" label="年龄">
+            <InputNumber
+              min={0}
+              max={150}
+              placeholder="请输入年龄"
+              style={{ width: '100%' }}
             />
           </Form.Item>
           <Form.Item name="parentPhone" label="家长电话">
@@ -2068,6 +2088,11 @@ const Students = () => {
                 {detailStudent.name}
                 <span style={{ marginLeft: 12, fontSize: 14, fontWeight: 'normal', color: '#666' }}>
                   {detailStudent.gender === 'M' ? '男' : detailStudent.gender === 'F' ? '女' : '-'}
+                  {detailStudent.birthDate && (
+                    <span style={{ marginLeft: 8 }}>
+                      {calculateAge(detailStudent.birthDate)}岁
+                    </span>
+                  )}
                 </span>
               </div>
               <div style={{ color: '#666' }}>

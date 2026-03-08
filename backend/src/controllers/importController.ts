@@ -149,7 +149,6 @@ export const importController = {
         type,
         data,
         duplicateStrategy,
-        createMissingClasses,
         duplicates,
       } = req.body;
 
@@ -174,7 +173,6 @@ export const importController = {
             organizationId,
             campusId,
             duplicateStrategy as DuplicateStrategy,
-            createMissingClasses !== false,
             duplicates || []
           );
           break;

@@ -82,7 +82,12 @@ const BATCH_SIZE = 50;
  * 解析 Excel 文件
  */
 export function parseExcelFile(buffer: Buffer): Record<string, any>[] {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  const workbook = XLSX.read(buffer, {
+    type: 'buffer',
+    cellDates: true,  // 关键：将日期解析为 Date 对象而非数字
+    cellNF: false,
+    cellText: false,
+  });
   const sheetName = workbook.SheetNames[0];
 
   if (!sheetName) {
@@ -102,25 +107,24 @@ export function generateStudentTemplate(): Buffer {
   const headers = [
     '学员姓名',
     '性别',
-    '出生日期',
+    '年龄',
     '联系电话',
     '家长姓名',
     '家长电话',
     '家长邮箱',
-    '所属班级编码',
-    '开卡时间',
+    '所属班级名称',
+    '负责教练',
     '已购课时',
     '消耗课时',
     '剩余课时',
     '缴费金额',
     '销售',
-    '最后上课日期',
     '备注',
   ];
 
   const exampleData = [
-    ['张三', 'M', '2015-03-20', '13800138000', '张父', '13900139000', 'parent@example.com', 'A001', '2024-01-01', '50', '10', '40', '5000', '王销售', '2024-02-15', '试听课学员'],
-    ['李四', 'F', '2016-05-10', '13800138001', '李母', '13900139001', '', 'A002', '2024-01-15', '30', '5', '25', '3000', '', '2024-02-20', ''],
+    ['张三', 'M', '9', '13800138000', '张父', '13900139000', 'parent@example.com', '周一基础班', '李教练', '50', '10', '40', '5000', '王销售', '试听课学员'],
+    ['李四', 'F', '8', '13800138001', '李母', '13900139001', '', '周三进阶班', '王教练', '30', '5', '25', '3000', '', ''],
   ];
 
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleData]);
@@ -129,19 +133,18 @@ export function generateStudentTemplate(): Buffer {
   worksheet['!cols'] = [
     { wch: 12 }, // 学员姓名
     { wch: 6 },  // 性别
-    { wch: 12 }, // 出生日期
+    { wch: 6 },  // 年龄
     { wch: 14 }, // 联系电话
     { wch: 10 }, // 家长姓名
     { wch: 14 }, // 家长电话
     { wch: 20 }, // 家长邮箱
-    { wch: 14 }, // 所属班级编码
-    { wch: 12 }, // 开卡时间
+    { wch: 18 }, // 所属班级名称
+    { wch: 10 }, // 负责教练
     { wch: 10 }, // 已购课时
     { wch: 10 }, // 消耗课时
     { wch: 10 }, // 剩余课时
     { wch: 10 }, // 缴费金额
     { wch: 10 }, // 销售
-    { wch: 14 }, // 最后上课日期
     { wch: 20 }, // 备注
   ];
 
@@ -157,7 +160,6 @@ export function generateStudentTemplate(): Buffer {
 export function generateClassTemplate(): Buffer {
   const headers = [
     '班级名称',
-    '班级编码',
     '课程类型',
     '班级水平',
     '容量',
@@ -166,8 +168,8 @@ export function generateClassTemplate(): Buffer {
   ];
 
   const exampleData = [
-    ['周一基础班', 'A001', '篮球基础', '第一阶段', '20', '李教练', 'active'],
-    ['周三进阶班', 'A002', '篮球进阶', '第二阶段', '15', '王教练', 'active'],
+    ['周一基础班', '篮球基础', '第一阶段', '20', '李教练', 'active'],
+    ['周三进阶班', '篮球进阶', '第二阶段', '15', '王教练', 'active'],
   ];
 
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleData]);
@@ -175,7 +177,6 @@ export function generateClassTemplate(): Buffer {
   // 设置列宽
   worksheet['!cols'] = [
     { wch: 15 }, // 班级名称
-    { wch: 12 }, // 班级编码
     { wch: 12 }, // 课程类型
     { wch: 10 }, // 班级水平
     { wch: 8 },  // 容量
@@ -313,24 +314,47 @@ export async function previewStudents(
     }, {});
   }
 
-  // 获取所有班级编码，用于验证
-  const classCodes = rows
+  // 获取所有班级名称和负责教练，用于验证（班级由名称+教练共同确定）
+  const classInfoList = rows
     .map((row) => {
       const mapped = mapRowToFields(row, STUDENT_COLUMN_MAPPING);
-      return mapped.classCode;
+      return {
+        className: mapped.className,
+        teacherName: mapped.teacherName,
+      };
     })
-    .filter(Boolean);
+    .filter((info) => info.className);
 
+  // 获取所有教练ID映射
+  const teacherNames = classInfoList.map((info) => info.teacherName).filter(Boolean);
+  let teachersMap: Record<string, any> = {};
+  if (teacherNames.length > 0) {
+    const { data: teachers } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('name', teacherNames);
+
+    teachersMap = (teachers || []).reduce((acc: Record<string, any>, t: any) => {
+      acc[t.name] = t;
+      return acc;
+    }, {});
+  }
+
+  // 构建班级映射（className-teacherId 组合）
   let existingClassesMap: Record<string, any> = {};
-  if (classCodes.length > 0) {
+  const classNames = [...new Set(classInfoList.map((info) => info.className))];
+  if (classNames.length > 0) {
     const { data: existingClasses } = await memfireAdmin
       .from('classes')
-      .select('id, code, name')
+      .select('id, name, teacherId')
       .eq('organizationId', organizationId)
-      .in('code', classCodes);
+      .in('name', classNames);
 
     existingClassesMap = (existingClasses || []).reduce((acc: Record<string, any>, c: any) => {
-      acc[c.code] = c;
+      // 使用 className-teacherId 作为组合键
+      const key = c.teacherId ? `${c.name}-${c.teacherId}` : c.name;
+      acc[key] = c;
       return acc;
     }, {});
   }
@@ -383,9 +407,26 @@ export async function previewStudents(
       });
     }
 
-    // 检查班级编码是否存在（仅警告，不阻止导入）
-    if (normalized.classCode && !existingClassesMap[normalized.classCode]) {
-      item.errors.push(`班级编码 "${normalized.classCode}" 不存在，将自动创建`);
+    // 检查班级是否存在（由班级名称+教练共同确定，仅警告，不阻止导入）
+    if (normalized.className) {
+      const teacherId = normalized.teacherName && teachersMap[normalized.teacherName]
+        ? teachersMap[normalized.teacherName].id
+        : null;
+
+      const classKey = teacherId ? `${normalized.className}-${teacherId}` : normalized.className;
+
+      if (!existingClassesMap[classKey]) {
+        if (teacherId) {
+          item.errors.push(`班级 "${normalized.className}"（教练：${normalized.teacherName}）不存在，将不会自动分配`);
+        } else {
+          item.errors.push(`班级 "${normalized.className}" 不存在，将不会自动分配`);
+        }
+      }
+    }
+
+    // 检查教练是否存在（仅警告）
+    if (normalized.teacherName && !teachersMap[normalized.teacherName]) {
+      item.errors.push(`教练 "${normalized.teacherName}" 不存在`);
     }
 
     // 检查销售是否存在（仅警告）
@@ -429,25 +470,25 @@ export async function previewClasses(
   const preview: PreviewItem[] = [];
   const duplicates: DuplicateItem[] = [];
 
-  // 获取所有班级编码，用于检查重复
-  const classCodes = rows
+  // 获取所有班级名称，用于检查重复
+  const classNames = rows
     .map((row) => {
       const mapped = mapRowToFields(row, CLASS_COLUMN_MAPPING);
-      return mapped.code;
+      return mapped.name;
     })
     .filter(Boolean);
 
-  // 批量查询已有的班级（按编码）
+  // 批量查询已有的班级（按名称）
   let existingClassesMap: Record<string, any> = {};
-  if (classCodes.length > 0) {
+  if (classNames.length > 0) {
     const { data: existingClasses } = await memfireAdmin
       .from('classes')
       .select('*')
       .eq('organizationId', organizationId)
-      .in('code', classCodes);
+      .in('name', classNames);
 
     existingClassesMap = (existingClasses || []).reduce((acc: Record<string, any>, c: any) => {
-      acc[c.code] = c;
+      acc[c.name] = c;
       return acc;
     }, {});
   }
@@ -490,13 +531,13 @@ export async function previewClasses(
       errors: validation.errors,
     };
 
-    // 检查重复（按编码）
-    if (normalized.code && existingClassesMap[normalized.code]) {
+    // 检查重复（按名称）
+    if (normalized.name && existingClassesMap[normalized.name]) {
       item.isDuplicate = true;
       duplicates.push({
         row: i + 2,
         data: normalized,
-        existingRecord: existingClassesMap[normalized.code],
+        existingRecord: existingClassesMap[normalized.name],
       });
     }
 
@@ -528,7 +569,6 @@ export async function executeStudentsImport(
   organizationId: string,
   campusId: string | undefined,
   duplicateStrategy: DuplicateStrategy,
-  createMissingClasses: boolean,
   duplicates: DuplicateItem[]
 ): Promise<ImportResult> {
   const result: ImportResult = {
@@ -545,18 +585,41 @@ export async function executeStudentsImport(
     }
   }
 
-  // 获取班级编码映射
-  const classCodes = data.map((d) => d.classCode).filter(Boolean);
+  // 获取班级映射（由班级名称+教练共同确定）
+  const classInfoList = data.map((d) => ({
+    className: d.className,
+    teacherName: d.teacherName,
+  })).filter((info) => info.className);
+
+  // 获取教练映射
+  const teacherNames = classInfoList.map((info) => info.teacherName).filter(Boolean);
+  let teachersMap: Record<string, any> = {};
+  if (teacherNames.length > 0) {
+    const { data: teachers } = await memfireAdmin
+      .from('users')
+      .select('id, name')
+      .eq('organizationId', organizationId)
+      .in('name', teacherNames);
+
+    teachersMap = (teachers || []).reduce((acc: Record<string, any>, t: any) => {
+      acc[t.name] = t;
+      return acc;
+    }, {});
+  }
+
+  // 构建班级映射（className-teacherId 组合）
   let classesMap: Record<string, any> = {};
-  if (classCodes.length > 0) {
+  const classNames = [...new Set(classInfoList.map((info) => info.className))];
+  if (classNames.length > 0) {
     const { data: existingClasses } = await memfireAdmin
       .from('classes')
-      .select('id, code')
+      .select('id, name, teacherId')
       .eq('organizationId', organizationId)
-      .in('code', classCodes);
+      .in('name', classNames);
 
     classesMap = (existingClasses || []).reduce((acc: Record<string, any>, c: any) => {
-      acc[c.code] = c;
+      const key = c.teacherId ? `${c.name}-${c.teacherId}` : c.name;
+      acc[key] = c;
       return acc;
     }, {});
   }
@@ -611,12 +674,10 @@ export async function executeStudentsImport(
           if (item.remainingLessons !== undefined) updateData.remainingLessons = item.remainingLessons;
           if (item.notes) updateData.notes = item.notes;
 
-          // 新增字段更新
-          if (item.cardOpenDate) updateData.cardOpenDate = item.cardOpenDate;
+          // 课时与金额信息更新
           if (item.purchasedLessons !== undefined) updateData.purchasedLessons = item.purchasedLessons;
           if (item.consumedLessons !== undefined) updateData.consumedLessons = item.consumedLessons;
           if (item.totalPayment !== undefined) updateData.totalPayment = item.totalPayment;
-          if (item.lastClassDate) updateData.lastClassDate = item.lastClassDate;
           if (item.salesName && salesMap[item.salesName]) {
             updateData.salesId = salesMap[item.salesName].id;
           }
@@ -651,6 +712,8 @@ export async function executeStudentsImport(
             organizationId,
             campusId: campusId || null,
             status: 'active',
+            // 开卡时间默认为当天
+            cardOpenDate: new Date().toISOString().split('T')[0],
           };
 
           if (item.gender) newStudent.gender = item.gender;
@@ -662,12 +725,10 @@ export async function executeStudentsImport(
           if (item.remainingLessons !== undefined) newStudent.remainingLessons = item.remainingLessons;
           if (item.notes) newStudent.notes = item.notes;
 
-          // 新增字段
-          if (item.cardOpenDate) newStudent.cardOpenDate = item.cardOpenDate;
+          // 课时与金额信息
           if (item.purchasedLessons !== undefined) newStudent.purchasedLessons = item.purchasedLessons;
           if (item.consumedLessons !== undefined) newStudent.consumedLessons = item.consumedLessons;
           if (item.totalPayment !== undefined) newStudent.totalPayment = item.totalPayment;
-          if (item.lastClassDate) newStudent.lastClassDate = item.lastClassDate;
           if (item.salesName && salesMap[item.salesName]) {
             newStudent.salesId = salesMap[item.salesName].id;
           }
@@ -689,36 +750,20 @@ export async function executeStudentsImport(
             continue;
           }
 
-          // 如果有班级编码，创建报名记录
-          if (item.classCode && created) {
-            let classId = classesMap[item.classCode]?.id;
+          // 如果有班级名称，创建报名记录（使用班级名称+教练的组合键查找）
+          if (item.className && created) {
+            const teacherId = item.teacherName && teachersMap[item.teacherName]
+              ? teachersMap[item.teacherName].id
+              : null;
 
-            // 如果班级不存在且允许创建
-            if (!classId && createMissingClasses) {
-              const { data: newClass, error: classError } = await memfireAdmin
-                .from('classes')
-                .insert({
-                  name: `班级-${item.classCode}`,
-                  code: item.classCode,
-                  courseType: '待定',
-                  organizationId,
-                  campusId: campusId || null,
-                  capacity: 20,
-                  status: 'active',
-                })
-                .select()
-                .single();
+            const classKey = teacherId ? `${item.className}-${teacherId}` : item.className;
+            const classData = classesMap[classKey];
 
-              if (!classError && newClass) {
-                classId = newClass.id;
-                classesMap[item.classCode] = newClass;
-              }
-            }
-
-            if (classId) {
+            // 只有班级存在时才创建报名记录
+            if (classData) {
               await memfireAdmin.from('enrollments').insert({
                 studentId: created.id,
-                classId,
+                classId: classData.id,
                 organizationId,
                 status: 'active',
               });
@@ -772,8 +817,8 @@ export async function executeClassesImport(
   // 构建重复数据映射
   const duplicateMap = new Map<string, any>();
   for (const dup of duplicates) {
-    if (dup.data.code) {
-      duplicateMap.set(dup.data.code, dup.existingRecord);
+    if (dup.data.name) {
+      duplicateMap.set(dup.data.name, dup.existingRecord);
     }
   }
 
@@ -802,7 +847,7 @@ export async function executeClassesImport(
 
       try {
         // 检查是否重复
-        const existingRecord = duplicateMap.get(item.code);
+        const existingRecord = duplicateMap.get(item.name);
 
         if (existingRecord) {
           if (duplicateStrategy === 'skip') {
@@ -810,7 +855,7 @@ export async function executeClassesImport(
             result.details.push({
               row: rowIndex,
               status: 'skipped',
-              message: `班级已存在（编码: ${item.code}）`,
+              message: `班级已存在（名称: ${item.name}）`,
               data: item,
             });
             continue;
@@ -856,7 +901,6 @@ export async function executeClassesImport(
           // 创建新记录
           const newClass: Record<string, any> = {
             name: item.name,
-            code: item.code,
             courseType: item.courseType,
             organizationId,
             campusId: campusId || null,

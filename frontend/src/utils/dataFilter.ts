@@ -1,6 +1,29 @@
 import { useAuthStore } from '../store/authStore';
 
 /**
+ * 根据出生日期计算年龄（每年1月1日自动更新）
+ * @param birthDate 出生日期 YYYY-MM-DD 格式
+ * @returns 年龄
+ */
+export const calculateAge = (birthDate: string): number => {
+  if (!birthDate) return 0;
+
+  const birth = new Date(birthDate);
+  if (isNaN(birth.getTime())) return 0;
+
+  // 使用当前年份 - 出生年份来计算年龄
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const birthYear = birth.getFullYear();
+
+  // 年龄 = 当前年份 - 出生年份
+  const age = currentYear - birthYear;
+
+  // 确保年龄非负
+  return Math.max(0, age);
+};
+
+/**
  * 用户角色类型
  */
 export type UserRole = 'admin' | 'manager' | 'teacher' | 'coach' | 'sales' | 'staff' | 'parent';
