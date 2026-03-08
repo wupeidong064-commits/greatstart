@@ -63,6 +63,10 @@ const Students = () => {
   // 批量选择相关状态
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
+  // 学员详情查询相关状态
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [detailStudent, setDetailStudent] = useState<any>(null);
+
   // 销售列表（用于表单选择）
   const [salesList, setSalesList] = useState<any[]>([]);
 
@@ -266,10 +270,10 @@ const Students = () => {
         ...restData,
         phone: phone || restData.contact, // 兼容成单信息导入
         birthDate: birthDate ? birthDate.format('YYYY-MM-DD') : null,
-        // 编辑时：如果没有填写课时，保持原值；新增时：默认为0
+        // 编辑时：如果没有填写课时，保持原值；新增时：剩余课时 = 已购课时
         remainingLessons: editingStudent
           ? (remainingLessons !== undefined && remainingLessons !== null ? remainingLessons : editingStudent.remainingLessons)
-          : (remainingLessons || 0),
+          : (purchasedLessons || 0),
         // 新增字段
         cardOpenDate: cardOpenDate ? cardOpenDate.format('YYYY-MM-DD') : null,
         purchasedLessons: purchasedLessons || 0,
@@ -926,6 +930,12 @@ const Students = () => {
     setParentAccountModalVisible(true);
   };
 
+  // 查询学员详情
+  const handleViewDetail = (student: any) => {
+    setDetailStudent(student);
+    setDetailModalVisible(true);
+  };
+
   const handleParentAccountSubmit = async (values: any) => {
     try {
       const { email, password, name, parentPhone } = values;
@@ -1033,67 +1043,32 @@ const Students = () => {
       title: '姓名',
       dataIndex: 'name',
       key: 'name',
+      width: 100,
     },
     {
       title: '性别',
       dataIndex: 'gender',
       key: 'gender',
+      width: 70,
       render: (gender: string) => (gender === 'M' ? '男' : gender === 'F' ? '女' : '-'),
-    },
-    {
-      title: '电话',
-      dataIndex: 'phone',
-      key: 'phone',
     },
     {
       title: '课时信息',
       key: 'lessons',
+      width: 120,
       render: (_: any, record: any) => {
         const remaining = record.remainingLessons ?? 0;
-        const purchased = record.purchasedLessons ?? 0;
-        const consumed = record.consumedLessons ?? 0;
         return (
-          <div>
-            <div>
-              剩余 <strong style={{ color: remaining <= 5 ? '#ff4d4f' : '#1890ff' }}>{remaining}</strong> 节
-            </div>
-            <div style={{ fontSize: 12, color: '#999' }}>
-              已购 {purchased} / 已消 {consumed}
-            </div>
+          <div style={{ whiteSpace: 'nowrap' }}>
+            剩余 <strong style={{ color: remaining <= 5 ? '#ff4d4f' : '#1890ff' }}>{remaining}</strong> 节
           </div>
         );
       },
     },
     {
-      title: '开卡时间',
-      dataIndex: 'cardOpenDate',
-      key: 'cardOpenDate',
-      width: 100,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
-    },
-    {
-      title: '缴费金额',
-      dataIndex: 'totalPayment',
-      key: 'totalPayment',
-      width: 100,
-      render: (amount: number) => amount ? `¥${amount}` : '-',
-    },
-    {
-      title: '销售',
-      key: 'sales',
-      width: 80,
-      render: (_: any, record: any) => record.sales?.name || '-',
-    },
-    {
-      title: '最后上课',
-      dataIndex: 'lastClassDate',
-      key: 'lastClassDate',
-      width: 100,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
-    },
-    {
       title: '负责教练',
       key: 'teacher',
+      width: 100,
       render: (_: any, record: any) => {
         // 从活跃的报名记录中获取教练信息
         if (!record.enrollments || record.enrollments.length === 0) {
@@ -1110,6 +1085,7 @@ const Students = () => {
     {
       title: '所属班级',
       key: 'class',
+      width: 200,
       render: (_: any, record: any) => {
         // 从活跃的报名记录中获取班级信息
         if (!record.enrollments || record.enrollments.length === 0) {
@@ -1130,11 +1106,13 @@ const Students = () => {
       title: '家长电话',
       dataIndex: 'parentPhone',
       key: 'parentPhone',
+      width: 130,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 90,
       render: (status: string) => {
         const colorMap: Record<string, string> = {
           active: 'green',
@@ -1151,6 +1129,9 @@ const Students = () => {
       key: 'action',
       render: (_: any, record: any) => (
         <Space wrap>
+          <Button type="link" icon={<SearchOutlined />} onClick={() => handleViewDetail(record)}>
+            查询
+          </Button>
           {canManageStudents && (
             <Button type="link" icon={<PlusCircleOutlined />} onClick={() => handleAddLessons(record)}>
               增课
@@ -1176,7 +1157,7 @@ const Students = () => {
           )}
         </Space>
       ),
-      width: 340,
+      width: 360,
     },
   ];
 
@@ -1608,6 +1589,7 @@ const Students = () => {
                 <Form.Item
                   name="cardOpenDate"
                   label="开卡时间"
+                  initialValue={dayjs()}
                 >
                   <DatePicker
                     style={{ width: '100%' }}
@@ -1617,21 +1599,9 @@ const Students = () => {
                 </Form.Item>
 
                 <Form.Item
-                  name="remainingLessons"
-                  label="剩余课时"
-                  initialValue={0}
-                >
-                  <InputNumber
-                    min={0}
-                    placeholder="剩余课时"
-                    style={{ width: '100%' }}
-                    addonAfter="节"
-                  />
-                </Form.Item>
-
-                <Form.Item
                   name="purchasedLessons"
                   label="已购课时"
+                  rules={[{ required: true, message: '请输入已购课时' }]}
                   initialValue={0}
                 >
                   <InputNumber
@@ -2078,6 +2048,110 @@ const Students = () => {
         onClose={() => setBatchImportModalVisible(false)}
         onSuccess={fetchStudents}
       />
+
+      {/* 学员详情查询 Modal */}
+      <Modal
+        title="学员详情查询"
+        open={detailModalVisible}
+        onCancel={() => setDetailModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setDetailModalVisible(false)}>
+            关闭
+          </Button>,
+        ]}
+        width={500}
+      >
+        {detailStudent && (
+          <div>
+            <div style={{ marginBottom: 24, padding: 16, background: '#f0f5ff', borderRadius: 8 }}>
+              <div style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 8 }}>
+                {detailStudent.name}
+                <span style={{ marginLeft: 12, fontSize: 14, fontWeight: 'normal', color: '#666' }}>
+                  {detailStudent.gender === 'M' ? '男' : detailStudent.gender === 'F' ? '女' : '-'}
+                </span>
+              </div>
+              <div style={{ color: '#666' }}>
+                家长电话: {detailStudent.parentPhone || '-'}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                💰 购课信息
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ padding: 12, background: '#f6ffed', borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, color: '#666' }}>购课数</div>
+                  <div style={{ fontSize: 20, fontWeight: 'bold', color: '#52c41a' }}>
+                    {detailStudent.purchasedLessons || 0} 节
+                  </div>
+                </div>
+                <div style={{ padding: 12, background: '#fff7e6', borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, color: '#666' }}>成单金额</div>
+                  <div style={{ fontSize: 20, fontWeight: 'bold', color: '#fa8c16' }}>
+                    ¥{detailStudent.totalPayment || 0}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                📅 时间信息
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ padding: 12, background: '#f9f0ff', borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, color: '#666' }}>开卡时间</div>
+                  <div style={{ fontSize: 16, fontWeight: 'bold', color: '#722ed1' }}>
+                    {detailStudent.cardOpenDate ? dayjs(detailStudent.cardOpenDate).format('YYYY-MM-DD') : '-'}
+                  </div>
+                </div>
+                <div style={{ padding: 12, background: '#e6f7ff', borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, color: '#666' }}>最后上课</div>
+                  <div style={{ fontSize: 16, fontWeight: 'bold', color: '#1890ff' }}>
+                    {detailStudent.lastClassDate ? dayjs(detailStudent.lastClassDate).format('YYYY-MM-DD') : '-'}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ fontSize: 14, color: '#666', marginBottom: 8 }}>
+                📊 课时统计
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div style={{ padding: 12, background: '#f0f5ff', borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, color: '#666' }}>剩余课时</div>
+                  <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1890ff' }}>
+                    {detailStudent.remainingLessons || 0} 节
+                  </div>
+                </div>
+                <div style={{ padding: 12, background: '#f0f5ff', borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, color: '#666' }}>已购课时</div>
+                  <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1890ff' }}>
+                    {detailStudent.purchasedLessons || 0} 节
+                  </div>
+                </div>
+                <div style={{ padding: 12, background: '#f0f5ff', borderRadius: 4 }}>
+                  <div style={{ fontSize: 12, color: '#666' }}>消耗课时</div>
+                  <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1890ff' }}>
+                    {detailStudent.consumedLessons || 0} 节
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {detailStudent.sales && (
+              <div style={{ marginTop: 16, padding: 12, background: '#fff', borderRadius: 4, border: '1px solid #d9d9d9' }}>
+                <div style={{ fontSize: 12, color: '#666' }}>销售</div>
+                <div style={{ fontSize: 16, fontWeight: 'bold' }}>
+                  {detailStudent.sales.name}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };
