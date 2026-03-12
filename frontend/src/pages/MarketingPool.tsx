@@ -35,6 +35,7 @@ const MarketingPool = () => {
   const [staffList, setStaffList] = useState<StaffUser[]>([]);
   const [selectedAssignee, setSelectedAssignee] = useState<string | undefined>(undefined);
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [lastContactDateRange, setLastContactDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
 
   // 批量导入相关状态
   const [batchImportModalVisible, setBatchImportModalVisible] = useState(false);
@@ -50,7 +51,7 @@ const MarketingPool = () => {
   useEffect(() => {
     fetchData();
     fetchStaffList();
-  }, [pagination.current, pagination.pageSize, selectedAssignee]);
+  }, [pagination.current, pagination.pageSize, selectedAssignee, lastContactDateRange]);
 
   // 获取工作人员列表（用于负责人选择，使用缓存）
   const fetchStaffList = async () => {
@@ -84,6 +85,12 @@ const MarketingPool = () => {
         params.search = searchKeyword;
       }
 
+      // 最近联系时间范围筛选
+      if (lastContactDateRange && lastContactDateRange[0] && lastContactDateRange[1]) {
+        params.lastContactAtStart = lastContactDateRange[0].startOf('day').toISOString();
+        params.lastContactAtEnd = lastContactDateRange[1].endOf('day').toISOString();
+      }
+
       const response = await api.get('/leads', { params });
       setData(response.data || []);
       if (response.pagination) {
@@ -104,6 +111,7 @@ const MarketingPool = () => {
   const handleResetFilter = () => {
     setSelectedAssignee(undefined);
     setSearchKeyword('');
+    setLastContactDateRange(null);
     setPagination({ ...pagination, current: 1 });
   };
 
@@ -378,6 +386,16 @@ const MarketingPool = () => {
               </Select.Option>
             ))}
           </Select>
+          <DatePicker.RangePicker
+            placeholder={['最近联系开始日期', '最近联系结束日期']}
+            value={lastContactDateRange}
+            onChange={(dates) => {
+              setLastContactDateRange(dates);
+              setPagination({ ...pagination, current: 1 });
+            }}
+            style={{ width: 280 }}
+            allowClear
+          />
           <Input
             placeholder="搜索姓名或联系方式"
             allowClear

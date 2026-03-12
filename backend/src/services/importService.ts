@@ -899,8 +899,16 @@ export async function executeClassesImport(
           });
         } else {
           // 创建新记录
+          // 生成唯一的班级编码（使用时间戳 + 随机数）
+          const generateClassCode = () => {
+            const timestamp = Date.now().toString(36);
+            const random = Math.random().toString(36).substring(2, 6);
+            return `CLS-${timestamp}-${random}`.toUpperCase();
+          };
+
           const newClass: Record<string, any> = {
             name: item.name,
+            code: generateClassCode(), // 自动生成唯一编码
             courseType: item.courseType,
             organizationId,
             campusId: campusId || null,

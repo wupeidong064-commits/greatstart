@@ -22,6 +22,9 @@ export const leadController = {
       const pageSize = parseInt(req.query.pageSize as string) || 10;
       const assigneeId = req.query.assigneeId as string;
       const status = req.query.status as string;
+      const search = req.query.search as string;
+      const lastContactAtStart = req.query.lastContactAtStart as string;
+      const lastContactAtEnd = req.query.lastContactAtEnd as string;
 
       const currentUser = getCurrentUser(req);
       const targetOrgId = currentUser?.organizationId;
@@ -48,6 +51,19 @@ export const leadController = {
         query = query.eq('status', status);
       }
 
+      // 搜索关键词（姓名或联系方式）
+      if (search) {
+        query = query.or(`customerName.ilike.%${search}%,contact.ilike.%${search}%`);
+      }
+
+      // 最近联系时间范围筛选
+      if (lastContactAtStart) {
+        query = query.gte('lastContactAt', lastContactAtStart);
+      }
+      if (lastContactAtEnd) {
+        query = query.lte('lastContactAt', lastContactAtEnd);
+      }
+
       query = query.range((page - 1) * pageSize, (page - 1) * pageSize + pageSize - 1);
 
       const { data: leads, error } = await query;
@@ -67,6 +83,9 @@ export const leadController = {
         countQuery = countQuery.eq('assigneeId', assigneeId);
       }
       if (status) countQuery = countQuery.eq('status', status);
+      if (search) countQuery = countQuery.or(`customerName.ilike.%${search}%,contact.ilike.%${search}%`);
+      if (lastContactAtStart) countQuery = countQuery.gte('lastContactAt', lastContactAtStart);
+      if (lastContactAtEnd) countQuery = countQuery.lte('lastContactAt', lastContactAtEnd);
 
       const { count } = await countQuery;
 

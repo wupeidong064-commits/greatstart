@@ -731,6 +731,10 @@ const Classes = () => {
 
   // 筛选后的班级列表
   const filteredClasses = useMemo(() => {
+    console.log('[DEBUG] filteredClasses 被重新计算');
+    console.log('[DEBUG] classes 数量:', classes.length);
+    console.log('[DEBUG] filterWeekDay 值:', filterWeekDay);
+
     let result = classes;
 
     // 按教练筛选
@@ -738,12 +742,26 @@ const Classes = () => {
       result = result.filter(cls => cls.teacherId === filterTeacherId);
     }
 
-    // 按星期几筛选
-    if (filterWeekDay !== null) {
+    // 按星期几筛选（通过班级名称检索）
+    if (filterWeekDay !== null && filterWeekDay !== undefined) {
+      const weekDayText = weekDayLabels[filterWeekDay]; // 获取星期文本,如"周一"
+      console.log('[DEBUG] 星期筛选 - 搜索文本:', weekDayText);
+      console.log('[DEBUG] 筛选前班级数量:', result.length);
+      console.log('[DEBUG] 班级名称示例:', result.slice(0, 5).map(cls => cls.name));
+      console.log('[DEBUG] 前10个班级名称详情:', result.slice(0, 10).map(cls => ({
+        name: cls.name,
+        hasWeekDay: cls.name ? cls.name.includes(weekDayText) : false
+      })));
+
       result = result.filter(cls => {
-        const weekDays = cls.scheduleRule?.weekDays || [];
-        return weekDays.includes(filterWeekDay);
+        const matches = cls.name && cls.name.includes(weekDayText);
+        if (matches) {
+          console.log('[DEBUG] 匹配的班级:', cls.name);
+        }
+        return matches;
       });
+
+      console.log('[DEBUG] 筛选后班级数量:', result.length);
     }
 
     return result;
@@ -809,7 +827,10 @@ const Classes = () => {
           allowClear
           style={{ width: 110, minWidth: 110 }}
           value={filterWeekDay}
-          onChange={(value) => setFilterWeekDay(value)}
+          onChange={(value) => {
+            console.log('[DEBUG] Select onChange 触发, value:', value, 'type:', typeof value);
+            setFilterWeekDay(value);
+          }}
         >
           <Select.Option value={1}>周一</Select.Option>
           <Select.Option value={2}>周二</Select.Option>
@@ -828,7 +849,7 @@ const Classes = () => {
           </Button>
         )}
         <span style={{ color: '#999', marginLeft: 'auto' }}>
-          共 {filteredClasses.length} 个班级
+          共 {filteredClasses.length} 个班级 {filterWeekDay !== null && filterWeekDay !== undefined && `(筛选: ${['周日','周一','周二','周三','周四','周五','周六'][filterWeekDay]})`}
         </span>
       </div>
 
