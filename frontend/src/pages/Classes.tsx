@@ -539,6 +539,34 @@ const Classes = () => {
     }
   };
 
+  // 从班级移除学员
+  const handleRemoveStudentFromClass = async (enrollmentId: string, studentName: string) => {
+    if (!viewingClass) return;
+
+    Modal.confirm({
+      title: '确认移除学员',
+      content: `确定要将学员「${studentName}」从班级「${viewingClass.name}」中移除吗？`,
+      okText: '确认移除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          // 通过删除 enrollment 记录来移除学员
+          await api.delete(`/enrollments/${enrollmentId}`);
+          message.success('学员已从班级移除');
+          // 刷新班级学员列表
+          const response = await api.get(`/classes/${viewingClass.id}/students`);
+          setClassStudents(response.data || []);
+          // 刷新班级列表以更新人数
+          fetchClasses();
+        } catch (error: any) {
+          console.error('移除学员失败:', error);
+          message.error(error.message || '移除学员失败');
+        }
+      },
+    });
+  };
+
   const handleAddStudentToClass = (record: any) => {
     setAddingToClass(record);
     addStudentForm.resetFields();
@@ -1169,6 +1197,19 @@ const Classes = () => {
                 return <Tag color={statusInfo.color}>{statusInfo.text}</Tag>;
               },
             },
+            ...(canEdit ? [{
+              title: '操作',
+              key: 'action',
+              render: (_: any, record: any) => (
+                <Button
+                  type="link"
+                  danger
+                  onClick={() => handleRemoveStudentFromClass(record.enrollmentId, record.name)}
+                >
+                  移除
+                </Button>
+              ),
+            }] : []),
           ]}
           dataSource={classStudents}
           loading={studentsLoading}
@@ -1220,18 +1261,19 @@ const Classes = () => {
             <Select
               placeholder="请输入或选择学员姓名"
               showSearch
-              optionFilterProp="children"
-              filterOption={(input, option) =>
-                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
-              }
+              autoComplete="off"
+              optionFilterProp="label"
             >
               {availableStudents
                 .filter((student: any) => student.status === 'active')
-                .map((student: any) => (
-                  <Select.Option key={student.id} value={student.id}>
-                    {student.name} {student.phone ? `(${student.phone})` : ''}
-                  </Select.Option>
-                ))}
+                .map((student: any) => {
+                  const label = `${student.name} ${student.phone ? `(${student.phone})` : ''}`;
+                  return (
+                    <Select.Option key={student.id} value={student.id} label={label}>
+                      {label}
+                    </Select.Option>
+                  );
+                })}
             </Select>
           </Form.Item>
 
