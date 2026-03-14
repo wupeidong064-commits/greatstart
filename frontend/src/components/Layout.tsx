@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout as AntLayout, Menu, Avatar, Dropdown, message, Modal, Form, Input } from 'antd';
+import { Layout as AntLayout, Menu, Avatar, Dropdown, message, Modal, Form, Input, Drawer, Button } from 'antd';
 import {
   UserOutlined,
   BarChartOutlined,
@@ -10,6 +10,7 @@ import {
   UsergroupAddOutlined,
   AppstoreOutlined,
   LockOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import { getUserMenuPermissions, normalizeRole } from '../utils/dataFilter';
@@ -17,6 +18,23 @@ import { memfireAuth } from '../services/memfireAuth';
 import type { MenuProps } from 'antd';
 
 const { Header, Sider, Content } = AntLayout;
+
+// 自定义 hook 检测是否为移动端
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+    return () => window.removeEventListener('resize', checkIsMobile);
+  }, []);
+
+  return isMobile;
+};
 
 const Layout = () => {
   const navigate = useNavigate();
@@ -26,6 +44,8 @@ const Layout = () => {
   const [passwordForm] = Form.useForm();
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const isMobile = useIsMobile();
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
 
   // 根据当前路径自动展开相应的父菜单
@@ -70,7 +90,10 @@ const Layout = () => {
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key);
-    // 点击菜单项后，保持当前展开的菜单状态，不自动折叠
+    // 移动端点击菜单后关闭抽屉
+    if (isMobile) {
+      setDrawerVisible(false);
+    }
   };
 
   const handleOpenChange = (keys: string[]) => {
@@ -342,51 +365,82 @@ const Layout = () => {
     },
   ];
 
+  // 菜单组件，复用于 Sider 和 Drawer
+  const menuComponent = (
+    <Menu
+      mode="inline"
+      selectedKeys={[location.pathname]}
+      openKeys={openKeys}
+      onOpenChange={handleOpenChange}
+      items={menuItems}
+      onClick={handleMenuClick}
+      style={{ height: isMobile ? 'auto' : 'calc(100vh - 64px)', borderRight: 0 }}
+    />
+  );
+
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
-      <Sider theme="light" width={200}>
-        <div
-          style={{
-            height: 64,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderBottom: '1px solid #f0f0f0',
-            fontWeight: 'bold',
-            fontSize: '18px',
-          }}
+      {/* 桌面端侧边栏 */}
+      {!isMobile && (
+        <Sider theme="light" width={200}>
+          <div
+            style={{
+              height: 64,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderBottom: '1px solid #f0f0f0',
+              fontWeight: 'bold',
+              fontSize: '18px',
+            }}
+          >
+            智能服务系统
+          </div>
+          {menuComponent}
+        </Sider>
+      )}
+
+      {/* 移动端抽屉菜单 */}
+      {isMobile && (
+        <Drawer
+          title="智能服务系统"
+          placement="left"
+          onClose={() => setDrawerVisible(false)}
+          open={drawerVisible}
+          width={250}
+          styles={{ body: { padding: 0 } }}
         >
-          智能服务系统
-        </div>
-        <Menu
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          openKeys={openKeys}
-          onOpenChange={handleOpenChange}
-          items={menuItems}
-          onClick={handleMenuClick}
-          style={{ height: 'calc(100vh - 64px)', borderRight: 0 }}
-        />
-      </Sider>
+          {menuComponent}
+        </Drawer>
+      )}
+
       <AntLayout>
         <Header
           style={{
             background: '#fff',
-            padding: '0 24px',
+            padding: isMobile ? '0 12px' : '0 24px',
             display: 'flex',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             alignItems: 'center',
             borderBottom: '1px solid #f0f0f0',
           }}
         >
+          {/* 移动端显示汉堡菜单按钮 */}
+          {isMobile && (
+            <Button
+              type="text"
+              icon={<MenuOutlined style={{ fontSize: '20px' }} />}
+              onClick={() => setDrawerVisible(true)}
+            />
+          )}
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Avatar icon={<UserOutlined />} />
-              <span>{user?.name}</span>
+              {!isMobile && <span>{user?.name}</span>}
             </div>
           </Dropdown>
         </Header>
-        <Content style={{ margin: '24px', background: '#fff', padding: '24px' }}>
+        <Content style={{ margin: isMobile ? '12px' : '24px', background: '#fff', padding: isMobile ? '12px' : '24px' }}>
           <Outlet />
         </Content>
       </AntLayout>

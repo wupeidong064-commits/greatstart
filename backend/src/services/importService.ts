@@ -108,7 +108,6 @@ export function generateStudentTemplate(): Buffer {
     '学员姓名',
     '性别',
     '年龄',
-    '联系电话',
     '家长姓名',
     '家长电话',
     '家长邮箱',
@@ -123,8 +122,8 @@ export function generateStudentTemplate(): Buffer {
   ];
 
   const exampleData = [
-    ['张三', 'M', '9', '13800138000', '张父', '13900139000', 'parent@example.com', '周一基础班', '李教练', '50', '10', '40', '5000', '王销售', '试听课学员'],
-    ['李四', 'F', '8', '13800138001', '李母', '13900139001', '', '周三进阶班', '王教练', '30', '5', '25', '3000', '', ''],
+    ['张三', 'M', '9', '张父', '13900139000', 'parent@example.com', '周一基础班', '李教练', '50', '10', '40', '5000', '王销售', '试听课学员'],
+    ['李四', 'F', '8', '李母', '13900139001', '', '周三进阶班', '王教练', '30', '5', '25', '3000', '', ''],
   ];
 
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exampleData]);
@@ -134,7 +133,6 @@ export function generateStudentTemplate(): Buffer {
     { wch: 12 }, // 学员姓名
     { wch: 6 },  // 性别
     { wch: 6 },  // 年龄
-    { wch: 14 }, // 联系电话
     { wch: 10 }, // 家长姓名
     { wch: 14 }, // 家长电话
     { wch: 20 }, // 家长邮箱

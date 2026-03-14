@@ -16,3 +16,72 @@ body {
   min-height: 100vh;
 }
 
+/* 响应式基础样式 */
+@media screen and (max-width: 768px) {
+  /* 移动端内容区域减少边距 */
+  .ant-layout-content {
+    margin: 12px !important;
+    padding: 12px !important;
+  }
+
+  /* 表格横向滚动 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+  }
+
+  .ant-table {
+    min-width: 600px;
+  }
+
+  /* 表单布局优化 */
+  .ant-form-item-label {
+    padding-bottom: 4px !important;
+  }
+
+  /* 卡片间距 */
+  .ant-card {
+    margin-bottom: 12px;
+  }
+
+  .ant-card-body {
+    padding: 12px !important;
+  }
+
+  /* 统计卡片 */
+  .ant-statistic-title {
+    font-size: 12px !important;
+  }
+
+  .ant-statistic-content {
+    font-size: 20px !important;
+  }
+
+  /* 筛选表单 */
+  .ant-form-inline .ant-form-item {
+    margin-right: 0 !important;
+    margin-bottom: 8px !important;
+    width: 100% !important;
+  }
+
+  /* 按钮组 */
+  .ant-space {
+    flex-wrap: wrap;
+  }
+
+  /* Modal 适配 */
+  .ant-modal {
+    max-width: calc(100vw - 16px) !important;
+    margin: 8px auto !important;
+  }
+
+  .ant-modal-body {
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+  }
+
+  /* 抽屉适配 */
+  .ant-drawer-body {
+    padding: 12px !important;
+  }
+}
+

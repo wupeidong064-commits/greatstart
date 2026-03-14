@@ -329,16 +329,17 @@ const Login = () => {
         alignItems: 'center',
         minHeight: '100vh',
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        padding: '12px',
       }}
     >
       <Card
         title="智能课务系统"
-        style={{ width: 400 }}
+        style={{ width: '100%', maxWidth: 400 }}
         styles={{ header: { textAlign: 'center', fontSize: '24px', fontWeight: 'bold' } }}
       >
         <Tabs defaultActiveKey="account" items={tabItems} centered />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
           <Typography.Link onClick={() => setForgotModalVisible(true)}>
             忘记密码？
           </Typography.Link>
