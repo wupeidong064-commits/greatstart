@@ -167,39 +167,28 @@ export const attendanceController = {
         return next(new ApiError('排课不存在或不属于该机构', 400, 'SCHEDULE_NOT_FOUND'));
       }
 
-      // 【新增】检查是否是当天排课（排课划课只能当天进行）
+      // 获取课程日期（不再限制只能当天划课）
       const scheduleDate = new Date(schedule.startTime);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
       scheduleDate.setHours(0, 0, 0, 0);
+      const scheduleDateStr = scheduleDate.toISOString().split('T')[0]; // YYYY-MM-DD
 
-      if (scheduleDate.getTime() !== today.getTime()) {
-        return next(new ApiError(
-          '排课划课只能在当天进行，该排课日期为 ' + scheduleDate.toISOString().split('T')[0],
-          400,
-          'NOT_TODAY_SCHEDULE'
-        ));
-      }
-
-      // 【新增】检查非管理员是否已划过今天的课
+      // 【修改】检查非管理员是否已划过该课程日期的课（基于课程日期而非当前日期）
       const userRole = currentUser?.role;
       if (userRole !== 'admin' && userRole !== 'manager') {
-        const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
-
         const { data: existingRecord } = await memfireAdmin
           .from('lesson_deduction_records')
           .select('*')
           .eq('organizationId', organizationId)
           .eq('classId', schedule.classId)
           .eq('operatorId', currentUser?.id)
-          .eq('deductionDate', todayStr)
+          .eq('deductionDate', scheduleDateStr)
           .maybeSingle();
 
         if (existingRecord) {
           return next(new ApiError(
-            '您今天已经为该班级划过课了，每天只能划一次',
+            `您已经在 ${scheduleDateStr} 为该班级划过课了，每个课程日期只能划一次`,
             400,
-            'ALREADY_DEDUCTED_TODAY'
+            'ALREADY_DEDUCTED_FOR_DATE'
           ));
         }
       }
@@ -224,10 +213,9 @@ export const attendanceController = {
         return next(new ApiError('批量签到失败', 500, 'BATCH_CHECKIN_ERROR'));
       }
 
-      // 【新增】创建划课记录（非管理员）
+      // 【修改】创建划课记录（非管理员），使用课程日期而非当前日期
       if (userRole !== 'admin' && userRole !== 'manager') {
         try {
-          const todayStr = today.toISOString().split('T')[0];
           await memfireAdmin
             .from('lesson_deduction_records')
             .insert({
@@ -235,7 +223,7 @@ export const attendanceController = {
               classId: schedule.classId,
               operatorId: currentUser?.id,
               operatorName: (currentUser as any)?.name || '未知',
-              deductionDate: todayStr,
+              deductionDate: scheduleDateStr,
               deductionCount: studentIds.length,
             });
         } catch (recordError) {

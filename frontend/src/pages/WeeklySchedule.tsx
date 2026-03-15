@@ -171,26 +171,20 @@ const WeeklySchedule = () => {
 
   // 打开批量划课模态框
   const handleBatchAttendance = async (schedule: Schedule) => {
-    // 检查是否是当天（划课只能当天进行）
+    // 获取课程日期
     const scheduleDate = dayjs(schedule.startTime).tz('Asia/Shanghai').startOf('day');
-    const today = dayjs().tz('Asia/Shanghai').startOf('day');
 
-    if (!scheduleDate.isSame(today, 'day')) {
-      message.warning(`该课程日期为 ${scheduleDate.format('YYYY-MM-DD')}，划课只能在当天进行`);
-      return;
-    }
-
-    // 检查非管理员是否已划过今天的课
+    // 检查非管理员是否已划过该课程日期的课（基于课程日期而非当前日期）
     const user = JSON.parse(localStorage.getItem('auth-storage') || '{}').state?.user;
     if (user?.role !== 'admin' && user?.role !== 'manager') {
       try {
-        const todayStr = today.format('YYYY-MM-DD');
+        const scheduleDateStr = scheduleDate.format('YYYY-MM-DD');
         const checkResponse = await api.get(`/lesson-deductions/check/${schedule.classId}`, {
-          params: { date: todayStr }
+          params: { date: scheduleDateStr }
         });
 
         if (checkResponse.data?.hasDeducted) {
-          message.warning('您今天已经为该班级划过课了，非管理员每天只能划一次');
+          message.warning(`您已经在 ${scheduleDateStr} 为该班级划过课了，非管理员每个课程日期只能划一次`);
           return;
         }
       } catch (error) {
@@ -346,18 +340,16 @@ const WeeklySchedule = () => {
                 {schedule.teacherName} · {schedule.studentCount}人
               </div>
             </Space>
-            {isToday && (
-              <div style={{ marginTop: 8 }}>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<CheckCircleOutlined />}
-                  onClick={() => handleBatchAttendance(schedule)}
-                >
-                  批量划课
-                </Button>
-              </div>
-            )}
+            <div style={{ marginTop: 8 }}>
+              <Button
+                type="primary"
+                size="small"
+                icon={<CheckCircleOutlined />}
+                onClick={() => handleBatchAttendance(schedule)}
+              >
+                批量划课
+              </Button>
+            </div>
           </div>
           <Tag color={isPast ? 'default' : (isToday ? 'blue' : 'green')}>
             {isPast ? '已过' : (isToday ? '今天' : '待上课')}
@@ -717,10 +709,10 @@ const WeeklySchedule = () => {
                 划课规则：
               </p>
               <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
-                1. 排课划课只能在当天进行
+                1. 可在任意日期对课程进行划课
               </p>
               <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
-                2. 非管理员每天只能为同一班级划课一次
+                2. 非管理员每个课程日期只能为同一班级划课一次
               </p>
               <p style={{ margin: '4px 0', fontSize: 12, color: '#666' }}>
                 3. 提交后将为所有学员创建考勤记录
