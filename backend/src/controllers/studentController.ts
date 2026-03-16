@@ -100,6 +100,12 @@ export const studentController = {
         query = query.in('id', filteredStudentIds);
       }
 
+      // 搜索过滤：在数据库层面进行搜索，而不是客户端过滤
+      if (search) {
+        const searchPattern = `%${search}%`;
+        query = query.or(`name.ilike.${searchPattern},phone.ilike.${searchPattern},parentName.ilike.${searchPattern},parentPhone.ilike.${searchPattern}`);
+      }
+
       // 分页：如果指定了 maxRemainingLessons，需要特殊处理
       // 因为剩余课时过滤是在客户端进行的，所以需要获取更多数据后再分页
       const actualPageSize = maxRemainingLessons !== null ? Math.max(pageSize * 5, 100) : pageSize;
@@ -146,19 +152,16 @@ export const studentController = {
         countQuery = countQuery.in('id', filteredStudentIds);
       }
 
+      // 搜索过滤：需要在 countQuery 中添加相同的搜索条件
+      if (search) {
+        const searchPattern = `%${search}%`;
+        countQuery = countQuery.or(`name.ilike.${searchPattern},phone.ilike.${searchPattern},parentName.ilike.${searchPattern},parentPhone.ilike.${searchPattern}`);
+      }
+
       const { count } = await countQuery;
 
-      // 客户端搜索过滤
+      // 客户端过滤（用于剩余课时等数据库不支持的条件）
       let filteredStudents = students || [];
-      if (search) {
-        const searchLower = search.toLowerCase();
-        filteredStudents = filteredStudents.filter((s: any) =>
-          (s.name && s.name.toLowerCase().includes(searchLower)) ||
-          (s.phone && s.phone.toLowerCase().includes(searchLower)) ||
-          (s.parentName && s.parentName.toLowerCase().includes(searchLower)) ||
-          (s.parentPhone && s.parentPhone.toLowerCase().includes(searchLower))
-        );
-      }
 
       // 剩余课时过滤（maxRemainingLessons）
       console.log('[DEBUG getStudents] 剩余课时过滤前, 学员数:', filteredStudents.length, 'maxRemainingLessons:', maxRemainingLessons);
