@@ -82,7 +82,7 @@ const StaffList = () => {
   const fetchStaffList = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/users');
+      const response = await api.get('/users', { params: { pageSize: 1000 } });
       const data = response.data || [];
       // 过滤掉家长角色
       const staffOnly = data.filter((user: any) => user.role !== 'parent');
