@@ -71,5 +71,5 @@ userRoutes.put('/:id', requireMinRole('manager'), userController.updateUser);
  *     security:
  *       - bearerAuth: []
  */
-userRoutes.delete('/:id', requireRole('admin'), userController.deleteUser);
+userRoutes.delete('/:id', requireMinRole('manager'), userController.deleteUser);
 

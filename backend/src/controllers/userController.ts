@@ -307,12 +307,25 @@ export const userController = {
 
       const { data: user, error } = await memfireAdmin
         .from('users')
-        .select('id')
+        .select('id, role, organizationId')
         .eq('id', id)
         .maybeSingle();
 
       if (error || !user) {
         return next(new ApiError('用户不存在', 404, 'USER_NOT_FOUND'));
+      }
+
+      // 权限检查：manager 只能删除基础员工，不能删除管理员
+      const currentRole = currentUser?.role || '';
+      if (currentRole === 'manager') {
+        const adminRoles = ['admin', 'super_admin', 'manager'];
+        if (adminRoles.includes(user.role)) {
+          return next(new ApiError('无权删除管理员用户', 403, 'FORBIDDEN'));
+        }
+        // 数据隔离：manager 只能删除自己机构的用户
+        if (user.organizationId !== currentUser?.organizationId) {
+          return next(new ApiError('无权删除该用户', 403, 'FORBIDDEN'));
+        }
       }
 
       // 删除 Auth 用户和 users 表记录
