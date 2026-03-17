@@ -243,14 +243,14 @@ const StaffList = () => {
       title: '联系方式',
       dataIndex: 'phone',
       key: 'phone',
-      width: 130,
+      width: 150,
       render: (phone: string, record: any) => phone || record.email || '-',
     },
     {
       title: '邮箱',
       dataIndex: 'email',
       key: 'email',
-      width: 180,
+      width: 200,
     },
     {
       title: '角色',
@@ -260,27 +260,9 @@ const StaffList = () => {
       render: (role: string) => getRoleTag(role),
     },
     {
-      title: '分组',
-      dataIndex: 'group',
-      key: 'group',
-      width: 120,
-      render: (group: string) => group ? <Tag color="purple">{group}</Tag> : '-',
-    },
-    {
-      title: '状态',
-      dataIndex: 'isActive',
-      key: 'isActive',
-      width: 80,
-      render: (isActive: boolean) => (
-        <Tag color={isActive ? 'green' : 'red'}>
-          {isActive ? '活跃' : '停用'}
-        </Tag>
-      ),
-    },
-    {
       title: '操作',
       key: 'action',
-      width: 320,
+      width: 280,
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <Space size="small">
