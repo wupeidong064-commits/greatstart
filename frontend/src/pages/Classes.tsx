@@ -925,13 +925,8 @@ const Classes = () => {
           <Form.Item name="name" label="班级名称" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="code" label="班级代码" rules={[{ required: true, message: '请选择班级代码' }]}>
-            <Select placeholder="请选择班级代码">
-              <Select.Option value="A">A</Select.Option>
-              <Select.Option value="B">B</Select.Option>
-              <Select.Option value="C">C</Select.Option>
-              <Select.Option value="D">D</Select.Option>
-            </Select>
+          <Form.Item name="code" label="班级代码" rules={[{ required: true, message: '请输入班级代码' }]}>
+            <Input placeholder="请输入班级代码，如：A1、B2、周一09:00等" />
           </Form.Item>
           <Form.Item name="level" label="班级水平">
             <Select placeholder="请选择班级水平" allowClear>
