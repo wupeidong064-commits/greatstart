@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Space, Tag, message, Modal, Form, Input, Select, Card } from 'antd';
-import { UserAddOutlined, EditOutlined, TeamOutlined } from '@ant-design/icons';
+import { UserAddOutlined, EditOutlined, TeamOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { normalizeRole } from '../utils/dataFilter';
@@ -11,6 +11,7 @@ const StaffList = () => {
   const { user } = useAuthStore();
   const normalizedRole = user?.role ? normalizeRole(user.role) : null;
   const isAdmin = normalizedRole === 'admin';
+  const isManager = normalizedRole === 'manager';
   const userOrgId = user?.organizationId;
 
   const [loading, setLoading] = useState(false);
@@ -181,6 +182,43 @@ const StaffList = () => {
     }
   };
 
+  // 判断是否可以删除该用户
+  const canDeleteUser = (record: any) => {
+    // 不能删除自己
+    if (record.id === user?.id) return false;
+
+    // admin 可以删除任何人（除了自己）
+    if (isAdmin) return true;
+
+    // manager 只能删除基础员工（coach, sales, finance 等），不能删除管理员
+    if (isManager) {
+      const adminRoles = ['admin', 'super_admin', 'manager'];
+      return !adminRoles.includes(record.role);
+    }
+
+    return false;
+  };
+
+  const handleDelete = async (record: any) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除工作人员 "${record.name || record.email}" 吗？此操作不可恢复。`,
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await api.delete(`/users/${record.id}`);
+          message.success('删除成功');
+          fetchStaffList();
+        } catch (error: any) {
+          console.error('删除失败:', error);
+          message.error(error.response?.data?.message || '删除失败');
+        }
+      },
+    });
+  };
+
   const getRoleTag = (role: string) => {
     const roleMap: Record<string, { text: string; color: string }> = {
       super_admin: { text: '超级管理', color: 'red' },
@@ -242,7 +280,7 @@ const StaffList = () => {
     {
       title: '操作',
       key: 'action',
-      width: 280,
+      width: 320,
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <Space size="small">
@@ -254,13 +292,24 @@ const StaffList = () => {
           >
             编辑
           </Button>
-          {record.role !== 'super_admin' && (
+          {(isAdmin || isManager) && record.role !== 'super_admin' && (
             <Button
               type="link"
               size="small"
               onClick={() => handleSetAdmin(record.id, record.role)}
             >
               {record.role === 'admin' || record.role === 'manager' ? '取消管理' : '设为管理'}
+            </Button>
+          )}
+          {canDeleteUser(record) && (
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(record)}
+            >
+              删除
             </Button>
           )}
         </Space>
