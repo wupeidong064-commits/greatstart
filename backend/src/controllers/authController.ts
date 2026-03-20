@@ -146,6 +146,11 @@ export const authController = {
       const users = await userResponse.json();
       const rawUser = Array.isArray(users) && users.length > 0 ? users[0] : null;
 
+      if (!rawUser) {
+        logger.warn('登录失败', { email, ip: clientIp, reason: 'user_not_found' });
+        return next(new ApiError('用户不存在', 404, 'USER_NOT_FOUND'));
+      }
+
       // 将数据库字段转换为驼峰格式
       const user = {
         id: rawUser.id,
@@ -160,11 +165,6 @@ export const authController = {
         updatedAt: rawUser.updated_at,
         lastLoginAt: rawUser.last_login_at,
       };
-
-      if (!user) {
-        logger.warn('登录失败', { email, ip: clientIp, reason: 'user_not_found' });
-        return next(new ApiError('用户不存在', 404, 'USER_NOT_FOUND'));
-      }
 
       if (!user.isActive) {
         logger.warn('登录失败', { email, ip: clientIp, reason: 'account_disabled' });
