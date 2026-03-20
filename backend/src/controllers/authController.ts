@@ -108,26 +108,42 @@ export const authController = {
       const { email, password } = req.body;
       const clientIp = req.ip || req.socket.remoteAddress;
 
-      // 使用 MemFire Auth 进行身份验证
-      const { data: authData, error: authError } = await memfireAdmin.auth.signInWithPassword({
-        email,
-        password,
+      // 使用直接 fetch 调用 MemFire Auth API 进行身份验证
+      const envKey = process.env.MEMFIRE_SERVICE_ROLE_KEY || '';
+      const envUrl = process.env.MEMFIRE_URL || '';
+
+      const authResponse = await fetch(`${envUrl}/auth/v1/token?grant_type=password`, {
+        method: 'POST',
+        headers: {
+          'apikey': envKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (authError || !authData.user) {
-        // 记录登录失败
+      const authData = await authResponse.json() as { user?: { id: string }; access_token?: string };
+
+      if (!authResponse.ok || !authData.user) {
         logger.warn('登录失败', { email, ip: clientIp, reason: 'invalid_credentials' });
         return next(new ApiError('邮箱或密码错误', 401, 'INVALID_CREDENTIALS'));
       }
 
-      // 从 users 表获取用户的角色和机构信息
-      const { data: user, error: userError } = await memfireAdmin
-        .from('users')
-        .select('*')
-        .eq('id', authData.user.id)
-        .maybeSingle();
+      // 使用直接 fetch 从 users 表获取用户的角色和机构信息
+      const userResponse = await fetch(
+        `${envUrl}/rest/v1/users?id=eq.${authData.user!.id}&select=*`,
+        {
+          headers: {
+            'apikey': envKey,
+            'Authorization': `Bearer ${envKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
-      if (userError || !user) {
+      const users = await userResponse.json();
+      const user = Array.isArray(users) && users.length > 0 ? users[0] : null;
+
+      if (!user) {
         logger.warn('登录失败', { email, ip: clientIp, reason: 'user_not_found' });
         return next(new ApiError('用户不存在', 404, 'USER_NOT_FOUND'));
       }
@@ -142,21 +158,31 @@ export const authController = {
       let campus = null;
 
       if (user.organizationId) {
-        const { data: org } = await memfireAdmin
-          .from('organizations')
-          .select('id, name, code')
-          .eq('id', user.organizationId)
-          .maybeSingle();
-        organization = org;
+        const orgResponse = await fetch(
+          `${envUrl}/rest/v1/organizations?id=eq.${user.organizationId}&select=id,name,code`,
+          {
+            headers: {
+              'apikey': envKey,
+              'Authorization': `Bearer ${envKey}`,
+            },
+          }
+        );
+        const orgs = await orgResponse.json();
+        organization = Array.isArray(orgs) && orgs.length > 0 ? orgs[0] : null;
       }
 
       if (user.campusId) {
-        const { data: camp } = await memfireAdmin
-          .from('campuses')
-          .select('id, name, code')
-          .eq('id', user.campusId)
-          .maybeSingle();
-        campus = camp;
+        const campusResponse = await fetch(
+          `${envUrl}/rest/v1/campuses?id=eq.${user.campusId}&select=id,name,code`,
+          {
+            headers: {
+              'apikey': envKey,
+              'Authorization': `Bearer ${envKey}`,
+            },
+          }
+        );
+        const campuses = await campusResponse.json();
+        campus = Array.isArray(campuses) && campuses.length > 0 ? campuses[0] : null;
       }
 
       // 生成JWT token
@@ -173,10 +199,19 @@ export const authController = {
       );
 
       // 更新最后登录时间
-      await memfireAdmin
-        .from('users')
-        .update({ lastLoginAt: new Date().toISOString() })
-        .eq('id', user.id);
+      await fetch(
+        `${envUrl}/rest/v1/users?id=eq.${user.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'apikey': envKey,
+            'Authorization': `Bearer ${envKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify({ lastLoginAt: new Date().toISOString() }),
+        }
+      );
 
       // 记录登录成功
       logOperation('user_login', user.id, {
