@@ -131,9 +131,9 @@ export const authController = {
       }
 
       // 使用直接 fetch 从 users 表获取用户的角色和机构信息（使用 service_role key）
-      // 只查询需要的字段，避免返回多余的或并使用驼峰格式
+      // 注意：users表使用camelCase列名（Prisma创建）
       const userResponse = await fetch(
-        `${envUrl}/rest/v1/users?id=eq.${authData.user!.id}&select=id,email,phone,name,role,organization_id,campus_id,created_at,updated_at,is_active,last_login_at`,
+        `${envUrl}/rest/v1/users?id=eq.${authData.user!.id}&select=id,email,phone,name,role,organizationId,campusId,createdAt,updatedAt,isActive,lastLoginAt`,
         {
           headers: {
             'apikey': serviceKey,
@@ -151,19 +151,19 @@ export const authController = {
         return next(new ApiError('用户不存在', 404, 'USER_NOT_FOUND'));
       }
 
-      // 将数据库字段转换为驼峰格式
+      // 数据库已经是camelCase格式，直接使用
       const user = {
         id: rawUser.id,
         email: rawUser.email,
         phone: rawUser.phone,
         name: rawUser.name,
         role: rawUser.role,
-        organizationId: rawUser.organization_id,
-        campusId: rawUser.campus_id,
-        isActive: rawUser.is_active,
-        createdAt: rawUser.created_at,
-        updatedAt: rawUser.updated_at,
-        lastLoginAt: rawUser.last_login_at,
+        organizationId: rawUser.organizationId,
+        campusId: rawUser.campusId,
+        isActive: rawUser.isActive,
+        createdAt: rawUser.createdAt,
+        updatedAt: rawUser.updatedAt,
+        lastLoginAt: rawUser.lastLoginAt,
       };
 
       if (!user.isActive) {
