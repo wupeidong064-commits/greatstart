@@ -22,6 +22,7 @@ export const classController = {
 
       // 数据隔离：使用用户自己的机构ID，admin可以看到所有数据
       const targetOrgId = currentUser?.organizationId;
+      const userRole = currentUser?.role;
 
       let query = memfireAdmin
         .from('classes')
@@ -33,12 +34,22 @@ export const classController = {
         query = query.eq('organizationId', targetOrgId);
       }
 
-      // 校区过滤
-      if (campusId) {
-        query = query.eq('campusId', campusId);
-      } else if (currentUser?.campusId && targetOrgId) {
-        query = query.eq('campusId', currentUser.campusId);
+      // 校区过滤逻辑：
+      // - admin 和 manager：如果有 campusId 则按校区过滤
+      // - coach 和 sales：可以看到整个机构的班级，完全忽略 campusId 参数
+      const shouldFilterByCampus = userRole === 'admin' || userRole === 'manager';
+
+      if (shouldFilterByCampus) {
+        // 只有 admin 和 manager 才按校区过滤
+        if (campusId) {
+          // 前端明确传递了 campusId 参数，按该参数过滤
+          query = query.eq('campusId', campusId);
+        } else if (currentUser?.campusId && targetOrgId) {
+          // 没有传 campusId 参数，但有用户自己的 campusId，按用户校区过滤
+          query = query.eq('campusId', currentUser.campusId);
+        }
       }
+      // coach 和 sales 完全忽略 campusId，可以看到整个机构的班级
 
       // 状态过滤
       if (status) {
@@ -70,11 +81,15 @@ export const classController = {
         countQuery = countQuery.eq('organizationId', targetOrgId);
       }
 
-      if (campusId) {
-        countQuery = countQuery.eq('campusId', campusId);
-      } else if (currentUser?.campusId && targetOrgId) {
-        countQuery = countQuery.eq('campusId', currentUser.campusId);
+      // 同样的校区过滤逻辑
+      if (shouldFilterByCampus) {
+        if (campusId) {
+          countQuery = countQuery.eq('campusId', campusId);
+        } else if (currentUser?.campusId && targetOrgId) {
+          countQuery = countQuery.eq('campusId', currentUser.campusId);
+        }
       }
+      // coach 和 sales 完全忽略 campusId
 
       if (status) {
         countQuery = countQuery.eq('status', status);

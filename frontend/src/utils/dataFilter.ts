@@ -148,9 +148,10 @@ export const getDataScopeFilter = (pageType: PageType): DataScopeFilter => {
   
   // coach 角色根据页面类型过滤
   if (normalizedRole === 'coach') {
-    // 班级 - 可以查看所有班级（查看权限，无操作权限）
+    // 班级 - 可以查看整个机构的所有班级（查看权限，无操作权限）
+    // 不按校区过滤
     if (pageType === 'classes') {
-      return user.campusId ? { campusId: user.campusId } : {};
+      return {};
     }
 
     // 学员、排课、出勤相关 - 按教练ID过滤（只看自己的）
@@ -177,9 +178,15 @@ export const getDataScopeFilter = (pageType: PageType): DataScopeFilter => {
       };
     }
 
-    // 班级、学员、排课、出勤相关 - 查看权限，无操作权限
-    // 如果有 campusId 则按校区过滤，否则不过滤（查看所有）
-    if (['classes', 'students', 'schedules', 'attendances'].includes(pageType)) {
+    // 班级 - 可以查看整个机构的所有班级（查看权限，无操作权限）
+    // 不按校区过滤
+    if (pageType === 'classes') {
+      return {};
+    }
+
+    // 学员、排课、出勤相关 - 查看权限，无操作权限
+    // 如果有 campusId 则按校区过滤
+    if (['students', 'schedules', 'attendances'].includes(pageType)) {
       if (user.campusId) {
         return { campusId: user.campusId };
       }
