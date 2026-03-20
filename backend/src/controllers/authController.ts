@@ -109,13 +109,15 @@ export const authController = {
       const clientIp = req.ip || req.socket.remoteAddress;
 
       // 使用直接 fetch 调用 MemFire Auth API 进行身份验证
-      const envKey = process.env.MEMFIRE_SERVICE_ROLE_KEY || '';
+      // 注意：登录认证需要使用 anon key，而不是 service_role key
+      const anonKey = process.env.MEMFIRE_ANON_KEY || '';
+      const serviceKey = process.env.MEMFIRE_SERVICE_ROLE_KEY || '';
       const envUrl = process.env.MEMFIRE_URL || '';
 
       const authResponse = await fetch(`${envUrl}/auth/v1/token?grant_type=password`, {
         method: 'POST',
         headers: {
-          'apikey': envKey,
+          'apikey': anonKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ email, password }),
@@ -128,13 +130,13 @@ export const authController = {
         return next(new ApiError('邮箱或密码错误', 401, 'INVALID_CREDENTIALS'));
       }
 
-      // 使用直接 fetch 从 users 表获取用户的角色和机构信息
+      // 使用直接 fetch 从 users 表获取用户的角色和机构信息（使用 service_role key）
       const userResponse = await fetch(
         `${envUrl}/rest/v1/users?id=eq.${authData.user!.id}&select=*`,
         {
           headers: {
-            'apikey': envKey,
-            'Authorization': `Bearer ${envKey}`,
+            'apikey': serviceKey,
+            'Authorization': `Bearer ${serviceKey}`,
             'Content-Type': 'application/json',
           },
         }
@@ -162,8 +164,8 @@ export const authController = {
           `${envUrl}/rest/v1/organizations?id=eq.${user.organizationId}&select=id,name,code`,
           {
             headers: {
-              'apikey': envKey,
-              'Authorization': `Bearer ${envKey}`,
+              'apikey': serviceKey,
+              'Authorization': `Bearer ${serviceKey}`,
             },
           }
         );
@@ -176,8 +178,8 @@ export const authController = {
           `${envUrl}/rest/v1/campuses?id=eq.${user.campusId}&select=id,name,code`,
           {
             headers: {
-              'apikey': envKey,
-              'Authorization': `Bearer ${envKey}`,
+              'apikey': serviceKey,
+              'Authorization': `Bearer ${serviceKey}`,
             },
           }
         );
@@ -204,8 +206,8 @@ export const authController = {
         {
           method: 'PATCH',
           headers: {
-            'apikey': envKey,
-            'Authorization': `Bearer ${envKey}`,
+            'apikey': serviceKey,
+            'Authorization': `Bearer ${serviceKey}`,
             'Content-Type': 'application/json',
             'Prefer': 'return=minimal',
           },
