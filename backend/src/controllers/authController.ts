@@ -131,8 +131,9 @@ export const authController = {
       }
 
       // 使用直接 fetch 从 users 表获取用户的角色和机构信息（使用 service_role key）
+      // 只查询需要的字段，避免返回多余的或并使用驼峰格式
       const userResponse = await fetch(
-        `${envUrl}/rest/v1/users?id=eq.${authData.user!.id}&select=*`,
+        `${envUrl}/rest/v1/users?id=eq.${authData.user!.id}&select=id,email,phone,name,role,organization_id,campus_id,created_at,updated_at,is_active,last_login_at`,
         {
           headers: {
             'apikey': serviceKey,
@@ -143,7 +144,22 @@ export const authController = {
       );
 
       const users = await userResponse.json();
-      const user = Array.isArray(users) && users.length > 0 ? users[0] : null;
+      const rawUser = Array.isArray(users) && users.length > 0 ? users[0] : null;
+
+      // 将数据库字段转换为驼峰格式
+      const user = {
+        id: rawUser.id,
+        email: rawUser.email,
+        phone: rawUser.phone,
+        name: rawUser.name,
+        role: rawUser.role,
+        organizationId: rawUser.organization_id,
+        campusId: rawUser.campus_id,
+        isActive: rawUser.is_active,
+        createdAt: rawUser.created_at,
+        updatedAt: rawUser.updated_at,
+        lastLoginAt: rawUser.last_login_at,
+      };
 
       if (!user) {
         logger.warn('登录失败', { email, ip: clientIp, reason: 'user_not_found' });
