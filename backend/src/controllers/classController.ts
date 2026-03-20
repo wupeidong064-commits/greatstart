@@ -2,7 +2,23 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { ApiError } from '../middleware/errorHandler';
 import { sendSuccess, sendPaginated } from '../utils/response';
-import { memfireAdmin } from '../config/memfire';
+
+// 辅助函数：直接使用 fetch 查询数据库
+const fetchFromDB = async (query: string) => {
+  const envKey = process.env.MEMFIRE_SERVICE_ROLE_KEY || '';
+  const envUrl = process.env.MEMFIRE_URL || '';
+  const response = await fetch(`${envUrl}/rest/v1/${query}`, {
+    headers: {
+      'apikey': envKey,
+      'Authorization': `Bearer ${envKey}`,
+      'Content-Type': 'application/json'
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Database query failed: ${response.statusText}`);
+  }
+  return response.json();
+};
 
 // 辅助函数：获取当前用户信息（兼容 req.user 和 req.memfireUser）
 const getCurrentUser = (req: AuthRequest) => {
@@ -24,14 +40,14 @@ export const classController = {
       const targetOrgId = currentUser?.organizationId;
       const userRole = currentUser?.role;
 
-      let query = memfireAdmin
-        .from('classes')
-        .select('*, teacher:users(id, name)')
-        .order('createdAt', { ascending: false });
+      // 构建 URL 参数
+      const params = new URLSearchParams();
+      params.set('select', '*,teacher:users(id,name)');
+      params.set('order', 'createdAt.desc');
 
       // Admin without orgId can see all classes, otherwise filter by orgId
       if (targetOrgId) {
-        query = query.eq('organizationId', targetOrgId);
+        params.set('organizationId', `eq.${targetOrgId}`);
       }
 
       // 校区过滤逻辑：
@@ -42,64 +58,54 @@ export const classController = {
       if (shouldFilterByCampus) {
         // 只有 admin 和 manager 才按校区过滤
         if (campusId) {
-          // 前端明确传递了 campusId 参数，按该参数过滤
-          query = query.eq('campusId', campusId);
+          params.set('campusId', `eq.${campusId}`);
         } else if (currentUser?.campusId && targetOrgId) {
-          // 没有传 campusId 参数，但有用户自己的 campusId，按用户校区过滤
-          query = query.eq('campusId', currentUser.campusId);
+          params.set('campusId', `eq.${currentUser.campusId}`);
         }
       }
       // coach 和 sales 完全忽略 campusId，可以看到整个机构的班级
 
       // 状态过滤
       if (status) {
-        query = query.eq('status', status);
+        params.set('status', `eq.${status}`);
       }
 
       // 教练过滤
       if (teacherId) {
-        query = query.eq('teacherId', teacherId);
+        params.set('teacherId', `eq.${teacherId}`);
       }
 
       // 分页
-      query = query.range((page - 1) * pageSize, (page - 1) * pageSize + pageSize - 1);
+      const offset = (page - 1) * pageSize;
+      params.set('offset', offset.toString());
+      params.set('limit', pageSize.toString());
 
-      const { data: classes, error } = await query;
+      // 使用 fetch 查询班级
+      const classes = await fetchFromDB(`classes?${params.toString()}`);
 
-      if (error) {
-        console.error('获取班级列表错误:', error);
-        return next(new ApiError('获取班级列表失败', 500, 'QUERY_ERROR'));
-      }
-
-      // 获取总数
-      let countQuery = memfireAdmin
-        .from('classes')
-        .select('*', { count: 'exact', head: true });
-
-      // Apply same filters as the main query
+      // 获取总数 - 使用 Prefer header
+      const countParams = new URLSearchParams();
+      countParams.set('select', '*');
       if (targetOrgId) {
-        countQuery = countQuery.eq('organizationId', targetOrgId);
+        countParams.set('organizationId', `eq.${targetOrgId}`);
       }
-
-      // 同样的校区过滤逻辑
       if (shouldFilterByCampus) {
         if (campusId) {
-          countQuery = countQuery.eq('campusId', campusId);
+          countParams.set('campusId', `eq.${campusId}`);
         } else if (currentUser?.campusId && targetOrgId) {
-          countQuery = countQuery.eq('campusId', currentUser.campusId);
+          countParams.set('campusId', `eq.${currentUser.campusId}`);
         }
       }
-      // coach 和 sales 完全忽略 campusId
-
       if (status) {
-        countQuery = countQuery.eq('status', status);
+        countParams.set('status', `eq.${status}`);
       }
-
       if (teacherId) {
-        countQuery = countQuery.eq('teacherId', teacherId);
+        countParams.set('teacherId', `eq.${teacherId}`);
       }
 
-      const { count } = await countQuery;
+      // 获取总数 - 简化处理，直接查询所有记录
+      const allClasses = await fetchFromDB(`classes?${countParams.toString()}`);
+      const count = Array.isArray(allClasses) ? allClasses.length : 0;
 
       // 客户端搜索过滤
       let filteredClasses = classes || [];
@@ -114,18 +120,23 @@ export const classController = {
       // 获取每个班级的学员数量
       const classesWithCounts = await Promise.all(
         filteredClasses.map(async (cls: any) => {
-          const { count } = await memfireAdmin
-            .from('enrollments')
-            .select('*', { count: 'exact', head: true })
-            .eq('classId', cls.id)
-            .eq('status', 'active');
-
-          return {
-            ...cls,
-            _count: {
-              enrollments: count || 0,
-            },
-          };
+          try {
+            const enrollments = await fetchFromDB(`enrollments?classId=eq.${cls.id}&status=eq.active&select=id`);
+            const enrollmentCount = Array.isArray(enrollments) ? enrollments.length : 0;
+            return {
+              ...cls,
+              _count: {
+                enrollments: enrollmentCount,
+              },
+            };
+          } catch {
+            return {
+              ...cls,
+              _count: {
+                enrollments: 0,
+              },
+            };
+          }
         })
       );
 
@@ -141,13 +152,10 @@ export const classController = {
       const { id } = req.params;
       const currentUser = getCurrentUser(req);
 
-      const { data: classData, error } = await memfireAdmin
-        .from('classes')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
+      const classes = await fetchFromDB(`classes?id=eq.${id}&select=*`);
+      const classData = Array.isArray(classes) && classes.length > 0 ? classes[0] : null;
 
-      if (error || !classData) {
+      if (!classData) {
         return next(new ApiError('班级不存在', 404, 'CLASS_NOT_FOUND'));
       }
 

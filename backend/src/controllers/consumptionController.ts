@@ -274,15 +274,7 @@ export const consumptionController = {
       const targetOrgId = currentUser?.organizationId || req.body.organizationId;
       const { startDate, endDate } = req.query;
 
-      console.log('[getClassStudentChanges] 开始处理请求:', {
-        targetOrgId,
-        startDate,
-        endDate,
-        currentUser: currentUser?.email
-      });
-
       if (!targetOrgId) {
-        console.log('[getClassStudentChanges] 错误: 未分配机构');
         return next(new ApiError('未分配机构', 403, 'FORBIDDEN'));
       }
 
@@ -292,17 +284,22 @@ export const consumptionController = {
         end.setHours(23, 59, 59, 999);
       }
 
-      // 1. 获取所有活跃班级
-      const { data: classes, error: classesError } = await memfireAdmin
-        .from('classes')
-        .select('id, name, code, capacity, teacherId, courseType')
-        .eq('organizationId', targetOrgId)
-        .eq('status', 'active');
+      // 1. 获取所有活跃班级 - 使用直接 fetch 查询
+      const envKey = process.env.MEMFIRE_SERVICE_ROLE_KEY || '';
+      const envUrl = process.env.MEMFIRE_URL || '';
 
-      console.log('[getClassStudentChanges] 查询班级结果:', {
-        班级数量: classes?.length || 0,
-        错误: classesError?.message
+      const fetchUrl = `${envUrl}/rest/v1/classes?select=id,name,code,capacity,teacherId,courseType&organizationId=eq.${targetOrgId}&status=eq.active`;
+
+      const fetchResponse = await fetch(fetchUrl, {
+        headers: {
+          'apikey': envKey,
+          'Authorization': `Bearer ${envKey}`,
+          'Content-Type': 'application/json'
+        }
       });
+
+      const classes = await fetchResponse.json();
+      const classesError = !fetchResponse.ok ? { message: fetchResponse.statusText } : null;
 
       if (classesError) {
         console.error('获取班级数据失败:', classesError);
@@ -310,7 +307,6 @@ export const consumptionController = {
       }
 
       if (!classes || classes.length === 0) {
-        console.log('[getClassStudentChanges] 没有找到班级');
         return sendSuccess(res, { classes: [], stats: getDefaultStats(), lostStudents: [] });
       }
 
@@ -364,26 +360,14 @@ export const consumptionController = {
       let lostStudentsList: any[] = [];
 
       if (start) {
-        console.log('[getClassStudentChanges] 查询时间范围:', {
-          start: start.toISOString(),
-          end: end ? end.toISOString() : 'now'
-        });
-
         // 方法1: 查询学员表中状态为 inactive/lost 的学员，且在时间范围内更新
-        // 这些学员可能有活跃的报名记录，但学员本身已标记为流失
-        const { data: lostStudentsData, error: lostStudentsError } = await memfireAdmin
+        const { data: lostStudentsData } = await memfireAdmin
           .from('students')
           .select('id, name, status, updatedAt')
           .eq('organizationId', targetOrgId)
           .in('status', ['inactive', 'lost'])
           .gte('updatedAt', start.toISOString())
           .lte('updatedAt', end ? end.toISOString() : new Date().toISOString());
-
-        console.log('[getClassStudentChanges] 流失学员查询结果(学员表):', {
-          数量: lostStudentsData?.length || 0,
-          错误: lostStudentsError?.message,
-          样例数据: lostStudentsData?.slice(0, 2)
-        });
 
         // 对于这些流失学员，查找他们的报名记录
         if (lostStudentsData && lostStudentsData.length > 0) {
@@ -394,10 +378,6 @@ export const consumptionController = {
             .eq('organizationId', targetOrgId)
             .in('classId', classIds)
             .in('studentId', lostStudentIds);
-
-          console.log('[getClassStudentChanges] 流失学员报名记录:', {
-            数量: lostStudentEnrollments?.length || 0
-          });
 
           // 统计每个班级的流失学员（基于学员状态）
           for (const e of (lostStudentEnrollments || [])) {
@@ -421,20 +401,13 @@ export const consumptionController = {
         }
 
         // 方法1.6: 查询续费管理中标记为不续费的学员
-        // 这些学员的 renewalStatus = 'no_renewal'，且 noRenewalDate 在时间范围内
-        const { data: noRenewalStudentsData, error: noRenewalError } = await memfireAdmin
+        const { data: noRenewalStudentsData } = await memfireAdmin
           .from('students')
           .select('id, name, renewalStatus, noRenewalDate, noRenewalReason')
           .eq('organizationId', targetOrgId)
           .eq('renewalStatus', 'no_renewal')
           .gte('noRenewalDate', start.toISOString())
           .lte('noRenewalDate', end ? end.toISOString() : new Date().toISOString());
-
-        console.log('[getClassStudentChanges] 不续费学员查询结果:', {
-          数量: noRenewalStudentsData?.length || 0,
-          错误: noRenewalError?.message,
-          样例数据: noRenewalStudentsData?.slice(0, 2)
-        });
 
         // 对于这些不续费学员，查找他们的报名记录
         if (noRenewalStudentsData && noRenewalStudentsData.length > 0) {
@@ -445,10 +418,6 @@ export const consumptionController = {
             .eq('organizationId', targetOrgId)
             .in('classId', classIds)
             .in('studentId', noRenewalStudentIds);
-
-          console.log('[getClassStudentChanges] 不续费学员报名记录:', {
-            数量: noRenewalEnrollments?.length || 0
-          });
 
           // 统计每个班级的不续费学员
           for (const e of (noRenewalEnrollments || [])) {
@@ -473,20 +442,13 @@ export const consumptionController = {
         }
 
         // 方法1.7: 查询退费学员
-        // 这些学员的 status = 'refunded'，且 refundDate 在时间范围内
-        const { data: refundedStudentsData, error: refundedError } = await memfireAdmin
+        const { data: refundedStudentsData } = await memfireAdmin
           .from('students')
           .select('id, name, refundReason, refundDate')
           .eq('organizationId', targetOrgId)
           .eq('status', 'refunded')
           .gte('refundDate', start.toISOString())
           .lte('refundDate', end ? end.toISOString() : new Date().toISOString());
-
-        console.log('[getClassStudentChanges] 退费学员查询结果:', {
-          数量: refundedStudentsData?.length || 0,
-          错误: refundedError?.message,
-          样例数据: refundedStudentsData?.slice(0, 2)
-        });
 
         // 对于这些退费学员，查找他们的报名记录
         if (refundedStudentsData && refundedStudentsData.length > 0) {
@@ -497,10 +459,6 @@ export const consumptionController = {
             .eq('organizationId', targetOrgId)
             .in('classId', classIds)
             .in('studentId', refundedStudentIds);
-
-          console.log('[getClassStudentChanges] 退费学员报名记录:', {
-            数量: refundedEnrollments?.length || 0
-          });
 
           // 统计每个班级的退费学员
           for (const e of (refundedEnrollments || [])) {
@@ -582,12 +540,6 @@ export const consumptionController = {
         for (const e of (newEnrollments || [])) {
           newAddedMap[e.classId] = (newAddedMap[e.classId] || 0) + 1;
         }
-
-        console.log('[getClassStudentChanges] 统计结果:', {
-          流失学员总数: lostStudentsList.length,
-          班级流失统计: lostMap,
-          新增统计: newAddedMap
-        });
       }
 
       // 5. 构建结果
