@@ -147,6 +147,45 @@ export const conversionController = {
         return next(new ApiError('更新成单信息失败', 500, 'UPDATE_ERROR'));
       }
 
+      // 同步更新关联的鱼池和体验课记录（姓名、联系方式变更时）
+      const shouldSyncData = updateFields.studentName !== undefined || updateFields.contact !== undefined;
+      if (shouldSyncData) {
+        const syncData: any = {};
+        if (updateFields.studentName !== undefined) {
+          syncData.customerName = updateFields.studentName;
+          syncData.studentName = updateFields.studentName;
+        }
+        if (updateFields.contact !== undefined) {
+          syncData.contact = updateFields.contact;
+        }
+
+        // 同步更新关联的鱼池记录
+        if (existing.leadId && Object.keys(syncData).length > 0) {
+          const leadUpdateData: any = {};
+          if (syncData.customerName) leadUpdateData.customerName = syncData.customerName;
+          if (syncData.contact) leadUpdateData.contact = syncData.contact;
+
+          await memfireAdmin
+            .from('leads')
+            .update(leadUpdateData)
+            .eq('id', existing.leadId);
+          console.log(`[Conversion] 同步更新鱼池记录: ${existing.leadId}`);
+        }
+
+        // 同步更新关联的体验课记录
+        if (existing.experienceLessonId && Object.keys(syncData).length > 0) {
+          const expUpdateData: any = {};
+          if (syncData.studentName) expUpdateData.studentName = syncData.studentName;
+          if (syncData.contact) expUpdateData.contact = syncData.contact;
+
+          await memfireAdmin
+            .from('experience_lessons')
+            .update(expUpdateData)
+            .eq('id', existing.experienceLessonId);
+          console.log(`[Conversion] 同步更新体验课记录: ${existing.experienceLessonId}`);
+        }
+      }
+
       sendSuccess(res, updated, '成单信息更新成功');
     } catch (error) {
       next(error);
@@ -248,6 +287,9 @@ export const conversionController = {
         salesName: finalSalesName,
         conversionDate: conversionDate || new Date().toISOString().split('T')[0],
         notes,
+        // 关联体验课和鱼池线索ID，用于后续同步更新
+        experienceLessonId: req.body.experienceLessonId || null,
+        leadId: req.body.leadId || null,
       };
 
       const { data: conversion, error } = await memfireAdmin

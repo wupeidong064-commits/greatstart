@@ -34,6 +34,7 @@ interface ExperienceLesson {
   assigneeId?: string;
   assigneeName?: string;
   status: string;
+  leadId?: string; // 关联的鱼池线索ID
 }
 
 const OrderInfo = () => {
@@ -213,10 +214,12 @@ const OrderInfo = () => {
     setSourceType('new');
     setSelectedExperienceId(null);
     form.resetFields();
-    form.setFieldsValue({ 
+    form.setFieldsValue({
       paymentStatus: 'paid',
       conversionDate: dayjs(),
     });
+    // 打开弹窗前刷新体验课列表，确保能看到最新添加的体验课
+    fetchExperienceLessons();
     setModalVisible(true);
   };
 
@@ -368,6 +371,8 @@ const OrderInfo = () => {
     try {
       const selectedClass = classes.find(c => c.id === values.classId);
       const selectedSales = staffList.find(s => s.id === values.salesId);
+      // 获取选中体验课的 leadId
+      const selectedExperience = experienceLessons.find(e => e.id === selectedExperienceId);
 
       const submitData = {
         studentName: values.studentName,
@@ -388,6 +393,7 @@ const OrderInfo = () => {
         conversionDate: values.conversionDate ? values.conversionDate.format('YYYY-MM-DD') : null,
         notes: values.notes || null,
         experienceLessonId: sourceType === 'experience' ? selectedExperienceId : null,
+        leadId: sourceType === 'experience' ? selectedExperience?.leadId : null,
       };
 
       if (editingRecord) {

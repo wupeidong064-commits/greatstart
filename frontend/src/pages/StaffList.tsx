@@ -4,6 +4,7 @@ import { UserAddOutlined, EditOutlined, TeamOutlined, DeleteOutlined } from '@an
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 import { normalizeRole } from '../utils/dataFilter';
+import { dataService } from '../services/dataService';
 
 const { Option } = Select;
 
@@ -210,6 +211,8 @@ const StaffList = () => {
         try {
           await api.delete(`/users/${record.id}`);
           message.success('删除成功');
+          // 清除教师列表缓存，确保其他页面的负责人下拉框同步更新
+          dataService.onTeacherChanged();
           fetchStaffList();
         } catch (error: any) {
           console.error('删除失败:', error);

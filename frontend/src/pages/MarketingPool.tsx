@@ -165,6 +165,8 @@ const MarketingPool = () => {
         try {
           await api.delete(`/leads/${id}`);
           message.success('删除成功');
+          // 刷新 leads 缓存
+          dataService.onLeadChanged();
           fetchData();
         } catch (error: any) {
           message.error(error.message || '删除失败');
@@ -205,6 +207,8 @@ const MarketingPool = () => {
             message.warning(`成功删除 ${successCount} 条，失败 ${failCount} 条`);
           }
 
+          // 刷新 leads 缓存
+          dataService.onLeadChanged();
           setSelectedRowKeys([]);
           fetchData();
         } catch (error: any) {
@@ -250,6 +254,8 @@ const MarketingPool = () => {
       }
       setModalVisible(false);
       form.resetFields();
+      // 刷新 leads 缓存，确保其他页面（如体验课表）能看到最新数据
+      dataService.onLeadChanged();
       fetchData();
     } catch (error: any) {
       console.error('提交失败:', error);
@@ -524,7 +530,11 @@ const MarketingPool = () => {
         visible={batchImportModalVisible}
         type="leads"
         onClose={() => setBatchImportModalVisible(false)}
-        onSuccess={fetchData}
+        onSuccess={() => {
+          // 刷新 leads 缓存
+          dataService.onLeadChanged();
+          fetchData();
+        }}
       />
     </div>
   );
