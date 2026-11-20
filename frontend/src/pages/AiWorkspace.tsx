@@ -22,7 +22,7 @@ import {
 } from '../services/aiApi';
 import { Form, Input, Select, message as antdMessage } from 'antd';
 import { Modal } from '../components/overlays';
-import TodayFocus from '../components/TodayFocus';
+import TodayFocus, { useTodayFollowUps } from '../components/TodayFocus';
 import { MagneticSurface } from '../components/MagneticSurface';
 import { fetchOrgName } from '../services/orgInfo';
 import { useAuthStore } from '../store/authStore';
@@ -366,6 +366,7 @@ const AiWorkspace: React.FC = () => {
   const weekStats = usePanelData(fetchWeekStats, panelScope);
   const newSigning = usePanelData(fetchWeekNewSigning, panelScope);
   const alerts = usePanelData(fetchAlerts, panelScope);
+  const followUps = useTodayFollowUps(alerts);
   const schedules = usePanelData(fetchTodaySchedules, panelScope);
 
   const fmtAmount = (n: number | null) => {
@@ -804,11 +805,12 @@ const AiWorkspace: React.FC = () => {
                   {newSigning.data ? fmtAmount(newSigning.data.amount) : newSigning.loading ? '…' : '—'}
                 </span>
               </MagneticSurface>
-              <MagneticSurface className={`wb-pill${(alerts.data?.total ?? 0) > 0 ? ' warn' : ''}`}>
-                <span className="pk"><BellDot size={14} /> 业务预警</span>
-                <span className="pv" title={alerts.error ? '刷新失败，显示最近一次取得的风险数据' : '业务风险总数；个人勾选只记录跟进进度，不减少风险数量'}>
-                  {pillValue(alerts.loading, alerts.data ? alerts.data.total : null, '—')}
+              <MagneticSurface className={`wb-pill${(followUps.remaining ?? 0) > 0 ? ' warn' : ''}`}>
+                <span className="pk"><BellDot size={14} /> 业务预警 · 待处理</span>
+                <span className="pv" title={alerts.error || followUps.recordsError ? '刷新失败，显示最近一次确认的跟进进度' : '本人今日尚未跟进的预警事项'}>
+                  {pillValue(alerts.loading || !followUps.ready && !followUps.recordsError, followUps.remaining, '—')}
                 </span>
+                {alerts.data && <small className="wb-alert-total">共 {followUps.total} 项预警</small>}
               </MagneticSurface>
             </div>
           )}
@@ -1081,7 +1083,7 @@ const AiWorkspace: React.FC = () => {
             </div>
           </div>
 
-          <TodayFocus {...alerts} navigate={navigate} />
+          <TodayFocus {...alerts} followUps={followUps} navigate={navigate} />
 
           <div className="wb-block">
             <div className="wb-block-head">

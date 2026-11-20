@@ -1,6 +1,6 @@
 import { useFollowUpRefresh } from '../hooks/useFollowUpRefresh';
 import { message } from 'antd';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, Check, CheckCheck, ChevronDown, ClipboardCheck, RotateCcw, ContactRound, Ticket, TrendingDown, UserRoundCheck, UsersRound } from 'lucide-react';
 import type { AlertCategory, AlertsResult, FollowUpTask } from '../services/aiApi';
 import { useAuthStore } from '../store/authStore';
@@ -12,9 +12,10 @@ const CompletionMotion = lazy(() => import('./CompletionMotion'));
 const icons = { lowClasses: TrendingDown, lowStudents: UsersRound, renewal: UserRoundCheck, lead: ContactRound, experience: Ticket };
 const labels = { lowClasses: '与老师核对班级出勤', lowStudents: '了解缺课原因，安排回访', renewal: '联系家长，跟进续费意向', lead: '查看线索跟进情况', experience: '回访体验，了解报名意向' };
 
-interface Props { data: AlertsResult | null; loading: boolean; error: string | null; reload: () => void; navigate: (path: string) => void }
+interface AlertPanel { data: AlertsResult | null; loading: boolean; error: string | null; reload: () => void }
+const NO_TASKS: FollowUpTask[] = [];
 
-export default function TodayFocus({ data, loading, error, reload, navigate }: Props) {
+export function useTodayFollowUps({ data, loading, reload }: AlertPanel) {
   const user = useAuthStore((state) => state.user);
   const records = useFollowUpStore((state) => state.records);
   const toggle = useFollowUpStore((state) => state.toggle);
@@ -23,15 +24,9 @@ export default function TodayFocus({ data, loading, error, reload, navigate }: P
   const recordScope = useFollowUpStore(state => state.scope);
   const recordsReady = useFollowUpStore(state => state.ready);
   const recordsError = useFollowUpStore(state => state.error);
-  const [selected, setSelected] = useState<AlertCategory['key'] | null>(null);
-  const [feedback, setFeedback] = useState<{ key: string; name: string; done: boolean; sequence: number } | null>(null);
   const day = data?.day || new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
-  useEffect(() => {
-    if (!feedback) return;
-    const timer = window.setTimeout(() => setFeedback(null), 5000);
-    return () => window.clearTimeout(timer);
-  }, [feedback]);
-  const scope = [user?.organizationId, user?.campusId, user?.id, day];
+  const scope = useMemo(() => [user?.organizationId, user?.campusId, user?.id, day],
+    [user?.organizationId, user?.campusId, user?.id, day]);
   const scopeKey = JSON.stringify(scope);
   const ready = recordScope === scopeKey && recordsReady;
   useFollowUpRefresh(() => {
@@ -39,14 +34,44 @@ export default function TodayFocus({ data, loading, error, reload, navigate }: P
     void load(scopeKey).catch(() => {});
   });
   useEffect(() => {
-    setFeedback(null);
-    setSelected(null);
     if (user?.id) void load(scopeKey).catch(() => {});
   }, [scopeKey, load, user?.id]);
-  const keyOf = (task: FollowUpTask) => JSON.stringify([...scope, task.key, task.revision]);
-  const tasks = data?.tasks ?? [];
-  const completed = tasks.filter((task) => records[keyOf(task)]).length;
+  const keyOf = useCallback((task: FollowUpTask) => JSON.stringify([...scope, task.key, task.revision]), [scope]);
+  const tasks = data?.tasks ?? NO_TASKS;
+  const { completed, byCategory } = useMemo(() => {
+    let completed = 0;
+    const byCategory = new Map<AlertCategory['key'], number>();
+    for (const task of tasks) {
+      if (ready && records[keyOf(task)]) completed++;
+      else byCategory.set(task.category, (byCategory.get(task.category) ?? 0) + 1);
+    }
+    return { completed, byCategory };
+  }, [tasks, keyOf, ready, records]);
   const total = tasks.length;
+  return {
+    user, records, toggle, load, pending, scopeKey, recordsError, ready, day, keyOf, tasks, completed, total,
+    remaining: data && (ready || !total) ? total - completed : null, byCategory,
+  };
+}
+
+interface Props extends AlertPanel {
+  followUps: ReturnType<typeof useTodayFollowUps>;
+  navigate: (path: string) => void;
+}
+
+export default function TodayFocus({ data, loading, error, reload, navigate, followUps }: Props) {
+  const { user, records, toggle, load, pending, scopeKey, recordsError, ready, day, keyOf, tasks, completed, total, byCategory } = followUps;
+  const [selected, setSelected] = useState<AlertCategory['key'] | null>(null);
+  const [feedback, setFeedback] = useState<{ key: string; name: string; done: boolean; sequence: number } | null>(null);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+  useEffect(() => {
+    setFeedback(null);
+    setSelected(null);
+  }, [scopeKey]);
   const progress = total ? completed / total * 100 : 0;
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -77,13 +102,14 @@ export default function TodayFocus({ data, loading, error, reload, navigate }: P
             {data?.items.map((category) => {
               const Icon = icons[category.key];
               const categoryTasks = tasks.filter((task) => task.category === category.key);
+              const remaining = category.count === 0 ? 0 : ready && category.count !== null ? (byCategory.get(category.key) ?? 0) : null;
               const active = selected === category.key;
               return <div key={category.key} className={`focus-category-group${active ? ' is-open' : ''}`}>
                 <MagneticSurface>
                   <button className={`focus-category${active ? ' is-selected' : ''}`} aria-expanded={active} aria-controls={`focus-${category.key}`} onClick={() => setSelected(active ? null : category.key)}>
                     <span className={`focus-category-icon tone-${category.key}`}><Icon size={18} strokeWidth={1.7} /></span>
                     <span className="focus-category-copy"><strong>{category.text}</strong><small>{category.count === null ? '数据暂不可用' : labels[category.key]}</small></span>
-                    <span className="focus-count">{category.count === null ? '—' : category.count}</span>
+                    <span className="focus-count" title={remaining === null ? undefined : `本人待处理 ${remaining} 项／共 ${category.count} 项`}>{remaining ?? '—'}</span>
                     <ChevronDown size={14} className="focus-chevron" />
                   </button>
                 </MagneticSurface>

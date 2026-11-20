@@ -1080,6 +1080,11 @@ html[data-theme='light'] .bz-main {
   color: var(--tx3);
 }
 
+.wb-alert-total {
+  font-size: var(--ui-text-small);
+  color: var(--tx2);
+}
+
 .wb-pill.warn {
   border-color: rgba(251, 191, 36, 0.4);
 }
