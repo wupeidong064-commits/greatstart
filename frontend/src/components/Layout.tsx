@@ -86,6 +86,19 @@ const QuotaChip: React.FC = () => {
   );
 };
 
+function OrganizationTitle({ name, mobile = false }: { name: string; mobile?: boolean }) {
+  const length = Array.from(name).length;
+  // Allow a little slack inside the desktop sidebar and the drawer heading.
+  const available = mobile ? 118 : 120;
+  const fontSize = length <= 6 ? 20 : Math.max(10, Math.floor(available / length));
+  return (
+    <span className="bz-brand-copy">
+      <span className="bz-logo-name" style={{ fontSize }} title={name}>{name}</span>
+      <span className="bz-logo-sub">蜂鸣课务</span>
+    </span>
+  );
+}
+
 const Layout = () => {
   useInterfaceSize();
   const navigate = useNavigate();
@@ -392,12 +405,7 @@ const Layout = () => {
         >
           <div className="bz-side-head">
             <BrandMark alt={siderCollapsed ? '蜂鸣课务' : ''} className="bz-logo-img" />
-            {!siderCollapsed && (
-              <span className="bz-brand-copy">
-                <span className="bz-logo-name" title={orgName || '我的机构'}>{orgName || '我的机构'}</span>
-                <span className="bz-logo-sub">蜂鸣课务</span>
-              </span>
-            )}
+            {!siderCollapsed && <OrganizationTitle name={orgName || '我的机构'} />}
             <button
               type="button"
               className="bz-collapse-btn"
@@ -420,10 +428,7 @@ const Layout = () => {
           title={
             <span className="bz-mobile-brand">
               <BrandMark alt="" />
-              <span className="bz-brand-copy">
-                <span className="bz-logo-name" title={orgName || '我的机构'}>{orgName || '我的机构'}</span>
-                <span className="bz-logo-sub">蜂鸣课务</span>
-              </span>
+              <OrganizationTitle name={orgName || '我的机构'} mobile />
             </span>
           }
           placement="left"

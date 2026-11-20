@@ -191,9 +191,8 @@ h1 {
   color: var(--tx);
   line-height: 1.2;
   letter-spacing: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .bz-nav {
@@ -1172,6 +1171,28 @@ html[data-theme='light'] .bz-main {
   padding: 10px 2px 18px;
   position: relative;
   scroll-behavior: auto;
+}
+
+.wb-chatlog.is-hidden {
+  display: none;
+}
+
+.wb-chat-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: none;
+}
+
+.wb-chat-actions .wb-chat-fold {
+  min-height: 32px;
+  color: var(--tx2);
+}
+
+.wb-chips .is-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--acc-strong);
 }
 
 /* 对话态：历史消息占据主栏，输入区固定在底部，便于连续阅读与回看。 */

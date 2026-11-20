@@ -3,9 +3,9 @@ import { usePanelData } from '../hooks/usePanelData';
 import { useCreditRefresh } from '../hooks/useCreditRefresh';
 import { announceCreditUpdate } from '../services/creditRefresh';
 import { formatCreditAmount } from '../utils/aiCredits';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles as BulbOutlined, ArrowUp as SendOutlined, Square as StopOutlined, ArrowDown as DownOutlined, RotateCcw as ReloadOutlined, History as HistoryIcon, CalendarDays, UsersRound, ChartNoAxesCombined, Wallet, BellDot, MessageSquarePlus, Pencil, Trash2, ChevronDown } from 'lucide-react';
+import { Sparkles as BulbOutlined, ArrowUp as SendOutlined, Square as StopOutlined, ArrowDown as DownOutlined, RotateCcw as ReloadOutlined, History as HistoryIcon, CalendarDays, UsersRound, ChartNoAxesCombined, Wallet, BellDot, MessageSquarePlus, Pencil, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   streamChat,
   fetchWeekStats,
@@ -378,6 +378,7 @@ const AiWorkspace: React.FC = () => {
 
   /* ----- 对话状态机（G1：会话记忆，历史由服务端持有） ----- */
   const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
   const [input, setInput] = useState('');
   const [attachments,setAttachments]=useState<AiAttachment[]>([]);
   const [attachmentBusy,setAttachmentBusy]=useState(false);
@@ -421,6 +422,9 @@ const AiWorkspace: React.FC = () => {
   }, [user?.id]);
 
   const chatlogRef = useRef<HTMLDivElement | null>(null);
+  const foldedScrollTopRef = useRef<number | null>(null);
+  const foldButtonRef = useRef<HTMLButtonElement | null>(null);
+  const resumeButtonRef = useRef<HTMLButtonElement | null>(null);
   useEffect(()=>{setAttachments([]);},[activeConvId]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const autoFollowRef = useRef(true);
@@ -446,10 +450,26 @@ const AiWorkspace: React.FC = () => {
     return el.scrollHeight - el.scrollTop - el.clientHeight < 90;
   }, []);
 
+  useLayoutEffect(() => {
+    const el = chatlogRef.current;
+    const savedTop = foldedScrollTopRef.current;
+    if (savedTop === null) return;
+    if (chatCollapsed) {
+      resumeButtonRef.current?.focus({ preventScroll: true });
+    } else if (el?.clientHeight) {
+      foldedScrollTopRef.current = null;
+      el.scrollTop = autoFollowRef.current ? el.scrollHeight : savedTop;
+      lastScrollTopRef.current = el.scrollTop;
+      suppressUntilRef.current = performance.now() + 500;
+      setIsNearBottom(checkNearBottom());
+      foldButtonRef.current?.focus({ preventScroll: true });
+    }
+  }, [chatCollapsed, checkNearBottom]);
+
   const scrollToBottom = useCallback(
     (smooth: boolean) => {
       const el = chatlogRef.current;
-      if (!el) return;
+      if (!el?.clientHeight) return;
       suppressUntilRef.current = performance.now() + 500;
       programmaticScrollRef.current = true;
       el.scrollTo({ top: el.scrollHeight, behavior: smooth && !prefersReducedMotion ? 'smooth' : 'auto' });
@@ -464,7 +484,7 @@ const AiWorkspace: React.FC = () => {
     rafRef.current = requestAnimationFrame(() => {
       rafRef.current = null;
       const el = chatlogRef.current;
-      if (el) {
+      if (el?.clientHeight) {
         programmaticScrollRef.current = true;
         el.scrollTop = el.scrollHeight;
         // 写入产生的 scroll 事件在本帧后派发，随后复位标志
@@ -479,6 +499,7 @@ const AiWorkspace: React.FC = () => {
     if (!el) return undefined;
     lastScrollTopRef.current = el.scrollTop;
     const onScroll = () => {
+      if (!el.clientHeight) return;
       if (programmaticScrollRef.current) {
         // 上滚（scrollTop 变小）即使撞上程序滚动标志也按用户解锁处理：
         // 跟随 rAF 只会把视口拉向底部，向上位移只可能来自用户/外部滚动
@@ -527,6 +548,8 @@ const AiWorkspace: React.FC = () => {
     try {
       const page = await fetchConversationMessages(id, 50);
       if (convGenRef.current !== gen) return; // 已切到其他会话
+      foldedScrollTopRef.current = null;
+      setChatCollapsed(false);
       setMessages(page.messages.map((m) => ({
         id: m.id,
         role: m.role,
@@ -576,7 +599,8 @@ const AiWorkspace: React.FC = () => {
     }
   }, [activeConvId, msgPage, loadingOlder]);
 
-  const chatting = messages.length > 0 || isGenerating;
+  const hasConversation = messages.length > 0 || isGenerating;
+  const chatting = hasConversation && !chatCollapsed;
 
   /** 刷新会话列表（静默） */
   const refreshConvList = useCallback(() => {
@@ -597,6 +621,8 @@ const AiWorkspace: React.FC = () => {
       const userMsg: ChatMsg = { id: nextMsgId(), role: 'user', content: trimmed };
       const aiMsg: ChatMsg = { id: nextMsgId(), role: 'assistant', content: '' };
 
+      foldedScrollTopRef.current = null;
+      setChatCollapsed(false);
       setMessages((prev) => (opts?.skipUserAppend ? [...prev, aiMsg] : [...prev, userMsg, aiMsg]));
       setInput('');
       setIsGenerating(true);
@@ -858,6 +884,12 @@ const AiWorkspace: React.FC = () => {
               />
             </div>
             <div className="wb-chips">
+              {hasConversation && chatCollapsed && (
+                <button type="button" className="bz-chip is-resume" ref={resumeButtonRef}
+                  aria-controls="wb-chatlog" aria-expanded={false} onClick={() => setChatCollapsed(false)}>
+                  <ChevronDown size={14} aria-hidden="true" /> 继续对话
+                </button>
+              )}
               {QUICK_CHIPS.map((c) => (
                 <button
                   key={c.t}
@@ -872,8 +904,19 @@ const AiWorkspace: React.FC = () => {
             </div>
           </div>
 
+          {chatting && (
+            <div className="wb-chat-actions">
+              <button type="button" ref={foldButtonRef} className="wb-btn-ghost wb-chat-fold"
+                aria-controls="wb-chatlog" aria-expanded={true} onClick={() => {
+                  foldedScrollTopRef.current = chatlogRef.current?.scrollTop ?? 0;
+                  setChatCollapsed(true);
+                }}>
+                <ChevronUp size={15} aria-hidden="true" /> 收起对话
+              </button>
+            </div>
+          )}
           {/* 对话流（主栏剩余高度内滚 + 跟随状态机）；顶部可向更早翻页（R1-8） */}
-          <div className="wb-chatlog" ref={chatlogRef}>
+          <div id="wb-chatlog" className={`wb-chatlog${chatCollapsed ? ' is-hidden' : ''}`} ref={chatlogRef}>
             {msgPage.hasMore && messages.length > 0 && (
               <div className="wb-load-older">
                 <button type="button" className="wb-btn-ghost" onClick={loadOlder} disabled={loadingOlder}>
@@ -952,6 +995,8 @@ const AiWorkspace: React.FC = () => {
                   abortRef.current?.abort();
                   setActiveConvId(null);
                   setMessages([]);
+                  foldedScrollTopRef.current = null;
+                  setChatCollapsed(false);
                   try { localStorage.removeItem(`bz-ai-conv-${user?.id ?? 'anon'}`); } catch { /* ignore */ }
                 }}
               >
@@ -1008,6 +1053,8 @@ const AiWorkspace: React.FC = () => {
                                 if (c.id === activeConvId) {
                                   setActiveConvId(null);
                                   setMessages([]);
+                                  foldedScrollTopRef.current = null;
+                                  setChatCollapsed(false);
                                   try { localStorage.removeItem(`bz-ai-conv-${user?.id ?? 'anon'}`); } catch { /* ignore */ }
                                 }
                               })

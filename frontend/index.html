@@ -2,6 +2,17 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      document.documentElement.dataset.theme = 'light';
+      try {
+        const saved = JSON.parse(localStorage.getItem('buzzer-ui-v1') || 'null');
+        if (saved?.version >= 2 && saved.state?.theme === 'dark') {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      } catch {
+        // Invalid or inaccessible preferences use the default.
+      }
+    </script>
     <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />
     <link rel="shortcut icon" href="/favicon.ico" />

@@ -10,6 +10,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
  */
 
 export type ThemeMode = 'dark' | 'light';
+const THEME_PREFERENCE_VERSION = 2;
 export type InterfaceSize = 100 | 125 | 150;
 export const INTERFACE_SIZES = [
   { value: 100, label: '标准 100%' },
@@ -49,7 +50,7 @@ interface UiState {
 export const useUiStore = create<UiState>()(
   persist(
     (set, get) => ({
-      theme: 'dark',
+      theme: 'light',
       interfaceSize: 125,
       setInterfaceSize: (size) => {
         if (INTERFACE_SIZES.some(option => option.value === size)) set({ interfaceSize: size });
@@ -86,11 +87,29 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'buzzer-ui-v1',
-      storage: createJSONStorage(() => localStorage),
-      // Old browser preferences have no size field; preserve theme/favorites and use comfort.
+      version: THEME_PREFERENCE_VERSION,
+      storage: createJSONStorage(() => ({
+        getItem: (name) => {
+          const raw = localStorage.getItem(name);
+          if (!raw) return null;
+          const saved = JSON.parse(raw);
+          // A legacy record without an explicit version still needs migration.
+          return saved?.state && saved.version === undefined
+            ? JSON.stringify({ ...saved, version: 0 })
+            : raw;
+        },
+        setItem: (name, value) => localStorage.setItem(name, value),
+        removeItem: (name) => localStorage.removeItem(name),
+      })),
+      migrate: (saved) => ({ ...(saved as UiState), theme: 'light' }),
       merge: (persisted, current) => {
         const saved = persisted as Partial<UiState> | undefined;
-        return { ...current, ...saved, interfaceSize: INTERFACE_SIZES.some(option => option.value === saved?.interfaceSize) ? saved!.interfaceSize! : 125 };
+        return {
+          ...current,
+          ...saved,
+          theme: saved?.theme === 'dark' ? 'dark' : 'light',
+          interfaceSize: INTERFACE_SIZES.some(option => option.value === saved?.interfaceSize) ? saved!.interfaceSize! : 125,
+        };
       },
     }
   )
