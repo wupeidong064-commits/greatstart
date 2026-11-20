@@ -48,6 +48,10 @@ import rateLimit from 'express-rate-limit';
 dotenv.config();
 
 const app = express();
+// The host Nginx replaces forwarded headers and reaches this service only on loopback.
+if (process.env.TRUST_LOCAL_PROXY === '1' && process.env.BIND_HOST === '127.0.0.1') {
+  app.set('trust proxy', 'loopback');
+}
 const PORT = process.env.PORT || 3000;
 
 // 安全中间件 - 请求日志

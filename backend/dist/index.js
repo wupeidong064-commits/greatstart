@@ -49,6 +49,10 @@ const logger_1 = require("./middleware/logger");
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 dotenv_1.default.config();
 const app = (0, express_1.default)();
+// The host Nginx replaces forwarded headers and reaches this service only on loopback.
+if (process.env.TRUST_LOCAL_PROXY === '1' && process.env.BIND_HOST === '127.0.0.1') {
+    app.set('trust proxy', 'loopback');
+}
 const PORT = process.env.PORT || 3000;
 // 安全中间件 - 请求日志
 app.use(logger_1.requestLogger);
