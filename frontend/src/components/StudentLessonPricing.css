@@ -1,0 +1,125 @@
+.lp-page {
+  padding: 2px 0 12px;
+}
+.lp-page::before {
+  inset: 0;
+}
+.lp-head,
+.lp-batch-head,
+.lp-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.lp-head {
+  margin-bottom: 17px;
+}
+.lp-head h2,
+.lp-editor h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  color: var(--cfs-text);
+  font-size: var(--ui-text-body);
+  margin: 0;
+}
+.lp-head h2 svg {
+  color: var(--cfs-purple);
+}
+.lp-head p,
+.lp-editor p,
+.lp-batch p {
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+  line-height: 1.65;
+  margin: 6px 0 0;
+}
+.lp-head .ant-btn {
+  flex: none;
+}
+.lp-batches {
+  display: grid;
+  gap: 10px;
+}
+.lp-batch {
+  padding: 14px 16px;
+}
+.lp-selected {
+  border-color: var(--cfs-purple);
+}
+.lp-batch-head strong,
+.lp-batch-head small {
+  display: block;
+}
+.lp-batch-head strong {
+  font-size: var(--ui-text-body);
+  font-weight: 600;
+}
+.lp-batch-head small,
+.lp-status {
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+}
+.lp-batch dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 13px 0 0;
+}
+.lp-batch dt {
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+}
+.lp-batch dd {
+  margin: 3px 0 0;
+  font-size: var(--ui-text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.lp-actions {
+  justify-content: flex-end;
+}
+.lp-editor {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--cfs-glass-border);
+}
+.lp-editor .ant-form,
+.lp-editor p + .ant-btn {
+  margin-top: 14px;
+}
+.lp-page .ant-alert {
+  margin: 12px 0;
+}
+.lp-wrap {
+  overflow-wrap: anywhere;
+}
+.lp-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 15px 0;
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+}
+@media (max-width: 470px) {
+  .lp-batch dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lp-drawer .ant-drawer-body {
+    padding: 16px;
+  }
+}
+
+.lp-pending-total {
+  margin: 0 0 12px;
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+}
+.lp-pending-total strong {
+  color: var(--cfs-purple);
+  font-weight: 600;
+}

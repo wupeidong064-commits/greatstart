@@ -1,0 +1,14 @@
+import { chromium, expect } from '@playwright/test';
+import assert from 'node:assert/strict';
+const base='http://127.0.0.1:5199';
+const user={id:'mock-admin',name:'模拟管理员',role:'admin',organizationId:'mock-org',campusId:'mock-campus'};
+const browser=await chromium.launch({channel:'chrome',headless:true});
+try {
+ const ctx=await browser.newContext({serviceWorkers:'block'});
+ await ctx.addInitScript(u=>{localStorage.setItem('auth-storage',JSON.stringify({state:{user:u,token:'mock-token',isAuthenticated:true,_hasHydrated:true},version:0}));const original=window.fetch;window.fetch=(url,opts)=>{if(String(url).endsWith('/ai/chat')) return Promise.resolve(new Response(new ReadableStream({start(controller){window.testStream=controller;opts.signal.addEventListener('abort',()=>controller.error(new DOMException('Aborted','AbortError')))}}),{status:200,headers:{'Content-Type':'text/event-stream'}}));return original(url,opts)};},user);
+ await ctx.route('**/*',async route=>{const url=new URL(route.request().url());if(url.origin!==base)return route.abort();if(!url.pathname.startsWith('/api'))return route.continue();const data=url.pathname==='/api/auth/me'?user:url.pathname==='/api/ai/quota'?{enabled:true,pricingReady:true,chatAvailable:true,billingMode:'mock_free'}:url.pathname.startsWith('/api/organizations/')?{id:'mock-org',name:'模拟机构'}:[];return route.fulfill({contentType:'application/json',body:JSON.stringify({success:true,data,pagination:{total:0,page:1,pageSize:10}})});});
+ const page=await ctx.newPage();const errors=[];page.on('pageerror',e=>errors.push(String(e)));await page.goto(base+'/ai');const input=page.getByPlaceholder('问问你的经营数据，例如：本周哪些班级出勤下降？');await expect(input).toBeEnabled();await input.fill('测试问题');await page.getByTitle('发送',{exact:true}).click();await expect(page.locator('.wb-msg-ai')).toHaveCount(1);await expect(page.locator('.wb-msg-ai .wb-typing')).toHaveCount(1);console.log('PASS 等待首字时只有一个回复框和一个思考动画');
+ await page.evaluate(()=>window.testStream.enqueue(new TextEncoder().encode('data: {"delta":"测试回答"}\n\n')));await expect(page.locator('.wb-msg-ai')).toHaveCount(1);await expect(page.locator('.wb-msg-ai')).toContainText('测试回答');await expect(page.locator('.wb-typing')).toHaveCount(0);console.log('PASS 流式回答在同一个框内显示');
+ await page.evaluate(()=>window.testStream.close());await expect(page.getByTitle('停止生成')).toHaveCount(0);await expect(page.locator('.wb-msg-ai')).toHaveCount(1);console.log('PASS 结束后保留一个回复框');
+ await input.fill('第二个问题');await page.getByTitle('发送',{exact:true}).click();await expect(page.locator('.wb-msg-ai')).toHaveCount(2);await expect(page.locator('.wb-typing')).toHaveCount(1);await page.getByTitle('停止生成').click();await expect(page.locator('.wb-msg-ai').last()).toContainText('已停止生成');await expect(page.locator('.wb-typing')).toHaveCount(0);console.log('PASS 连续提问与停止生成');assert.deepEqual(errors,[]);await ctx.close();
+} finally {await browser.close()}

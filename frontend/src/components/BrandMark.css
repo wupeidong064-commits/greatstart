@@ -1,0 +1,11 @@
+.bz-brand-mark { display: block; width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
+.bz-login .masthead .brand { gap: 12px; font-size: 24px; font-weight: 600; line-height: 1.2; }
+.bz-login .masthead .brand .bz-brand-mark { width: 44px; height: 44px; }
+.bz-side-head .bz-brand-mark { width: 36px; height: 36px; object-fit: contain; border: 0; border-radius: 0; }
+.bz-mobile-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.bz-mobile-brand .bz-brand-mark { width: 36px; height: 36px; }
+.bz-navigation-drawer .ant-drawer-title { min-width: 0; }
+@media (max-width: 680px) {
+  .bz-login .masthead .brand { gap: 8px; font-size: 20px; }
+  .bz-login .masthead .brand .bz-brand-mark { width: 36px; height: 36px; }
+}

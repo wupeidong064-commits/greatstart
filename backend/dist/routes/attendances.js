@@ -1,0 +1,28 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.attendanceRoutes = void 0;
+const express_1 = require("express");
+const auth_1 = require("../middleware/auth");
+const rbac_1 = require("../middleware/rbac");
+const attendanceController_1 = require("../controllers/attendanceController");
+exports.attendanceRoutes = (0, express_1.Router)();
+exports.attendanceRoutes.use(auth_1.authenticate);
+exports.attendanceRoutes.use((0, rbac_1.requireOrganizationAccess)());
+const campusReport = (0, rbac_1.requireRole)('admin', 'manager');
+const attendanceReader = (0, rbac_1.requireRole)('admin', 'manager', 'coach');
+exports.attendanceRoutes.get('/', attendanceReader, attendanceController_1.attendanceController.getAttendances);
+exports.attendanceRoutes.get('/statistics/summary', campusReport, attendanceController_1.attendanceController.getStatistics);
+exports.attendanceRoutes.get('/class-attendance-stats', campusReport, attendanceController_1.attendanceController.getClassAttendanceStats);
+exports.attendanceRoutes.get('/classes', campusReport, attendanceController_1.attendanceController.getClassAttendanceStats);
+exports.attendanceRoutes.get('/class/:classId', campusReport, attendanceController_1.attendanceController.getClassAttendanceStats);
+exports.attendanceRoutes.get('/class/:classId/sessions', campusReport, attendanceController_1.attendanceController.getClassAttendanceSessions);
+exports.attendanceRoutes.get('/low-attendance-students', campusReport, attendanceController_1.attendanceController.getLowAttendanceStudents);
+exports.attendanceRoutes.get('/low-attendance-classes', campusReport, attendanceController_1.attendanceController.getLowAttendanceClasses);
+exports.attendanceRoutes.get('/continuous-leave', campusReport, attendanceController_1.attendanceController.getContinuousLeaveStudents);
+exports.attendanceRoutes.get('/honeymoon', campusReport, attendanceController_1.attendanceController.getHoneymoonAttendance);
+exports.attendanceRoutes.get('/:id', attendanceReader, attendanceController_1.attendanceController.getAttendanceById);
+exports.attendanceRoutes.post('/', attendanceController_1.attendanceController.createAttendance);
+exports.attendanceRoutes.post('/batch', attendanceController_1.attendanceController.batchCheckIn);
+exports.attendanceRoutes.put('/:id', attendanceController_1.attendanceController.updateAttendance);
+exports.attendanceRoutes.delete('/:id', attendanceController_1.attendanceController.deleteAttendance);
+//# sourceMappingURL=attendances.js.map

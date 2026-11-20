@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import express from 'express';
+import net from 'node:net';
+import sharp from 'sharp';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import p from '../src/config/database';
+import { authRoutes } from '../src/routes/auth';
+import { sessionTag } from '../src/middleware/auth';
+import { securityConfig } from '../src/config/security';
+import { errorHandler } from '../src/middleware/errorHandler';
+import { sessionUser } from '../src/services/managementAccess';
+const evidence='../docs/acceptance/2026-11-13-account-avatars',checks:string[]=[];
+async function main(){
+ assert.match(new URL(process.env.DATABASE_URL!).pathname,/^\/buzzer_account_avatars_\d+$/);assert(process.env.AVATAR_STORAGE_DIR?.includes('/2026-11-13-账户头像/isolated-'));
+ const org=await p.organization.create({data:{name:'独立头像验收',code:'AVATAR-QA'}}),campus=await p.campus.create({data:{organizationId:org.id,name:'A',code:'A'}});
+ const scope={organizationId:org.id,campusId:campus.id},password='Avatar-QA-2026!',hash=await bcrypt.hash(password,4);
+ const create=(name:string,role:string,phone:string,extra={})=>p.user.create({data:{...scope,name,role,phone,password:hash,...extra}});
+ const teacher=await create('test1','coach','13000000001'),manager=await create('manager','staff','13000000002',{managementLevel:'super'}),sales=await create('sales','sales','13000000003'),parent=await create('parent','parent','13000000004');
+ const foreignOrg=await p.organization.create({data:{name:'外机构',code:'AVATAR-FOREIGN'}}),foreignCampus=await p.campus.create({data:{organizationId:foreignOrg.id,name:'F',code:'F'}}),foreign=await p.user.create({data:{organizationId:foreignOrg.id,campusId:foreignCampus.id,name:'foreign',role:'teacher',password:hash}});
+ const platform=await p.user.create({data:{name:'platform',role:'admin',isPlatformAdmin:true,password:hash}});
+ const token=(u:typeof teacher)=>jwt.sign({userId:u.id,sessionTag:sessionTag(u.password)},securityConfig.jwt.secret,{expiresIn:'1h'});
+ const app=express();app.use(express.json());app.use('/api/auth',authRoutes);app.use(errorHandler);const server=await new Promise<ReturnType<typeof app.listen>>(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const baseApi=`http://127.0.0.1:${(server.address() as any).port}`;
+ const call=async(u:typeof teacher|null,path='/auth/avatar',method='GET',body?:any)=>{const headers:any=u?{Authorization:'Bearer '+token(u)}:{};if(body&&!(body instanceof FormData))headers['Content-Type']='application/json';const r=await fetch(baseApi+'/api'+path,{method,headers,...(body?{body:body instanceof FormData?body:JSON.stringify(body)}:{})});return{status:r.status,headers:r.headers,...await r.json() as any};};
+ const form=(buffer:Buffer,mime='image/png',name='avatar.png')=>{const data=new FormData();data.append('avatar',new Blob([buffer],{type:mime}),name);return data;};
+ let viteProcess: ReturnType<typeof spawn> | undefined;
+ const image=await sharp({create:{width:420,height:240,channels:4,background:'#715bc7'}}).png().toBuffer(),image2=await sharp({create:{width:320,height:640,channels:3,background:'#44aa88'}}).jpeg().toBuffer();
+ try{
+  const login=await call(null,'/auth/login-phone','POST',{phone:teacher.phone,password});assert.equal(login.status,200);assert(login.data.token);checks.push('手机号密码真实登录冒烟通过，登录会话接口未受头像功能影响');
+  for(const actor of [teacher,manager,sales,parent,platform]){const r=await call(actor);assert.equal(r.status,200);assert.equal(r.data.imageData,null);assert.equal(r.headers.get('cache-control'),'no-store');}checks.push('老师、管理者、销售、家长及平台人员可读取本人默认状态，无机构平台账户亦可用');
+  assert.equal((await call(null)).status,401);assert.equal((await call(null,'/auth/avatar','POST',form(image))).status,401);checks.push('未登录请求在处理上传之前拒绝');
+  const saved=await call(teacher,'/auth/avatar','POST',form(image));assert.equal(saved.status,200);assert.match(saved.data.imageData,/^data:image\/webp;base64,/);const normalized=Buffer.from(saved.data.imageData.split(',')[1],'base64');const metadata=await sharp(normalized).metadata();assert.equal(metadata.width,256);assert.equal(metadata.height,256);assert.equal(metadata.format,'webp');assert.equal(metadata.exif,undefined);assert.equal((await call(teacher)).data.imageData,saved.data.imageData);checks.push('上传真实PNG，经服务器解码、居中裁成256方形WebP并持久化读取，不带EXIF');
+  for(const actor of [sales,manager,foreign])assert.equal((await call(actor)).data.imageData,null);assert.equal((await call(sales,'/auth/avatar?userId='+teacher.id)).status,400);
+  const forged=form(image);forged.append('userId',teacher.id);assert.equal((await call(sales,'/auth/avatar','POST',forged)).status,400);assert.equal((await call(teacher)).data.imageData,saved.data.imageData);checks.push('不同账户/机构头像隔离；伪造他人ID查询或上传字段被拒，原头像保留');
+  for(const data of [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),Buffer.from('invalid image'),Buffer.alloc(0)])assert.equal((await call(teacher,'/auth/avatar','POST',form(data))).status,400);
+  assert.equal((await call(teacher,'/auth/avatar','POST',form(Buffer.alloc(2*1024*1024+1)))).status,413);
+  const wide=await sharp({create:{width:4097,height:1,channels:3,background:'#ffffff'}}).png().toBuffer();assert.equal((await call(teacher,'/auth/avatar','POST',form(wide))).status,400);assert.equal((await call(teacher,'/auth/avatar','POST',{})).status,400);assert.equal((await call(teacher)).data.imageData,saved.data.imageData);checks.push('伪装SVG、损坏文件、超2MB、超4096像素与空上传均拒绝，失败不覆盖旧头像');
+  const first=await call(sales,'/auth/avatar','POST',form(image2,'image/jpeg','photo.jpg'));assert.equal(first.status,200);assert.notEqual(first.data.imageData,saved.data.imageData);
+  const parallel=await Promise.all([call(sales,'/auth/avatar','POST',form(image)),call(sales,'/auth/avatar','POST',form(image2,'image/jpeg'))]);assert(parallel.every(r=>r.status===200));const latest=(await call(sales)).data.imageData;assert(parallel.some(r=>r.data.imageData===latest));assert(!(await readdir(process.env.AVATAR_STORAGE_DIR!)).some(name=>name.endsWith('.tmp')));checks.push('JPG与PNG均可上传，并发替换保持完整图片且无临时文件遗留');
+  assert.equal((await call(sales,'/auth/avatar','DELETE')).status,200);assert.equal((await call(sales)).data.imageData,null);assert.equal((await call(sales,'/auth/avatar','DELETE')).status,200);assert.equal((await call(teacher)).data.imageData,saved.data.imageData);checks.push('恢复默认可重复执行且只影响本人，其他账户的上传头像保持');
+  assert.equal((await call(parent,'/auth/avatar','POST',form(image))).status,200);assert.equal((await call(platform,'/auth/avatar','POST',form(image))).status,200);checks.push('家长沙箱与无机构平台账号均支持本人上传，不新增通用业务访问权限');
+  await call(teacher,'/auth/avatar','DELETE');
+  const fixture=process.env.AVATAR_STORAGE_DIR!+'/ui-upload.png';writeFileSync(fixture,image2);
+  const port=await new Promise<number>(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=(s.address() as any).port;s.close(()=>resolve(port));});});
+  const baseFrontend=`http://127.0.0.1:${port}`;
+  viteProcess=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port',String(port),'--strictPort'],{cwd:'../frontend',env:{...process.env,NODE_ENV:'development',VITE_PORT:String(port),VITE_PROXY_TARGET:baseApi,VITE_CACHE_DIR:process.env.AVATAR_STORAGE_DIR+'/.vite'},stdio:['ignore','ignore','inherit']});
+  let ready=false;for(let i=0;i<80;i++){try{if((await fetch(baseFrontend)).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,100));}assert(ready,'Isolated Vite ready');
+  const config={baseApi,baseFrontend,fixture,profiles:{teacher:{user:sessionUser(teacher),token:token(teacher)},manager:{user:sessionUser(manager),token:token(manager)},sales:{user:sessionUser(sales),token:token(sales)}}};
+  await new Promise<void>((resolve,reject)=>{const child=spawn(process.execPath,['scripts/verifyAccountAvatarsUi.mjs'],{cwd:'../frontend',env:{...process.env,ACCOUNT_AVATAR_QA:JSON.stringify(config)},stdio:['ignore','inherit','inherit']});child.once('error',reject);child.once('exit',c=>c===0?resolve():reject(Error('Avatar browser verification failed')));});
+  assert.equal((await call(teacher)).data.imageData,null);checks.push('真实浏览器上传、刷新恢复及恢复默认落独立文件目录，不写人工头像');
+  writeFileSync(evidence+'/http-results.json',JSON.stringify({at:new Date().toISOString(),passed:checks.length,checks},null,2));console.log('PASS '+checks.length+' isolated HTTP/storage checks');
+ }finally{if(viteProcess&&!viteProcess.killed){viteProcess.kill('SIGTERM');await new Promise<void>(resolve=>{viteProcess!.once('exit',()=>resolve());setTimeout(resolve,2000);});}await new Promise<void>(resolve=>server.close(()=>resolve()));}
+}
+main().catch(e=>{console.error(e);process.exitCode=1;}).finally(()=>p.$disconnect());

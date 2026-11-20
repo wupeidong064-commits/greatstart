@@ -1,0 +1,36 @@
+.data-interface { max-width: 1200px; margin-inline: auto; min-width: 0; display: grid; gap: 20px; color: var(--ui-text); }
+.data-interface-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.data-interface-heading > div { min-width: 0; }
+.data-interface h1 { font-size: var(--ui-text-title); margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+.data-interface p { line-height: 1.75; margin: 12px 0 0; }
+.data-interface-heading p { margin: 0; color: var(--ui-muted); }
+.data-interface .ant-card { min-width: 0; background: var(--ui-surface); border-color: var(--ui-border); box-shadow: var(--ui-shadow-card); }
+.data-interface-title { display: inline-flex; align-items: center; gap: 8px; }
+.data-interface-field { margin-block: 16px; min-width: 0; }
+.data-interface-field label { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; font-weight: 500; }
+.data-interface-input { display: flex; gap: 8px; min-width: 0; }
+.data-interface-input .ant-input { flex: 1; min-width: 0; }
+.data-interface-input .ant-btn { flex: none; }
+.data-interface-muted { color: var(--ui-muted); font-size: var(--ui-text-small); font-weight: 400; }
+.data-interface ol, .data-interface ul { padding-left: 22px; line-height: 1.8; margin: 0; }
+.data-interface li + li { margin-top: 8px; }
+.data-interface pre { margin: 12px 0 0; padding: 16px; background: var(--ui-field); color: var(--ui-text); border: 1px solid var(--ui-border); border-radius: 8px; max-width: 100%; overflow-x: auto; font-size: var(--ui-text-small); line-height: 1.7; }
+.data-interface code, .data-interface pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.data-interface code, .data-interface dd { overflow-wrap: anywhere; }
+.data-interface-code-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 20px; font-weight: 500; }
+.data-interface-tools { margin-top: 16px; }
+.data-interface-tools article { padding-block: 20px; border-top: 1px solid var(--ui-border); min-width: 0; }
+.data-interface-tools article:last-child { padding-bottom: 0; }
+.data-interface-tools h3 { margin: 0 0 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; font-size: var(--ui-text-body); }
+.data-interface-tools h3 code { font-size: var(--ui-text-small); color: var(--acc-strong); font-weight: 500; }
+.data-interface-tools dl { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px 16px; margin: 0; line-height: 1.7; }
+.data-interface-tools dt { color: var(--ui-muted); }
+.data-interface-tools dd { margin: 0; min-width: 0; }
+@media (max-width: 600px) {
+  .data-interface { gap: 12px; }
+  .data-interface .ant-card-head { padding-inline: 16px; }
+  .data-interface .ant-card-body { padding: 16px; }
+  .data-interface-tools dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .data-interface-tools dd + dt { margin-top: 8px; }
+  .data-interface-code-heading .ant-btn { white-space: normal; height: auto; min-height: 28px; }
+}

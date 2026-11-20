@@ -1,0 +1,1 @@
+{"version":3,"file":"orgProfileController.d.ts","sourceRoot":"","sources":["../../src/controllers/orgProfileController.ts"],"names":[],"mappings":"AAAA;;;;;;;;;;;;;;GAcG;AACH,OAAO,EAAE,QAAQ,EAAE,YAAY,EAAE,MAAM,SAAS,CAAC;AAEjD,OAAO,EAAE,WAAW,EAAE,MAAM,oBAAoB,CAAC;AAiJjD,eAAO,MAAM,oBAAoB;IAC/B,mDAAmD;sBAC3B,WAAW,OAAO,QAAQ,QAAQ,YAAY;CAuBvE,CAAC"}

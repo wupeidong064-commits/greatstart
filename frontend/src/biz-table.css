@@ -1,0 +1,416 @@
+/* ==================== 蜂鸣表格语言（bz-table） ====================
+   以体验课表为样板：Ant Design Table 基础上做视觉收敛，后续推广到
+   续费/出勤/鱼池页。规则（2026-11-03 用户定稿）：
+   - 一层圆角容器，表格内部不再套多层卡片；
+   - 行高约 64px；表头浅底字重 600，正文 500；
+   - 只保留横向分隔线；hover 整行轻微提亮；选中/展开行淡紫背景；
+   - 状态小圆角标签：待确认=淡紫、已完成=低饱和绿、需跟进=橙、红=真异常；
+   - 行尾固定「主操作 + ...」；展开区快速查看，复杂操作进右侧抽屉。
+   颜色一律引用 index.css 主题变量，亮/暗自动翻转，禁止硬编码色值。 */
+
+/* ---------- 外层容器 ---------- */
+.bz-table-wrap {
+  --bz-row-hover: rgba(99, 102, 241, 0.055);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.bz-table-wrap .ant-table {
+  background: transparent;
+}
+
+/* 窄屏固定列修复：水平滚动实际发生在 .ant-table-wrapper（overflow:auto），
+   但 sticky 固定列的最近滚动容器是中间层 .ant-table-content——它被 min-width
+   撑到表格全宽且自身不滚，导致固定列永远停在自然位置被裁掉。
+   放行 content 的 overflow（antd 运行时注入同名权重规则，需 !important 压制），
+   让 sticky 以真正滚动的 wrapper 为滚动容器。 */
+.bz-table-wrap > .ant-table-wrapper .ant-table-content {
+  overflow: visible !important;
+}
+
+.bz-table-wrap .ant-table-title {
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 16px;
+  font-size: var(--ui-text-small);
+  color: var(--tx2);
+}
+
+/* ---------- 表头：浅底 + 600 ---------- */
+.bz-table-wrap .ant-table-thead > tr > th,
+.bz-table-wrap .ant-table-thead > tr > td {
+  background: var(--card2);
+  color: var(--tx2);
+  font-size: var(--ui-text-small);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+
+.bz-table-wrap .ant-table-thead > tr > th.ant-table-selection-column::before,
+.bz-table-wrap .ant-table-thead > tr > th:not(:last-child):not(.ant-table-selection-column):not(.ant-table-row-expand-icon-cell)::before {
+  display: none;
+}
+
+/* ---------- 行：横向分隔线 + 500 + 约 64px ---------- */
+.bz-table-wrap .ant-table-tbody > tr > td {
+  background: transparent;
+  border-bottom: 1px solid var(--line);
+  font-weight: 500;
+  color: var(--tx);
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+.bz-table-wrap .ant-table-tbody > tr > td.bz-cell-act {
+  padding-top: 9px;
+  padding-bottom: 9px;
+  white-space: nowrap;
+}
+
+/* 固定列实体背景：行透明化后，窄屏横滚时中间列会从 sticky 固定列底下穿透 */
+.bz-table-wrap .ant-table-tbody > tr > td.ant-table-cell-fix-left,
+.bz-table-wrap .ant-table-tbody > tr > td.ant-table-cell-fix-right,
+.bz-table-wrap .ant-table-thead > tr > th.ant-table-cell-fix-left,
+.bz-table-wrap .ant-table-thead > tr > th.ant-table-cell-fix-right {
+  background: var(--card);
+}
+
+/* ---------- hover / 选中 / 展开行 ---------- */
+.bz-table-wrap .ant-table-tbody > tr.bz-row-open > td.ant-table-cell-row-hover {
+  background: var(--acc-bg);
+}
+
+.bz-table-wrap .ant-table-tbody > tr > td.ant-table-cell-row-hover {
+  background: var(--bz-row-hover);
+}
+
+.bz-table-wrap .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: var(--acc-bg) !important;
+}
+
+.bz-table-wrap .ant-table-tbody > tr.bz-row-open > td {
+  background: var(--acc-bg);
+  border-bottom-color: transparent;
+}
+
+/* 展开详情行：深一层背景；td 清零内边距（antd 同权重规则后注入，需提权压制），
+   否则其自带 sticky 的展开容器会被 16px padding 顶出视口右缘 */
+.bz-table-wrap > .ant-table-wrapper .ant-table-expanded-row > td {
+  background: var(--card2);
+  padding: 0;
+}
+
+/* 展开行的右侧固定列同步深一层，避免竖缝 */
+.bz-table-wrap .ant-table-expanded-row > td.ant-table-cell-fix-right {
+  background: var(--card2);
+}
+
+.bz-table-wrap .ant-table-expanded-row:hover > td {
+  background: var(--card2) !important;
+}
+
+.bz-table-wrap .ant-table-expanded-row > td .ant-table-expanded-row-fixed {
+  margin: 0;
+  padding: 0;
+}
+
+/* ---------- 展开动效：240ms 展开 / 180ms 收起 ----------
+   高度用 grid-template-rows 0fr<->1fr 动画（内容高度自适应），
+   同步透明度与 4px 位移，先快后慢。 */
+.bz-x {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.bz-x.is-open {
+  grid-template-rows: 1fr;
+  animation: bz-x-in 240ms cubic-bezier(0.25, 0.8, 0.3, 1) both;
+}
+
+.bz-x.is-close {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: grid-template-rows 180ms cubic-bezier(0.4, 0, 0.6, 0.2), opacity 180ms ease, transform 180ms ease;
+}
+
+.bz-x-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@keyframes bz-x-in {
+  from { grid-template-rows: 0fr; opacity: 0; transform: translateY(-4px); }
+  60% { opacity: 1; }
+  to { grid-template-rows: 1fr; opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bz-x.is-open { animation: bz-x-fade 120ms ease-out both; }
+  .bz-x.is-close { display: none; }
+}
+
+@keyframes bz-x-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------- 展开内容：先联系方式/来源/年龄，再跟进 ---------- */
+.bz-x-body {
+  padding: 14px 20px 18px 56px; /* 左缩进对齐箭头列后的正文 */
+  color: var(--tx);
+}
+
+.bz-x-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px 28px;
+}
+
+.bz-x-item dt {
+  font-size: var(--ui-text-small);
+  color: var(--tx3);
+  margin: 0 0 2px;
+}
+
+.bz-x-item dd {
+  margin: 0;
+  font-size: var(--ui-text-body);
+  font-weight: 500;
+  color: var(--tx);
+}
+
+.bz-x-follow {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line2);
+}
+
+.bz-x-follow dt {
+  font-size: var(--ui-text-small);
+  color: var(--tx3);
+  margin: 0 0 4px;
+}
+
+.bz-x-follow dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--ui-text-body);
+  color: var(--tx2);
+  line-height: 1.6;
+}
+
+.bz-x-follow .bz-x-follow-empty {
+  color: var(--tx3);
+}
+
+/* ---------- 行首展开箭头（点击旋转 90 度） ---------- */
+.bz-x-arrow {
+  appearance: none;
+  border: 0;
+  background: none;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--tx3);
+  cursor: pointer;
+  transition: transform 240ms cubic-bezier(0.25, 0.8, 0.3, 1), color 140ms ease, background 140ms ease;
+}
+
+.bz-x-arrow:hover {
+  color: var(--acc-strong);
+  background: var(--acc-bg);
+}
+
+.bz-x-arrow.is-open {
+  transform: rotate(90deg);
+  color: var(--acc-strong);
+}
+
+.bz-x-arrow svg {
+  display: block;
+}
+
+/* ---------- 状态标签语言 ---------- */
+.bz-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: var(--ui-text-small);
+  font-weight: 500;
+  line-height: 18px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.bz-tag.tone-acc {
+  color: var(--acc-strong);
+  background: var(--acc-bg);
+  border-color: var(--acc-line);
+}
+
+.bz-tag.tone-ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: var(--ok-line);
+}
+
+.bz-tag.tone-warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-color: var(--warn-line);
+}
+
+.bz-tag.tone-bad {
+  color: var(--bad);
+  background: var(--bad-bg);
+  border-color: var(--bad-line);
+}
+
+.bz-tag.tone-mute {
+  color: var(--tx3);
+  background: var(--card2);
+  border-color: var(--line);
+}
+
+/* ---------- 行尾操作：主操作 + 更多菜单 ---------- */
+.bz-act {
+  appearance: none;
+  border: 1px solid var(--acc-line);
+  background: var(--acc-bg);
+  color: var(--acc-strong);
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: var(--ui-text-small);
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  transition: filter 140ms ease, transform 140ms ease, box-shadow 140ms ease;
+}
+
+.bz-act:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: none;
+}
+
+.bz-act:active {
+  transform: none;
+  box-shadow: none;
+}
+
+.bz-more {
+  appearance: none;
+  border: 0;
+  background: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--tx3);
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.bz-more:hover {
+  color: var(--acc-strong);
+  background: var(--acc-bg);
+}
+
+.bz-locked {
+  font-size: var(--ui-text-small);
+  color: var(--tx3);
+}
+
+/* ---------- 空状态 ---------- */
+.bz-empty {
+  padding: 34px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--tx3);
+}
+
+.bz-empty svg {
+  color: var(--acc-strong);
+  opacity: 0.85;
+}
+
+.bz-empty p {
+  margin: 4px 0 0;
+  font-size: var(--ui-text-body);
+  font-weight: 600;
+  color: var(--tx2);
+}
+
+.bz-empty span {
+  font-size: var(--ui-text-small);
+  color: var(--tx3);
+  line-height: 1.6;
+}
+
+/* 体验时间：主行（周几+时段）+ 次行（具体日期） */
+.bz-time {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.35;
+}
+
+.bz-time .bz-time-top {
+  font-size: var(--ui-text-body);
+  font-weight: 500;
+  color: var(--tx);
+}
+
+.bz-time .bz-time-sub {
+  font-size: var(--ui-text-small);
+  color: var(--tx3);
+}
+
+/* 不可得数据：显式文案（暂无课次/暂不可用），不把未知显示成 0 */
+.bz-na {
+  color: var(--tx3);
+  font-size: var(--ui-text-small);
+}
+
+/* 学员名可点（同行首箭头等价：查看详情） */
+.bz-student {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--tx);
+  cursor: pointer;
+  text-align: left;
+}
+
+.bz-student:hover {
+  color: var(--acc-strong);
+}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 720px) {
+  .bz-x-body { padding: 12px 14px 16px 14px; }
+  .bz-x-grid { grid-template-columns: 1fr 1fr; }
+  .biz-page-head .biz-head-actions { width: 100%; }
+
+  /* 展开区跟随视口而非全表宽：antd 按（量错的）滚动容器算出全表宽内联值，
+     用视口宽压制，配合其自带 sticky left:0 让详情始终铺满首屏可读。 */
+  .bz-table-wrap .ant-table-expanded-row-fixed {
+    width: calc(100vw - 26px) !important;
+  }
+}

@@ -1,0 +1,85 @@
+/* CSS zoom participates in layout (unlike transform). Portals share this root. */
+html[data-ui-size] { zoom: var(--ui-scale, 1); }
+.bz-size-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: none;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--tx2);
+  cursor: pointer;
+  font-size: var(--ui-text-small);
+  font-variant-numeric: tabular-nums;
+}
+.bz-size-button:hover { color: var(--tx); background: var(--card2); }
+.bz-topbar { flex-shrink: 0; }
+.bz-topbar .bz-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bz-topbar > .bz-icon-btn { flex: none; }
+.bz-size-menu .ant-dropdown-menu-item { min-height: 36px; }
+.bz-content .ant-space { max-width: 100%; }
+.bz-content .ant-space-item { min-width: 0; max-width: 100%; }
+.bz-content :where(.ant-input-search, .ant-picker, .ant-select) { max-width: 100%; min-width: 0; }
+.bz-card-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.responsive-page-heading { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
+.responsive-page-heading .ant-space { flex-wrap: wrap; }
+html[data-ui-size] :is(.ant-picker-dropdown, .ant-select-dropdown, .ant-dropdown, .ant-popover, .ant-tooltip) {
+  max-width: calc(100vw - 16px);
+  min-width: 0 !important;
+  translate: var(--ui-popup-x, 0px) var(--ui-popup-y, 0px);
+}
+/* rc-trigger temporarily writes left/top while measuring its portal. The global
+ * reduced-motion duration must not turn these synchronous writes into a tiny
+ * transition: measuring the previous position produces runaway offsets. Keep
+ * Ant's animation lifecycle, but make portal positioning immediate. */
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui-size] :is(.ant-picker-dropdown, .ant-select-dropdown, .ant-dropdown, .ant-popover, .ant-tooltip) {
+    transition-duration: 0s !important;
+  }
+}
+html[data-ui-size] :is(.ant-dropdown-menu, .ant-picker-panel-container) {
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+/* Leave room for the date popup's arrow and placement padding as well as its panel. */
+html[data-ui-size] .ant-picker-panel-container { max-width: 100%; max-height: calc(100dvh - 48px); }
+html[data-ui-size] :is(.ant-popover-inner, .ant-tooltip-inner) { max-height: calc(100dvh - 24px); overflow: auto; }
+/* Keep rc-select's inline listHeight: its virtual renderer uses that exact
+ * viewport to decide which rows exist. Expanding it in CSS exposes blank rows. */
+html[data-ui-size] .ant-select-dropdown .rc-virtual-list-holder { overscroll-behavior: contain; }
+html[data-ui-size] .ant-picker-dropdown .ant-picker-panel-container .ant-picker-panels { flex-wrap: wrap; max-width: 100%; }
+html[data-ui-size] .ant-picker-dropdown .ant-picker-panel-container .ant-picker-panels > * { flex: none; max-width: 100%; }
+html[data-ui-size] .ant-picker-dropdown .ant-picker-panel-container :is(.ant-picker-date-panel, .ant-picker-month-panel, .ant-picker-year-panel, .ant-picker-decade-panel) {
+  width: min(288px, calc(100vw - 32px));
+}
+html[data-ui-size] .ant-picker-dropdown .ant-picker-content { width: 100%; table-layout: fixed; }
+html[data-ui-size] .ant-picker-dropdown .ant-picker-panel-layout { max-width: 100%; }
+html[data-ui-size] .ant-picker-dropdown .ant-picker-panel-layout > div { min-width: 0; max-width: 100%; }
+/* Constrain long forms to a useful reading width, while tables still scroll inside. */
+.resource-transfer-page { min-width: 0; max-width: 1440px; margin-inline: auto; container-type: inline-size; }
+.resource-transfer-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+.resource-transfer-grid { display: grid; grid-template-columns: minmax(260px, 360px) minmax(0, 1fr); gap: 24px; align-items: start; }
+.resource-transfer-grid > * { min-width: 0; }
+.resource-transfer-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.resource-transfer-page .ant-table-wrapper { max-width: 100%; overflow-x: auto; }
+.resource-transfer-page .ant-divider-inner-text { white-space: normal; }
+@container (max-width: 760px) { .resource-transfer-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) {
+  .bz-topbar { gap: 8px; flex-wrap: wrap; height: auto; min-height: 60px; padding-block: 10px; }
+  .bz-topbar .bz-quota-chip { display: none; }
+  .bz-size-button { padding-inline: 6px; }
+  .resource-transfer-grid { gap: 16px; }
+  .cashflow-quick-filter .ant-segmented-group { flex-wrap: wrap; }
+  .cashflow-quick-filter .ant-segmented-item { flex: 1 1 auto; }
+  .cashflow-quick-filter .ant-segmented-thumb { display: none; }
+  html[data-ui-size] .ant-picker-dropdown .ant-picker-panel-layout { flex-direction: column; }
+  html[data-ui-size] .ant-picker-dropdown .ant-picker-presets { max-width: 100%; min-height: 0 !important; max-height: 90px; overflow: auto; }
+  html[data-ui-size] .ant-picker-dropdown .ant-picker-date-panel .ant-picker-body { padding-inline: 8px; }
+}
+@media print {
+  html[data-ui-size] { zoom: 1; --ui-vw: 1vw !important; --ui-vh: 1vh !important; }
+}

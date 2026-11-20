@@ -1,0 +1,290 @@
+/* Approved login preview, scoped to keep workbench themes and controls isolated. */
+.bz-login {
+  --bg: #f8f9fc;
+  --surface: #ffffff;
+  --ink: #252833;
+  --text: #717785;
+  --muted: #a0a6b2;
+  --line: #e7e9ef;
+  --accent: var(--ui-action);
+  --accent-strong: var(--ui-action-hover);
+  --accent-soft: #f0effc;
+  --radius: 14px;
+  --card-height: 214px;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+.bz-login * { box-sizing: border-box; }
+.bz-login [hidden] { display: none !important; }
+.bz-login { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+.bz-login { background: var(--bg); color: var(--ink); font-family: var(--ui-font); -webkit-font-smoothing: antialiased; }
+.bz-login button, .bz-login input, .bz-login a { font: inherit; -webkit-tap-highlight-color: transparent; }
+.bz-login button { cursor: pointer; border: 0; }
+.bz-login a { text-decoration: none; color: inherit; }
+.bz-login button:focus-visible, .bz-login a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.bz-login .icon { width: 18px; height: 18px; flex-shrink: 0; vertical-align: middle; }
+.bz-login .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.bz-login .page { height: 100dvh; display: flex; flex-direction: column; padding: 0 40px; }
+.bz-login .masthead { width: 100%; max-width: 1120px; height: 64px; flex: none; display: flex; align-items: center; justify-content: space-between; margin: 0 auto; }
+.bz-login .brand { display: flex; align-items: center; gap: 8px; font-size: var(--ui-text-body); font-weight: 600; letter-spacing: 0; }
+.bz-login .brand img { width: 29px; height: 29px; object-fit: contain; }
+.bz-login .help-button { display: flex; align-items: center; gap: 6px; color: var(--text); background: transparent; font-size: var(--ui-text-small); padding: 7px 9px; border-radius: 7px; transition: background 160ms, color 160ms; }
+.bz-login .help-button .icon { width: 14px; height: 14px; }
+.bz-login .help-button:hover { background: var(--accent-soft); color: var(--accent); }
+.bz-login .scene { flex: 1; min-width: 0; min-height: 0; width: 100%; max-width: 1060px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) var(--card-height); gap: 24px; padding: 0 0 22px; }
+.bz-login .auth-stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding-bottom: 5px; }
+.bz-login h1 { margin: 0; font-size: var(--ui-text-title); line-height: 1.35; letter-spacing: 0; white-space: nowrap; font-weight: 600; animation: bz-login-arrive 350ms var(--ease) both; }
+.bz-login h1 > span { color: var(--accent); }
+.bz-login .surface { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--ui-shadow-card); }
+.bz-login .login-panel { width: 352px; max-width: 100%; padding: 22px 24px 12px; box-shadow: var(--ui-shadow-card); animation: bz-login-arrive 400ms 60ms var(--ease) both; }
+.bz-login .segmented { --count: 2; --selected: 0; display: grid; grid-template-columns: repeat(var(--count), 1fr); background: #f3f4f8; border-radius: 8px; padding: 3px; position: relative; isolation: isolate; }
+.bz-login .segmented::before { content: ''; position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--count)); background: var(--surface); box-shadow: var(--ui-shadow-card); border-radius: 5px; transform: translateX(calc(var(--selected) * 100%)); transition: transform 240ms var(--ease); z-index: -1; }
+.bz-login .segmented button { min-width: 0; color: var(--muted); background: transparent; border-radius: 5px; padding: 8px 4px; font-size: var(--ui-text-small); line-height: 1.2; transition: color 160ms; }
+.bz-login .segmented button[aria-pressed='true'] { color: var(--accent); font-weight: 500; }
+.bz-login .segmented button:hover { color: var(--ink); }
+.bz-login #login-form { margin-top: 18px; }
+.bz-login .field { height: 42px; display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); background: #fcfcfe; border-radius: 8px; padding: 0 12px; margin-bottom: 11px; transition: border-color 160ms, box-shadow 160ms, background 160ms; }
+.bz-login .field:focus-within { border-color: #b4afea; background: #fff; box-shadow: 0 0 0 2px var(--acc-line); }
+.bz-login .field > .icon { width: 15px; height: 15px; color: var(--muted); }
+.bz-login .field input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; font-size: var(--ui-text-small); color: var(--ink); }
+.bz-login .field input::placeholder { color: #abb0bc; }
+.bz-login .field-action { display: flex; align-items: center; padding: 3px; background: transparent; color: var(--muted); }
+.bz-login .field-action .icon { width: 14px; height: 14px; }
+.bz-login .send-code { padding: 2px 0; background: transparent; color: var(--accent); font-size: var(--ui-text-small); white-space: nowrap; }
+.bz-login .primary-button { height: 41px; display: flex; justify-content: center; align-items: center; gap: 8px; width: 100%; background: var(--accent); color: #fff; border-radius: 8px; font-size: var(--ui-text-small); font-weight: 500; transition: background 160ms, box-shadow 160ms, transform 160ms var(--ease); }
+.bz-login #login-form > .primary-button { margin-top: 16px; }
+.bz-login .login-options { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; min-height: 20px; margin-top: 2px; }
+.bz-login .remember-login { display: inline-flex; align-items: center; gap: 6px; color: var(--text); font-size: var(--ui-text-small); cursor: pointer; }
+.bz-login .remember-login input { width: 14px; height: 14px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.bz-login .remember-login input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.bz-login .remember-note { color: var(--muted); font-size: var(--ui-text-small); }
+.bz-login .primary-button .icon { width: 15px; height: 15px; transition: transform 180ms var(--ease); }
+.bz-login .primary-button:hover { background: var(--accent-strong); box-shadow: none; }
+.bz-login .primary-button:hover .icon { transform: translateX(2px); }
+.bz-login .primary-button:active { transform: scale(.985); }
+.bz-login .login-links { display: flex; justify-content: space-between; align-items: center; margin-top: 17px; font-size: var(--ui-text-small); color: var(--muted); }
+.bz-login .login-links button, .bz-login .login-links a { border: 0; background: transparent; color: var(--text); padding: 0; font-size: var(--ui-text-small); }
+.bz-login .login-links a:hover, .bz-login .login-links button:hover { color: var(--accent); }
+.bz-login .form-status { height: 13px; line-height: 13px; font-size: var(--ui-text-small); text-align: center; color: var(--accent); margin: 8px -8px 0; white-space: nowrap; }
+.bz-login .insights { min-height: 0; }
+.bz-login .mobile-tabs { display: none; }
+.bz-login .cards-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; height: 100%; }
+.bz-login .info-card { min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; padding: 17px 18px 14px; transform: translate(var(--mx, 0px), var(--my, 0px)); transition: transform 240ms var(--ease), border-color 180ms, box-shadow 180ms; animation: bz-login-arrive 400ms var(--enter-delay) var(--ease) backwards; }
+.bz-login .info-card:hover { border-color: #d6d3e8; box-shadow: none; }
+.bz-login .info-card:focus-within, .bz-login .info-card.is-highlighted { border-color: #b9b3ef; box-shadow: 0 0 0 2px var(--acc-line); }
+.bz-login .card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex: none; }
+.bz-login .card-head h2 { display: flex; align-items: center; gap: 7px; font-size: var(--ui-text-body); font-weight: 500; margin: 0; letter-spacing: 0; }
+.bz-login .card-icon { color: var(--accent); display: flex; }
+.bz-login .card-icon .icon { width: 15px; height: 15px; }
+.bz-login .card-index, .bz-login .sample-label { font-size: var(--ui-text-small); color: #b2b6c1; font-variant-numeric: tabular-nums; }
+.bz-login .card-segmented { margin-top: 15px; flex: none; }
+.bz-login .card-segmented button { padding: 6px 2px; font-size: var(--ui-text-small); }
+.bz-login .card-copy { margin-top: 14px; min-height: 0; }
+.bz-login .card-copy h3 { font-size: var(--ui-text-body); font-weight: 500; margin: 0 0 7px; }
+.bz-login .card-copy p { font-size: var(--ui-text-small); line-height: 1.85; color: var(--text); margin: 0; max-width: 275px; }
+.bz-login .review-copy { margin-top: 15px; min-height: 0; }
+.bz-login .stars { display: flex; gap: 2px; color: #b5acd8; }
+.bz-login .stars .icon { width: 9px; height: 9px; fill: currentColor; stroke-width: 0; }
+.bz-login blockquote { font-size: var(--ui-text-body); line-height: 1.7; margin: 9px 0 11px; font-weight: 400; color: #52556a; letter-spacing: 0; }
+.bz-login .review-person { display: flex; gap: 7px; align-items: center; }
+.bz-login .avatar { width: 26px; height: 26px; display: grid; place-items: center; flex-shrink: 0; border-radius: 50%; background: var(--accent-soft); color: #9990ca; font-size: var(--ui-text-small); }
+.bz-login .review-person b { font-size: var(--ui-text-small); color: #787c8d; font-weight: 400; }
+.bz-login .review-person small { display: block; font-size: var(--ui-text-small); color: #b0b3be; margin-top: 3px; }
+.bz-login .review-controls { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 6px; }
+.bz-login .review-dots { display: flex; gap: 4px; }
+.bz-login .review-dots i { width: 4px; height: 4px; border-radius: 4px; background: #e2e1ed; transition: width 240ms var(--ease), background 160ms; }
+.bz-login .review-dots i.is-active { width: 13px; background: #a79cdd; }
+.bz-login .review-nav { display: flex; align-items: center; gap: 5px; }
+.bz-login .review-nav > span { font-size: var(--ui-text-small); color: var(--muted); margin-right: 2px; font-variant-numeric: tabular-nums; }
+.bz-login .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; background: #f7f7fb; color: #9295a7; transition: background 160ms, color 160ms, transform 160ms; }
+.bz-login .icon-button .icon { width: 13px; height: 13px; }
+.bz-login .icon-button:hover { background: var(--accent-soft); color: var(--accent); }
+.bz-login .icon-button:active { transform: scale(.92); }
+.bz-login .feature-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 16px; }
+.bz-login .feature-buttons button { display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: transparent; color: #979bab; border: 1px solid transparent; border-radius: 9px; padding: 9px 1px; font-size: var(--ui-text-small); transition: color 160ms, background 160ms, border-color 160ms; }
+.bz-login .feature-buttons button > span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: #f5f5fa; transition: background 160ms, transform 220ms var(--ease); }
+.bz-login .feature-buttons button .icon { width: 17px; height: 17px; }
+.bz-login .feature-buttons button:hover { background: #fafafd; }
+.bz-login .feature-buttons button[aria-pressed='true'] { background: #f8f7fe; color: var(--accent); border-color: #e6e3f7; }
+.bz-login .feature-buttons button[aria-pressed='true'] > span { background: #eeebfa; transform: translateY(-1px); }
+.bz-login .feature-description { display: flex; align-items: flex-start; gap: 7px; margin-top: auto; padding-top: 12px; }
+.bz-login .feature-line { height: 1px; width: 13px; background: #c9c1e8; margin-top: 8px; flex: none; }
+.bz-login .feature-description p { color: var(--text); font-size: var(--ui-text-small); line-height: 1.7; margin: 0; }
+.bz-login .page-footer { flex: none; height: 31px; width: 100%; max-width: 1120px; display: flex; align-items: center; justify-content: space-between; margin: 0 auto; padding-bottom: 9px; font-size: var(--ui-text-small); color: #b0b5c1; letter-spacing: 0; }
+.bz-login .page-footer i { font-style: normal; padding: 0 5px; color: #c6c9d2; }
+.bz-login .preview-note { color: #bac0cb; font-size: var(--ui-text-small); }
+.bz-login .swap { animation: bz-login-swap 230ms var(--ease) both; }
+@keyframes bz-login-arrive { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes bz-login-swap { from { opacity: .35; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+.bz-login dialog { padding: 23px; width: 340px; max-width: calc(100vw - 36px); border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); background: var(--surface); box-shadow: var(--ui-shadow-overlay); }
+.bz-login dialog::backdrop { background: #25233c30; backdrop-filter: blur(3px); }
+.bz-login .dialog-head { display: flex; align-items: center; justify-content: space-between; }
+.bz-login .dialog-head h2 { font-size: var(--ui-text-body); font-weight: 500; margin: 0; }
+.bz-login dialog p { font-size: var(--ui-text-small); line-height: 1.9; color: var(--text); margin: 18px 0; }
+.bz-login dialog[open] { animation: bz-login-arrive 220ms var(--ease); }
+@media (min-height: 900px) { .bz-login .scene { padding-bottom: 28px; } .bz-login .auth-stage { padding-bottom: 15px; gap: 28px; } }
+@media (max-width: 1000px) { .bz-login .page { padding: 0 24px; } .bz-login .cards-grid { gap: 12px; } .bz-login .info-card { padding: 15px 14px 12px; } .bz-login .card-head h2 { font-size: var(--ui-text-body); } .bz-login blockquote { font-size: var(--ui-text-body); } .bz-login .card-copy p { font-size: var(--ui-text-small); } }
+@media (max-height: 760px) {
+  .bz-login { --card-height: 178px; }
+  .bz-login .masthead { height: 48px; }
+  .bz-login .scene { gap: 14px; padding-bottom: 12px; }
+  .bz-login .auth-stage { gap: 16px; padding-bottom: 0; }
+  .bz-login h1 { font-size: var(--ui-text-title); }
+  .bz-login .login-panel { padding: 17px 22px 7px; width: 338px; }
+  .bz-login .segmented button { padding-top: 7px; padding-bottom: 7px; }
+  .bz-login #login-form { margin-top: 14px; }
+  .bz-login .field { height: 38px; margin-bottom: 9px; }
+  .bz-login #login-form > .primary-button { margin-top: 12px; height: 38px; }
+  .bz-login .login-links { margin-top: 13px; }
+  .bz-login .form-status { margin-top: 6px; height: 12px; font-size: var(--ui-text-small); }
+  .bz-login .info-card { padding-top: 13px; padding-bottom: 11px; }
+  .bz-login .card-segmented { margin-top: 12px; }
+  .bz-login .card-segmented button { padding-top: 5px; padding-bottom: 5px; }
+  .bz-login .card-copy { margin-top: 11px; }
+  .bz-login .card-copy h3 { font-size: var(--ui-text-body); margin-bottom: 5px; }
+  .bz-login .card-copy p { font-size: var(--ui-text-small); line-height: 1.75; }
+  .bz-login .review-copy { margin-top: 11px; }
+  .bz-login blockquote { font-size: var(--ui-text-small); line-height: 1.55; margin: 6px 0 8px; }
+  .bz-login .avatar { height: 22px; width: 22px; font-size: var(--ui-text-small); }
+  .bz-login .review-person small { display: none; }
+  .bz-login .review-controls { padding-top: 2px; }
+  .bz-login .feature-buttons { margin-top: 11px; }
+  .bz-login .feature-buttons button { gap: 6px; padding-top: 6px; padding-bottom: 6px; }
+  .bz-login .feature-buttons button > span { height: 26px; width: 26px; }
+  .bz-login .feature-description { padding-top: 8px; }
+  .bz-login .page-footer { height: 24px; padding-bottom: 5px; }
+}
+@media (max-width: 680px) {
+  .bz-login { --card-height: 196px; }
+  .bz-login .page { padding: 0 20px; }
+  .bz-login .masthead { height: 52px; }
+  .bz-login .brand { font-size: var(--ui-text-body); }
+  .bz-login .brand img { width: 26px; height: 26px; }
+  .bz-login .help-button { font-size: var(--ui-text-small); }
+  .bz-login .scene { grid-template-rows: minmax(0, 1fr) calc(var(--card-height) + 41px); gap: 18px; padding-bottom: 12px; }
+  .bz-login .auth-stage { gap: 21px; padding-bottom: 4px; }
+  .bz-login h1 { font-size: var(--ui-text-title); letter-spacing: 0; }
+  .bz-login .login-panel { width: 352px; padding-inline: 22px; }
+  .bz-login .insights { display: flex; flex-direction: column; gap: 10px; }
+  .bz-login .mobile-tabs { display: grid; flex: none; }
+  .bz-login .mobile-tabs button { font-size: var(--ui-text-small); padding: 7px 3px; }
+  .bz-login .cards-grid { display: block; height: var(--card-height); }
+  .bz-login .info-card { display: none; height: 100%; padding: 16px 17px 13px; animation: none; }
+  .bz-login .info-card.is-current { display: flex; }
+  .bz-login .card-head h2 { font-size: var(--ui-text-body); }
+  .bz-login .card-copy p { max-width: none; font-size: var(--ui-text-small); }
+  .bz-login blockquote { font-size: var(--ui-text-body); }
+  .bz-login .page-footer { height: 28px; padding-bottom: 7px; font-size: var(--ui-text-small); gap: 8px; }
+  .bz-login .page-footer > span:first-child { white-space: nowrap; }
+  .bz-login .preview-note { font-size: var(--ui-text-small); letter-spacing: 0; white-space: nowrap; }
+}
+@media (max-width: 680px) and (max-height: 730px) {
+  .bz-login { --card-height: 162px; }
+  .bz-login .masthead { height: 42px; }
+  .bz-login .scene { gap: 10px; grid-template-rows: minmax(0, 1fr) calc(var(--card-height) + 36px); }
+  .bz-login .auth-stage { gap: 12px; padding-bottom: 0; }
+  .bz-login h1 { font-size: var(--ui-text-title); }
+  .bz-login .login-panel { padding-top: 14px; padding-bottom: 6px; }
+  .bz-login .insights { gap: 7px; }
+  .bz-login .info-card { padding: 12px 15px 10px; }
+  .bz-login .card-segmented { margin-top: 10px; }
+  .bz-login .card-copy { margin-top: 10px; }
+  .bz-login .card-copy p { font-size: var(--ui-text-small); }
+  .bz-login .review-copy { margin-top: 9px; }
+  .bz-login blockquote { font-size: var(--ui-text-small); }
+  .bz-login .feature-buttons { margin-top: 8px; }
+  .bz-login .feature-buttons button { gap: 4px; padding: 5px 0; }
+  .bz-login .feature-buttons button > span { width: 24px; height: 24px; }
+  .bz-login .page-footer { height: 23px; font-size: var(--ui-text-small); }
+}
+@media (min-width: 681px) and (max-height: 560px) {
+  .bz-login .masthead { height: 42px; }
+  .bz-login .page-footer { height: 22px; }
+  .bz-login .scene { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; gap: 34px; padding: 4px 0 12px; align-items: center; max-width: 850px; }
+  .bz-login .auth-stage { gap: 13px; }
+  .bz-login h1 { font-size: var(--ui-text-title); }
+  .bz-login .login-panel { width: 330px; }
+  .bz-login .insights { display: flex; flex-direction: column; gap: 10px; min-width: 0; height: 240px; }
+  .bz-login .mobile-tabs { display: grid; }
+  .bz-login .mobile-tabs button { padding: 7px 2px; font-size: var(--ui-text-small); }
+  .bz-login .cards-grid { display: block; height: 100%; min-height: 0; }
+  .bz-login .info-card { height: 100%; display: none; animation: none; padding: 14px 16px 12px; }
+  .bz-login .info-card.is-current { display: flex; }
+}
+@media (max-width: 680px) and (max-height: 590px) {
+  .bz-login { --card-height: 133px; }
+  .bz-login .masthead { height: 36px; }
+  .bz-login .brand img { width: 22px; height: 22px; }
+  .bz-login .scene { gap: 6px; padding-bottom: 6px; grid-template-rows: minmax(0, 1fr) calc(var(--card-height) + 33px); }
+  .bz-login .auth-stage { gap: 8px; }
+  .bz-login h1 { font-size: var(--ui-text-title); }
+  .bz-login .login-panel { padding: 10px 18px 3px; }
+  .bz-login .login-panel .segmented button { padding: 6px 3px; }
+  .bz-login #login-form { margin-top: 10px; }
+  .bz-login .field { height: 34px; margin-bottom: 7px; }
+  .bz-login #login-form > .primary-button { margin-top: 8px; height: 34px; }
+  .bz-login .login-links { margin-top: 9px; }
+  .bz-login .form-status { height: 11px; line-height: 11px; margin-top: 4px; }
+  .bz-login .info-card { padding: 9px 13px; }
+  .bz-login .card-head h2 { font-size: var(--ui-text-body); }
+  .bz-login .card-segmented { margin-top: 7px; }
+  .bz-login .card-copy { margin-top: 8px; }
+  .bz-login .card-copy h3 { font-size: var(--ui-text-body); margin-bottom: 4px; }
+  .bz-login .card-copy p { font-size: var(--ui-text-small); line-height: 1.6; }
+  .bz-login .review-copy { margin-top: 6px; }
+  .bz-login .review-copy .stars { display: none; }
+  .bz-login blockquote { font-size: var(--ui-text-small); margin: 4px 0 5px; line-height: 1.5; }
+  .bz-login .review-person b { font-size: var(--ui-text-small); }
+  .bz-login .avatar { width: 19px; height: 19px; font-size: var(--ui-text-small); }
+  .bz-login .review-controls { position: absolute; bottom: 8px; right: 12px; }
+  .bz-login .review-dots { display: none; }
+  .bz-login .feature-buttons { margin-top: 6px; }
+  .bz-login .feature-buttons button { flex-direction: row; gap: 5px; padding: 5px 0; font-size: var(--ui-text-small); }
+  .bz-login .feature-buttons button > span { width: 22px; height: 22px; }
+  .bz-login .feature-buttons button .icon { width: 14px; height: 14px; }
+  .bz-login .feature-description { padding-top: 7px; }
+  .bz-login .feature-description p { font-size: var(--ui-text-small); }
+  .bz-login .page-footer { height: 19px; padding-bottom: 3px; }
+}
+.bz-login.keyboard-open .insights, .bz-login.keyboard-open .page-footer { display: none; }
+.bz-login.keyboard-open .scene { grid-template-rows: 1fr; }
+.bz-login.keyboard-open .auth-stage { gap: 10px; }
+.bz-login.keyboard-open h1 { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .bz-login *, .bz-login *::before, .bz-login *::after { animation: none !important; transition: none !important; }
+  .bz-login .info-card { transform: none !important; }
+}
+
+/* The background is an imprint, not another layer of interactive cards. */
+.bz-login .auth-stage { position: relative; isolation: isolate; }
+.bz-login .auth-stage > h1, .bz-login .auth-stage > .login-panel { position: relative; z-index: 1; }
+.bz-login .login-imprint { position: absolute; pointer-events: none; user-select: none; z-index: 0; left: 50%; top: 50%; width: calc(100% + 220px); max-width: calc(100vw - 48px); height: min(100%, 530px); transform: translate(-50%, -47%); opacity: .88; mix-blend-mode: multiply; }
+.bz-login .imprint-surface { width: 100%; height: 100%; }
+.bz-login .imprint-surface > svg { display: block; }
+/* A solid brand accent replaces the animated multicolor headline. */
+.bz-login #slogan { color: var(--ink); background: none; -webkit-text-fill-color: currentColor; }
+.bz-login #slogan > span { color: var(--accent); -webkit-text-fill-color: currentColor; }
+.bz-login.page-hidden #slogan { animation-play-state: paused; }
+@media (max-height: 650px) and (min-width: 1001px) { .bz-login #slogan { font-size: var(--ui-text-number); } }
+@media (max-height: 650px) and (min-width: 681px) and (max-width: 1000px) { .bz-login #slogan { font-size: var(--ui-text-number); } }
+@media (max-height: 560px) and (min-width: 681px) { .bz-login #slogan { font-size: var(--ui-text-number); } }
+@media (max-width: 1000px), (max-height: 560px) { .bz-login .login-imprint { display: none; } }
+@media (prefers-reduced-motion: reduce) { .bz-login #slogan { animation: none !important; background-position: 50% 50%; } }
+
+
+body.bz-login-active { overflow: hidden; }
+.bz-login { color-scheme: light; }
+.bz-login button:disabled { cursor: wait; opacity: .65; }
+.bz-login .brand, .bz-login h1, .bz-login h2, .bz-login h3 { color: var(--ink); }
+.bz-login .primary-button { border: 0; }
+.bz-login .form-status { overflow: hidden; text-overflow: ellipsis; }
+.bz-login .imprint-surface .lucide { stroke-width: 1.2; }
+.bz-login .primary-button.is-loading .icon { animation: bz-login-spin 800ms linear infinite; }
+.bz-login .stars .icon { color: inherit; }
+.bz-login dialog { margin: auto; max-height: calc(100dvh - 32px); overflow-y: auto; }
+.bz-login .reset-form { margin-top: 18px; }
+.bz-login .reset-form label > span:first-child { display: block; font-size: var(--ui-text-small); color: var(--text); margin: 12px 0 7px; }
+.bz-login .reset-form .field { margin-bottom: 0; }
+.bz-login .reset-form .primary-button { margin-top: 20px; }
+.bz-login .reset-notice { font-size: var(--ui-text-small); color: var(--accent); line-height: 1.7; margin: 12px 0 0; }
+.bz-login .review-copy blockquote { white-space: pre-line; }
+@keyframes bz-login-spin { to { transform: rotate(360deg); } }

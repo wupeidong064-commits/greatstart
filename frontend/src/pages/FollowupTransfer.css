@@ -1,0 +1,56 @@
+/* Let controls wrap while each table owns its horizontal scrolling. */
+.followup-handover {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.followup-handover :is(.ant-card, .ant-card-body, .ant-card-head-wrapper, .ant-table-wrapper, .ant-table-container, .ant-spin-nested-loading, .ant-spin-container, .ant-collapse, .ant-collapse-content, .ant-collapse-content-box) {
+  min-width: 0;
+  max-width: 100%;
+}
+.followup-handover .ant-table-wrapper { width: 100%; }
+.followup-handover .ant-table-content { max-width: 100%; overflow-x: auto; }
+.followup-handover-card > .ant-card-head > .ant-card-head-wrapper {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.followup-handover-card > .ant-card-head > .ant-card-head-wrapper > .ant-card-head-title {
+  min-width: 0;
+  white-space: normal;
+}
+.followup-handover-card > .ant-card-head > .ant-card-head-wrapper > .ant-card-extra {
+  max-width: 100%;
+  margin-inline-start: 0;
+  white-space: normal;
+}
+.followup-handover :is(.followup-handover-bulk, .followup-handover-actions > .ant-space) {
+  min-width: 0;
+  max-width: 100%;
+}
+.followup-handover :is(.followup-handover-bulk, .followup-handover-actions) .ant-space-item {
+  min-width: 0;
+  max-width: 100%;
+}
+.followup-handover :is(.followup-handover-bulk, .followup-handover-actions) .ant-btn {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding-block: 5px;
+  white-space: normal;
+}
+.followup-handover .ant-alert-content { min-width: 0; }
+@container (max-width: 480px) {
+  .followup-handover-card > .ant-card-head { padding-inline: 16px; }
+  .followup-handover-card > .ant-card-body { padding: 16px; }
+  .followup-handover > .ant-alert { flex-wrap: wrap; row-gap: 8px; }
+  .followup-handover > .ant-alert .ant-alert-action {
+    max-width: 100%;
+    margin-inline-start: 0;
+  }
+}
+
+.followup-handover-source { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+.followup-handover-source > div { flex: 1 1 280px; min-width: 0; max-width: min(100%, 480px); }
+.followup-handover-source label { display: block; margin-bottom: 8px; font-weight: 600; }
+.followup-handover-actions { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 24px; }

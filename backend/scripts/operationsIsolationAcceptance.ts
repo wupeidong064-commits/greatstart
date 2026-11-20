@@ -1,0 +1,31 @@
+import 'dotenv/config';
+import * as XLSX from 'xlsx';
+import assert from 'node:assert/strict';
+import p from '../src/config/database';
+import {leadController as leads} from '../src/controllers/leadController';
+import {resourceTransferController as transfers} from '../src/controllers/resourceTransferController';
+import {importController as imports} from '../src/controllers/importController';
+import {importService} from '../src/services/importService';
+async function call(fn:any,user:any,body:any={},id?:string){let data:any,error:any;await fn({user,body,params:{id},query:{}},{status(){return this},json(v:any){data=v;return this}},(e:any)=>error=e);if(error)throw error;return data?.data;}
+async function main(){let org:any;const checks:string[]=[];try{
+org=await p.organization.create({data:{code:'ISOLATED-OPS-'+Date.now(),name:'隔离运营验收'}});
+const a=await p.campus.create({data:{organizationId:org.id,code:'A',name:'A'}}),b=await p.campus.create({data:{organizationId:org.id,code:'B',name:'B'}});
+const users=[];for(let i=0;i<4;i++)users.push(await p.user.create({data:{organizationId:org.id,campusId:i===3?b.id:a.id,email:org.code+i+'@qa.invalid',password:'unused',name:'QA'+i,role:i===0?'admin':'coach'}}));
+const actor={...users[0],role:'admin'},from=users[1],to=users[2],external=users[3];
+const cls=await p.class.create({data:{organizationId:org.id,campusId:a.id,teacherId:from.id,code:'A',name:'A',courseType:'篮球'}}),foreign=await p.class.create({data:{organizationId:org.id,campusId:b.id,teacherId:external.id,code:'B',name:'B',courseType:'篮球'}});
+const student=await p.student.create({data:{organizationId:org.id,campusId:a.id,name:'A',phone:'13900000001',parentPhone:'13900000001',remainingLessons:10,purchasedLessons:10}}),other=await p.student.create({data:{organizationId:org.id,campusId:b.id,name:'B',phone:'13900000002',parentPhone:'13900000002'}});
+const localLead=await p.lead.create({data:{organizationId:org.id,customerName:'A',contact:'13900000003',assigneeId:from.id}}),externalLead=await p.lead.create({data:{organizationId:org.id,customerName:'B',contact:'13900000004',assigneeId:external.id}});
+for(const fn of [leads.getLeadById,leads.updateLead,leads.updateLastContactTime,leads.deleteLead])await assert.rejects(()=>call(fn,actor,{customerName:'hacked'},externalLead.id));await assert.rejects(()=>call(leads.getLeadById,{...actor,id:to.id,role:'sales'},{},localLead.id));checks.push('外校区线索读改联系删除及他人线索详情均拒绝');
+await assert.rejects(()=>call(leads.createLead,actor,{customerName:'new',contact:'13900000005',assigneeId:external.id}));await assert.rejects(()=>call(leads.updateLead,actor,{assigneeId:external.id},localLead.id));await call(leads.updateLead,actor,{organizationId:'forged',customerName:'allowed'},localLead.id);assert.equal((await p.lead.findUniqueOrThrow({where:{id:localLead.id}})).organizationId,org.id);checks.push('线索外负责人拒绝与机构字段注入免疫');
+for(const [type,id,row] of [['students',other.id,{name:'hack',parentPhone:other.parentPhone}],['classes',foreign.id,{name:'hack',courseType:'篮球'}],['leads',externalLead.id,{customerName:'hack',contact:externalLead.contact}]] as any[])await assert.rejects(()=>call(imports.executeImport,actor,{type,data:[row],duplicateStrategy:'update',duplicates:[{data:row,existingRecord:{id}}]}));checks.push('三类导入伪造外校区duplicates ID预写入拒绝');
+function sheet(row:any){const book=XLSX.utils.book_new();XLSX.utils.book_append_sheet(book,XLSX.utils.json_to_sheet([row]),'first');return XLSX.write(book,{type:'buffer',bookType:'xlsx'});}
+assert.equal((await importService.previewStudents(sheet({'姓名':'x','家长电话':other.parentPhone}),org.id,a.id)).duplicates.length,0);assert.equal((await importService.previewClasses(sheet({'班级名称':foreign.name,'课程类型':'篮球'}),org.id,a.id)).duplicates.length,0);assert.equal((await importService.previewLeads(sheet({'客户姓名':'x','联系方式':externalLead.contact}),org.id,a.id)).duplicates.length,0);checks.push('三类预览不返回外校区重复记录');
+
+await assert.rejects(()=>call(imports.executeImport,{...actor,role:'sales'},{type:'students',data:[{name:'hack'}],duplicateStrategy:'skip'}));const update=await call(imports.executeImport,actor,{type:'students',data:[{name:'hack',parentPhone:student.parentPhone,remainingLessons:999}],duplicateStrategy:'update',duplicates:[]});assert.equal(update.summary.failed,1);assert.equal((await p.student.findUniqueOrThrow({where:{id:student.id}})).remainingLessons,10);checks.push('导入直执行权限检查及旧余额覆盖拒绝');
+const updated=await importService.executeStudentsImport([{name:'renamed',parentPhone:student.parentPhone}],org.id,a.id,'update',[]);assert.equal(updated.summary.updated,1);assert.equal(await p.student.count({where:{organizationId:org.id,campusId:a.id}}),1);checks.push('省略duplicates仍服务端识别重复');
+await assert.rejects(()=>call(transfers.executeTransfer,actor,{fromTeacherId:from.id,toTeacherId:to.id,classIds:[foreign.id]}));await assert.rejects(()=>call(transfers.executeTransfer,actor,{fromTeacherId:from.id,toTeacherId:external.id,classIds:[cls.id]}));assert.equal((await p.class.findUniqueOrThrow({where:{id:foreign.id}})).teacherId,external.id);checks.push('交接外班级与外教练均拒绝且未改数据');
+const time={startTime:new Date('2026-11-01T01:00Z'),endTime:new Date('2026-11-01T02:00Z')};const future=await p.schedule.create({data:{organizationId:org.id,campusId:a.id,classId:cls.id,teacherId:from.id,...time}}),past=await p.schedule.create({data:{organizationId:org.id,campusId:a.id,classId:cls.id,teacherId:from.id,...time,status:'completed'}});
+const result=await call(transfers.executeTransfer,actor,{fromTeacherId:from.id,toTeacherId:to.id,classIds:[cls.id]});assert.ok(result.transferId);assert.equal((await p.schedule.findUniqueOrThrow({where:{id:future.id}})).teacherId,to.id);assert.equal((await p.schedule.findUniqueOrThrow({where:{id:past.id}})).teacherId,from.id);assert.equal(await p.resourceTransfer.count({where:{organizationId:org.id}}),1);await assert.rejects(()=>call(transfers.getTransferById,{...actor,campusId:b.id},{},result.transferId));checks.push('成功交接事务含日志、只改待上课教师、外校区历史拒绝');
+console.log(JSON.stringify({checks,passed:checks.length},null,2));
+}finally{if(org){await p.resourceTransfer.deleteMany({where:{organizationId:org.id}});await p.user.deleteMany({where:{organizationId:org.id}});await p.organization.delete({where:{id:org.id}})}await p.$disconnect();}}
+main().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,0 +1,396 @@
+/* Shared surface for page actions, detail drawers and confirmation popovers. */
+.bz-overlay-root,
+.bz-popconfirm-root {
+  --overlay-bg: var(--ui-surface);
+  --overlay-field: var(--ui-field);
+  --overlay-soft: var(--ui-field);
+  --overlay-line: var(--ui-border);
+  --overlay-text: var(--ui-text);
+  --overlay-muted: var(--ui-muted);
+  --overlay-accent: #b8a7f0;
+  --overlay-action: var(--ui-action);
+  --overlay-action-hover: var(--ui-action-hover);
+  --overlay-focus: rgba(166, 152, 239, .22);
+  --bg: var(--overlay-bg);
+  --bg2: var(--overlay-bg);
+  --card: var(--overlay-field);
+  --card2: var(--overlay-soft);
+  --line: var(--overlay-line);
+  --line2: var(--overlay-line);
+  --tx: var(--overlay-text);
+  --tx2: var(--overlay-muted);
+  --tx3: var(--overlay-muted);
+  --acc-strong: var(--overlay-accent);
+  --acc-bg: var(--overlay-soft);
+  --acc-line: var(--overlay-line);
+  color: var(--overlay-text);
+  font-family: var(--ui-font);
+  font-size: var(--ui-text-body);
+  line-height: 1.7;
+}
+html[data-theme='light'] .bz-overlay-root,
+html[data-theme='light'] .bz-popconfirm-root {
+  --overlay-bg: var(--ui-surface);
+  --overlay-field: var(--ui-field);
+  --overlay-soft: var(--ui-field);
+  --overlay-line: var(--ui-border);
+  --overlay-text: var(--ui-text);
+  --overlay-muted: var(--ui-muted);
+  --overlay-accent: var(--ui-action-hover);
+  --overlay-focus: rgba(120, 98, 216, .16);
+}
+.bz-overlay-root .ant-modal-mask,
+.bz-overlay-root.ant-drawer .ant-drawer-mask {
+  background: rgba(12, 10, 20, .5);
+}
+.bz-overlay-root .ant-modal {
+  top: 0 !important;
+  padding-bottom: 0;
+  max-width: calc(100vw - 32px) !important;
+  margin: 16px auto !important;
+}
+.bz-overlay-root .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 32px);
+  padding: 0 !important;
+  border: 1px solid var(--overlay-line);
+  border-radius: 18px;
+  background: var(--overlay-bg);
+  box-shadow: var(--ui-shadow-overlay);
+  overflow: hidden;
+}
+.bz-overlay-root .ant-modal-header {
+  flex: none;
+  margin: 0;
+  padding: 21px 56px 18px 24px;
+  border-bottom: 1px solid var(--overlay-line);
+  background: transparent;
+}
+.bz-overlay-root .ant-modal-title,
+.bz-overlay-root .ant-drawer-title,
+.bz-overlay-root .ant-modal-confirm-title {
+  color: var(--overlay-text);
+  font-size: var(--ui-text-title);
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.bz-overlay-root .ant-modal-close {
+  top: 17px;
+  inset-inline-end: 18px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--overlay-muted);
+}
+.bz-overlay-root .ant-modal-close:hover,
+.bz-overlay-root .ant-drawer-close:hover {
+  color: var(--overlay-accent);
+  background: var(--overlay-soft);
+}
+.bz-overlay-root .ant-modal-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: none !important;
+  padding: 20px 24px !important;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+.bz-overlay-root .ant-modal-footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 15px 24px;
+  border-top: 1px solid var(--overlay-line);
+  background: var(--overlay-bg);
+}
+.bz-overlay-root .ant-modal-footer > .ant-btn + .ant-btn {
+  margin-inline-start: 0;
+}
+.bz-overlay-root .ant-btn,
+.bz-popconfirm-root .ant-btn {
+  min-height: 34px;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: var(--ui-text-body);
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: normal;
+}
+.bz-overlay-root .ant-btn-primary:not(.ant-btn-dangerous):not(:disabled),
+.bz-popconfirm-root .ant-btn-primary:not(.ant-btn-dangerous):not(:disabled) {
+  color: #fff;
+  background: var(--overlay-action);
+  border-color: var(--overlay-action);
+}
+.bz-overlay-root .ant-btn-primary:not(.ant-btn-dangerous):not(:disabled):hover,
+.bz-popconfirm-root .ant-btn-primary:not(.ant-btn-dangerous):not(:disabled):hover {
+  background: var(--overlay-action-hover);
+  border-color: var(--overlay-action-hover);
+}
+.bz-overlay-root .ant-form-item {
+  margin-bottom: 19px;
+}
+.bz-overlay-root .overlay-note-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: var(--overlay-accent);
+}
+.bz-overlay-root .ant-modal-body > .ant-form > .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+.bz-overlay-root .ant-form-item-label > label {
+  height: auto;
+  color: var(--overlay-text);
+  font-size: var(--ui-text-body);
+  font-weight: 500;
+  line-height: 1.65;
+  white-space: normal;
+}
+.bz-overlay-root .ant-form-item-extra,
+.bz-overlay-root .ant-form-item-explain,
+.bz-overlay-root .ant-typography-secondary {
+  font-size: var(--ui-text-small);
+  line-height: 1.7;
+}
+.bz-overlay-root .ant-form-item-extra {
+  color: var(--overlay-muted);
+}
+.bz-overlay-root .ant-form-item-control-input-content,
+.bz-overlay-root .ant-space-item,
+.bz-overlay-root .overlay-form-grid,
+.bz-overlay-root .overlay-form-grid > * {
+  min-width: 0;
+}
+.bz-overlay-root .ant-input,
+.bz-overlay-root .ant-input-affix-wrapper,
+.bz-overlay-root .ant-input-number,
+.bz-overlay-root .ant-select,
+.bz-overlay-root .ant-picker {
+  max-width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: var(--ui-text-body);
+}
+.bz-overlay-root .ant-select-selector,
+.bz-overlay-root .ant-input,
+.bz-overlay-root .ant-input-affix-wrapper,
+.bz-overlay-root .ant-picker,
+.bz-overlay-root .ant-input-number {
+  border-radius: 8px;
+}
+.bz-overlay-root .ant-space:not(.ant-space-vertical) {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.bz-overlay-root .ant-space-vertical {
+  display: flex;
+  align-items: stretch;
+  max-width: 100%;
+}
+.bz-overlay-root .ant-space-vertical > .ant-space-item {
+  width: 100%;
+  max-width: 100%;
+}
+.bz-overlay-root .ant-table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.bz-overlay-root .ant-table-title,
+.bz-overlay-root .ant-table-thead > tr > th {
+  color: var(--overlay-muted);
+  font-size: var(--ui-text-small);
+  font-weight: 600;
+}
+.bz-overlay-root .ant-table-tbody > tr > td {
+  font-size: var(--ui-text-body);
+  line-height: 1.65;
+}
+.bz-overlay-root .ant-alert {
+  border-radius: 10px;
+  font-size: var(--ui-text-small);
+  line-height: 1.75;
+}
+.bz-overlay-root .ant-descriptions-view {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.bz-overlay-root .ant-descriptions-item-content,
+.bz-overlay-root .ant-descriptions-item-label {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.bz-overlay-root .ant-drawer-content-wrapper {
+  max-width: 100vw;
+}
+.bz-overlay-root .ant-drawer-content {
+  color: var(--overlay-text);
+  background: var(--overlay-bg);
+}
+.bz-overlay-root .ant-drawer-header {
+  padding: 20px 24px;
+  border-bottom-color: var(--overlay-line);
+}
+.bz-overlay-root .ant-drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--overlay-muted);
+}
+.bz-overlay-root .ant-drawer-body {
+  min-height: 0;
+  padding: 22px 24px !important;
+  overflow: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+.bz-overlay-root .ant-drawer-footer {
+  border-top-color: var(--overlay-line);
+}
+.bz-overlay-root .ant-modal-confirm-body {
+  align-items: flex-start;
+}
+.bz-overlay-root .ant-modal-confirm-body > .lucide {
+  flex: none;
+  margin: 1px 12px 0 0;
+  color: var(--overlay-accent);
+}
+.bz-overlay-root .ant-modal-confirm-success .ant-modal-confirm-body > .lucide {
+  color: var(--ok);
+}
+.bz-overlay-root .ant-modal-confirm-warning .ant-modal-confirm-body > .lucide {
+  color: var(--warn);
+}
+.bz-overlay-root .ant-modal-confirm-error .ant-modal-confirm-body > .lucide {
+  color: var(--bad);
+}
+.bz-overlay-root .ant-modal-confirm-content {
+  max-height: calc(100dvh - 240px);
+  overflow: auto;
+  color: var(--overlay-muted);
+  font-size: var(--ui-text-body);
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.bz-overlay-root .ant-modal-confirm-btns {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+.bz-overlay-root .ant-modal-confirm-btns .ant-btn + .ant-btn {
+  margin-inline-start: 0;
+}
+.bz-popconfirm-root {
+  max-width: calc(100vw - 24px);
+}
+.bz-popconfirm-root .ant-popover-inner {
+  padding: 17px 18px;
+  border: 1px solid var(--overlay-line);
+  border-radius: 14px;
+  background: var(--overlay-bg);
+}
+.bz-popconfirm-root .ant-popconfirm-title {
+  color: var(--overlay-text);
+  font-size: var(--ui-text-title);
+  font-weight: 600;
+}
+.bz-popconfirm-root .ant-popconfirm-description {
+  color: var(--overlay-muted);
+  font-size: var(--ui-text-small);
+  overflow-wrap: anywhere;
+}
+.bz-popconfirm-root .ant-popconfirm-message-icon {
+  display: inline-flex;
+  color: var(--overlay-accent);
+}
+.bz-overlay-root .overlay-favorites-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+.bz-overlay-root .overlay-favorites-grid .wb-pick {
+  min-width: 0;
+  background: var(--overlay-field);
+  border-color: var(--overlay-line);
+}
+.bz-overlay-root .overlay-favorites-grid .wb-pick > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.bz-overlay-root .overlay-favorites-grid .wb-pick .cat {
+  flex: none;
+}
+.bz-overlay-root .overlay-favorites-grid .wb-pick.on {
+  border-color: var(--overlay-accent);
+  color: var(--overlay-accent);
+  background: var(--overlay-soft);
+}
+@media (max-width: 600px) {
+  .bz-overlay-root .ant-modal {
+    max-width: calc(100vw - 20px) !important;
+    margin: 10px auto !important;
+  }
+  .bz-overlay-root .ant-modal-content {
+    max-height: calc(100dvh - 20px);
+    border-radius: 14px;
+  }
+  .bz-overlay-root .ant-modal-header {
+    padding: 18px 48px 15px 16px;
+  }
+  .bz-overlay-root .ant-modal-body {
+    padding: 17px 16px !important;
+  }
+  .bz-overlay-root .ant-modal-footer {
+    padding: 13px 16px;
+  }
+  .bz-overlay-root .ant-modal-footer .ant-btn {
+    min-height: 38px;
+  }
+  .bz-overlay-root .ant-modal-close {
+    top: 14px;
+    inset-inline-end: 12px;
+  }
+  .bz-overlay-root .ant-drawer-header,
+  .bz-overlay-root .ant-drawer-body,
+  .bz-overlay-root .ant-drawer-footer {
+    padding: 17px 16px !important;
+  }
+  .bz-overlay-root .ant-modal-confirm-content {
+    max-height: calc(100dvh - 220px);
+  }
+  .bz-overlay-root .overlay-favorites-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bz-overlay-root .ant-form .ant-row:not(.ant-form-item-row) > .ant-col-12,
+  .bz-overlay-root .ant-form .ant-row:not(.ant-form-item-row) > .ant-col-8 {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+  .bz-overlay-root .overlay-form-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bz-overlay-root *, .bz-popconfirm-root * {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}

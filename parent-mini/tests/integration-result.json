@@ -1,0 +1,154 @@
+{
+  "status": "PASS",
+  "transport": "mock wx API calls forwarded to actual loopback HTTP; real backend authentication+PostgreSQL",
+  "events": [
+    "real manager password accepted by auth but rejected by parent-only client",
+    "bound children only; zero balance stays 0; historical deduction/reversal +1 never shown as purchase; future schedules include cancellation/reschedule and exclude completed past",
+    "real paginated logs20->25 and notices20->26 including database-generated course notification, no silent truncation",
+    "second child without enrollment remains visible, shows own balance/refund log/notice and no first-child schedules",
+    "delayed real first-child responses cannot replace newly selected second-child state",
+    "unbound child API403; logout clears private state"
+  ],
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "query": {}
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login-phone",
+      "query": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/students",
+      "query": {}
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/schedules/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "1",
+        "pageSize": "20",
+        "startDate": "2026-11-05T09:17:42.675Z",
+        "endDate": "2026-12-20T09:17:42.675Z"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/lesson-logs/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/notifications/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/lesson-logs/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "2",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/notifications/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "2",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/schedules/6b2d6794-9f2d-4a2b-a350-ec8cfba882ca",
+      "query": {
+        "page": "1",
+        "pageSize": "20",
+        "startDate": "2026-11-05T09:17:42.711Z",
+        "endDate": "2026-12-20T09:17:42.711Z"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/lesson-logs/6b2d6794-9f2d-4a2b-a350-ec8cfba882ca",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/notifications/6b2d6794-9f2d-4a2b-a350-ec8cfba882ca",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/schedules/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "1",
+        "pageSize": "20",
+        "startDate": "2026-11-05T09:17:42.719Z",
+        "endDate": "2026-12-20T09:17:42.719Z"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/lesson-logs/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/notifications/48bec0ea-49be-483f-ac16-65c6ab658335",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/schedules/6b2d6794-9f2d-4a2b-a350-ec8cfba882ca",
+      "query": {
+        "page": "1",
+        "pageSize": "20",
+        "startDate": "2026-11-05T09:17:42.719Z",
+        "endDate": "2026-12-20T09:17:42.719Z"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/lesson-logs/6b2d6794-9f2d-4a2b-a350-ec8cfba882ca",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/notifications/6b2d6794-9f2d-4a2b-a350-ec8cfba882ca",
+      "query": {
+        "page": "1",
+        "pageSize": "20"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/parent/lesson-logs/7b7adece-ed52-4661-ac25-02ea70714a02",
+      "query": {}
+    }
+  ]
+}

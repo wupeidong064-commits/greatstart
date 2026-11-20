@@ -1,0 +1,10 @@
+.followup-risk { align-items: flex-start; cursor: default; }
+.followup-own-check { flex: 0 0 auto; display: inline-flex; align-items: center; cursor: pointer; }
+.followup-owner-list { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.followup-owner { display: block; color: var(--tx2); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.followup-caliber { color: var(--tx2); font-size: 12px; margin-top: 10px; }
+.followup-caliber summary { cursor: pointer; }
+.followup-caliber p { margin: 6px 0; line-height: 1.5; }
+
+.focus-sync-status{display:block;margin-top:8px;font-size:var(--ui-text-small);color:var(--tx3)}
+.focus-sync-status:empty{display:none}

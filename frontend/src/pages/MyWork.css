@@ -1,0 +1,16 @@
+.work-task-groups.ant-collapse { display: grid; gap: 10px; border: 0; background: transparent; }
+.work-task-groups.ant-collapse > .ant-collapse-item { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.work-task-groups .ant-collapse-header { align-items: center !important; min-height: 64px; padding: 16px 20px !important; }
+.work-task-groups .ant-collapse-content { border-top: 1px solid var(--line); background: transparent; }
+.work-task-groups .ant-collapse-content > .ant-collapse-content-box { padding: 0 20px; }
+.work-group-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; width: 100%; }
+.work-group-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.work-group-count { font-size: 13px; font-weight: 500; color: var(--text2); }
+.work-task-row { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 16px 0; }
+.work-task-row + .work-task-row { border-top: 1px solid var(--line); }
+.work-task-copy { min-width: 0; }
+.work-task-copy h3 { margin: 0 0 5px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.work-task-copy p { margin: 0; color: var(--text2); overflow-wrap: anywhere; }
+.work-task-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; flex-shrink: 0; }
+.work-schedule-empty { padding: 30px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text2); text-align: center; }
+@media (max-width: 720px) { .work-task-row { align-items: flex-start; flex-direction: column; } .work-task-actions { justify-content: flex-start; } }

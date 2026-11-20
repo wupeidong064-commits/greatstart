@@ -1,0 +1,118 @@
+// Creates a disposable PostgreSQL database; never reads the demo/business DATABASE_URL.
+const { execFileSync, spawn }=require('node:child_process');
+const {randomBytes,createHmac}=require('node:crypto');
+const {userInfo}=require('node:os');
+const path=require('node:path'),fs=require('node:fs'),assert=require('node:assert/strict');
+const {PrismaClient}=require('@prisma/client');
+const jwt=require('jsonwebtoken');
+const database='temporary_attendance_'+randomBytes(6).toString('hex'),backend=path.resolve(__dirname,'..');
+const url='postgresql://'+encodeURIComponent(userInfo().username)+'@127.0.0.1:5432/'+database;
+const env={...process.env,DATABASE_URL:url,DATABASE_DIRECT_URL:url,JWT_SECRET:randomBytes(48).toString('hex'),NODE_ENV:'test',AI_PROVIDER:'mock',GLM_API_KEY:'',ARK_API_KEY:'',};
+const p=new PrismaClient({datasources:{db:{url}}});
+let child,created=false,port;const checks=[];
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+async function http(method,route,token,body,expected=200){
+ const r=await fetch('http://127.0.0.1:'+port+'/api'+route,{method,headers:{'content-type':'application/json',authorization:'Bearer '+token},body:body?JSON.stringify(body):undefined});
+ const j=await r.json();assert.equal(r.status,expected,method+' '+route+' '+JSON.stringify(j).slice(0,800));return expected>=400?j:j.data;
+}
+const token=u=>jwt.sign({userId:u.id,sessionTag:createHmac('sha256',env.JWT_SECRET).update(u.password).digest('base64url')},env.JWT_SECRET,{expiresIn:'30m'});
+async function main(){
+ execFileSync('createdb',['-h','127.0.0.1',database]);created=true;
+ // Apply the migration chain before the new column and verify an old row gets default false.
+ const migration=path.join(backend,'prisma/migrations/20261106200000_temporary_attendance/migration.sql');
+ const sql=fs.readFileSync(migration,'utf8');
+ execFileSync('./node_modules/.bin/prisma',['migrate','deploy'],{cwd:backend,env,stdio:'pipe'});
+ execFileSync('./node_modules/.bin/prisma',['migrate','deploy'],{cwd:backend,env,stdio:'pipe'});
+ const columns=await p.$queryRawUnsafe(`SELECT column_default,is_nullable FROM information_schema.columns WHERE table_name='attendances' AND column_name='isTemporary'`);
+ assert.equal(columns.length,1);assert.equal(columns[0].column_default,'false');assert.equal(columns[0].is_nullable,'NO');
+ checks.push('独立临时库迁移及重放通过，isTemporary非空默认false');
+ const org=await p.organization.create({data:{code:database,name:'临时串课验收'}}),other=await p.organization.create({data:{code:database+'x',name:'其他机构'}});
+ const campus=await p.campus.create({data:{organizationId:org.id,code:'MAIN',name:'默认'}}),otherCampus=await p.campus.create({data:{organizationId:org.id,code:'OTHER',name:'其他范围'}}),foreignCampus=await p.campus.create({data:{organizationId:other.id,code:'MAIN',name:'外部'}});
+ const user=(role,name,c=campus,o=org)=>p.user.create({data:{organizationId:o.id,campusId:c.id,role,managementLevel: ['admin','manager'].includes(role) ? 'super' : 'none',name,email:name+'@temp.test',password:'hash'}});
+ const admin=await user('admin','admin'),teacher=await user('coach','teacher'),outsider=await user('coach','outsider'),foreign=await user('admin','foreign',foreignCampus,other);
+ const cls=await p.class.create({data:{organizationId:org.id,campusId:campus.id,code:'A',name:'目标班',teacherId:teacher.id,courseType:'篮球',capacity:10}}),original=await p.class.create({data:{organizationId:org.id,campusId:campus.id,code:'B',name:'原班',courseType:'篮球',capacity:10}});
+ const student=(name,remainingLessons=10,c=campus,o=org,status='active')=>p.student.create({data:{organizationId:o.id,campusId:c.id,name,status,purchasedLessons:remainingLessons,remainingLessons}});
+ const regular=await student('候选正式'),guest=await student('候选串课'),zero=await student('候选零余额',0),inactive=await student('候选已停用',10,campus,org,'inactive'),cross=await student('候选跨范围',10,otherCampus),alien=await student('候选外机构',10,foreignCampus,other),rollback=await student('候选回滚');
+ for(let i=0;i<24;i++)await student('候选批量'+i);
+ await p.enrollment.create({data:{organizationId:org.id,classId:cls.id,studentId:regular.id,enrolledAt:new Date('2026-01-01')}});
+ await p.enrollment.create({data:{organizationId:org.id,classId:original.id,studentId:guest.id,enrolledAt:new Date('2026-01-01')}});
+ const now=new Date(),date=new Date(+now-86400000-3600000),endTime=new Date(+now-86400000-600000);
+ const unknown=[];for(const status of ['completed','cancelled','transferred']){const s=await student('历史未知结束'+status);unknown.push(s);await p.enrollment.create({data:{organizationId:org.id,classId:cls.id,studentId:s.id,status,enrolledAt:new Date('2026-01-01'),endedAt:null}});}
+ const occurrence=()=>p.schedule.create({data:{organizationId:org.id,campusId:campus.id,classId:cls.id,teacherId:teacher.id,startTime:date,endTime}});
+ const session=await occurrence(),next=await occurrence();
+ for(const s of unknown)await p.attendance.create({data:{organizationId:org.id,classId:cls.id,scheduleId:session.id,studentId:s.id,status:'present'}});
+ await p.student.update({where:{id:guest.id},data:{phone:'13800001234',parentPhone:'139 0000 (9876)'}});
+ await student('候选串课');
+ const legacy=await p.attendance.create({data:{organizationId:org.id,classId:cls.id,scheduleId:next.id,studentId:regular.id,status:'leave'}});assert.equal(legacy.isTemporary,false);
+ await p.$executeRawUnsafe('ALTER TABLE attendances DROP COLUMN \"isTemporary\"');await p.$executeRawUnsafe(sql);assert.equal((await p.attendance.findUniqueOrThrow({where:{id:legacy.id}})).isTemporary,false);checks.push('已有历史考勤在迁移补列后保持false且状态不变');
+ const socket=require('node:net').createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));port=socket.address().port;await new Promise(r=>socket.close(r));
+ child=spawn(process.execPath,['--import','tsx','src/index.ts'],{cwd:backend,env:{...env,PORT:String(port)},stdio:['ignore','pipe','pipe']});let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
+ let ready=false;for(let i=0;i<100;i++){try{await fetch('http://127.0.0.1:'+port+'/health');ready=true;break;}catch{await delay(100);}}assert.ok(ready,output.slice(-2000));
+ const at=token(admin),tt=token(teacher),ot=token(outsider),ft=token(foreign);
+ const search='/schedules/'+session.id+'/temporary-students?q='+encodeURIComponent('候选');
+ const candidates=await http('GET',search,tt);assert.equal(candidates.length,20);assert.ok(candidates.every(c=>!['phone','parentPhone','email','address','campusName'].some(k=>k in c)));assert.ok(!candidates.some(c=>[inactive.id,cross.id,alien.id].includes(c.id)));
+ const newGuest=await http('GET','/schedules/'+session.id+'/temporary-students?q='+encodeURIComponent('候选串课'),tt);assert.equal(newGuest.length,2);const identified=newGuest.find(s=>s.id===guest.id);assert.equal(identified.isTemporary,false);assert.equal(identified.isEnrolled,false);assert.equal(identified.phoneLast4,'1234');assert.deepEqual(identified.classNames,['原班']);assert.ok(newGuest.every(s=>!('phone' in s) && !('parentPhone' in s)));checks.push('同名候选有独立id、手机末四位及当前班级名，未保存候选可添加');
+ await p.student.update({where:{id:cross.id},data:{parentPhone:'13900009876'}});await p.student.update({where:{id:alien.id},data:{parentPhone:'13900009876'}});const byParent=await http('GET','/schedules/'+session.id+'/temporary-students?q=9876',tt);assert.deepEqual(byParent.map(s=>s.id),[guest.id]);assert.equal(byParent[0].phoneLast4,'9876');const byStudent=await http('GET','/schedules/'+session.id+'/temporary-students?q=1234',tt);assert.deepEqual(byStudent.map(s=>s.id),[guest.id]);assert.equal(byStudent[0].phoneLast4,'1234');checks.push('尾号检索支持学员和家长号码及格式化号码，只返匹配尾号，跨机构和范围同尾号不泄露');
+ await http('GET','/schedules/'+session.id+'/temporary-students?q=',tt,null,400);
+ await http('GET',search,ot,null,403);await http('GET',search,ft,null,403);
+ checks.push('仅本机构当前范围有效学员按姓名检索，最多20且最小身份字段，空搜索/外老师/外机构拒绝');
+ const batch=(entries,t=tt,id=session.id,status=200)=>http('POST','/attendances/batch',t,{scheduleId:id,entries},status);
+ await batch([{studentId:guest.id,status:'present'}],tt,session.id,403);
+ for(const s of [inactive,cross,alien])await batch([{studentId:s.id,status:'present',temporary:true}],tt,session.id,403);
+ await batch([{studentId:guest.id,status:'present',temporary:true}],ot,session.id,403);
+ await batch([{studentId:guest.id,status:'present',temporary:true}],ft,session.id,403);
+ await batch([{studentId:guest.id,status:'present',temporary:'true'}],tt,session.id,400);
+ await batch([{studentId:guest.id,status:'present',temporary:true},{studentId:guest.id,status:'leave',temporary:true}],tt,session.id,400);
+ checks.push('无explicit temporary、停用/跨范围/跨机构、非授课老师、无效标记及重复名单均拒绝');
+ const legacyBefore=await p.attendance.findMany({where:{scheduleId:session.id,studentId:{in:unknown.map(s=>s.id)}},orderBy:{id:'asc'}});
+ for(const student of unknown)for(const temporary of [undefined,true]){const rejected=await batch([{studentId:student.id,status:'leave',...(temporary===undefined?{}:{temporary})}],tt,session.id,409);assert.equal(rejected.code || rejected.error?.code,'LEGACY_ENROLLMENT_RECONCILIATION_REQUIRED');assert.match(rejected.message || rejected.error?.message || '',/历史.*报名/);}
+ assert.deepEqual(await p.attendance.findMany({where:{scheduleId:session.id,studentId:{in:unknown.map(s=>s.id)}},orderBy:{id:'asc'}}),legacyBefore);assert.equal(await p.lessonLog.count({where:{scheduleId:session.id}}),0);assert.ok((await p.student.findMany({where:{id:{in:unknown.map(s=>s.id)}}})).every(s=>s.remainingLessons===10 && s.consumedLessons===0));checks.push('旧正式考勤无有效报名期间：有无temporary均明确409待核对，历史分类/状态/余额/流水完全不变');
+ const priorRoster=await http('GET','/schedules/'+session.id+'/roster',tt);assert.equal(priorRoster.students.length,1);assert.ok(unknown.every(s=>!priorRoster.students.some(r=>r.id===s.id)));
+ const entries=[{studentId:guest.id,status:'present',temporary:true},{studentId:regular.id,status:'late',temporary:true}];
+ await batch(entries);await Promise.all(Array.from({length:8},()=>batch(entries)));
+ assert.equal(await p.lessonLog.count({where:{scheduleId:session.id}}),2);assert.equal((await p.student.findUniqueOrThrow({where:{id:guest.id}})).remainingLessons,9);
+ const rows=await p.attendance.findMany({where:{scheduleId:session.id}});assert.equal(rows.find(r=>r.studentId===guest.id).isTemporary,true);assert.equal(rows.find(r=>r.studentId===regular.id).isTemporary,false);
+ const savedGuest=await http('GET','/schedules/'+session.id+'/temporary-students?q='+encodeURIComponent('候选串课'),tt);assert.equal(savedGuest.find(s=>s.id===guest.id).isTemporary,true);
+ assert.equal(await p.enrollment.count({where:{studentId:guest.id}}),1);assert.equal(await p.enrollment.count({where:{studentId:guest.id,classId:cls.id}}),0);
+ const roster=await http('GET','/schedules/'+session.id+'/roster',tt);assert.equal(roster.students.find(s=>s.id===guest.id).isTemporary,true);assert.equal(roster.students.length,2);let unknownStats=await http('GET','/consumption/statistics',at);assert.equal(unknownStats.totalAttendanceCount,2);assert.equal(unknownStats.present,2);checks.push('completed/取消/转班且endedAt未知的历史报名不猜结束时间，即使遗留出勤也不计；真实roster与应到/实到均为2');
+ const nextRoster=await http('GET','/schedules/'+next.id+'/roster',tt);assert.ok(!nextRoster.students.some(s=>s.id===guest.id));
+ checks.push('临时到课+正式误传temporary自动正常；8次HTTP并发重放各扣一次；保存后重开名单标记，下一场不带入，原报名不变');
+ const before=await p.lessonLog.count({where:{scheduleId:session.id}});
+ await batch([{studentId:rollback.id,status:'present',temporary:true},{studentId:zero.id,status:'present',temporary:true}],tt,session.id,409);
+ assert.equal(await p.lessonLog.count({where:{scheduleId:session.id}}),before);assert.equal(await p.attendance.count({where:{studentId:rollback.id,scheduleId:session.id}}),0);assert.equal((await p.student.findUniqueOrThrow({where:{id:rollback.id}})).remainingLessons,10);
+ checks.push('临时零余额整批回滚，无新增考勤/流水/余额变化');
+ await batch([{studentId:guest.id,status:'leave'}]);assert.equal((await p.student.findUniqueOrThrow({where:{id:guest.id}})).remainingLessons,10);
+ let consumption=await http('GET','/consumption/statistics',at);assert.equal(consumption.totalAttendanceCount,2);assert.equal(consumption.present,1);assert.equal(consumption.totalAttendance,1);assert.equal(consumption.attendanceRate,50);
+ let lows=await http('GET','/attendances/low-attendance-students',at);assert.equal(lows.find(r=>r.id===guest.id && r.classId===cls.id).scheduleCount,1);assert.equal(lows.find(r=>r.id===guest.id && r.classId===cls.id).presentCount,0);
+ let lowClasses=await http('GET','/attendances/low-attendance-classes',at);assert.equal(lowClasses.find(r=>r.class.id===cls.id).attendanceRate,50);assert.equal(lowClasses.find(r=>r.class.id===cls.id).lowAttendanceCount,1);
+ const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(date),range='?startDate='+day+'&endDate='+day;
+ let weekly=await http('GET','/statistics/weekly-summary'+range,at);assert.equal(weekly.avgAttendanceRate,50);assert.equal(weekly.totalAttendance,1);
+ let monthly=await http('GET','/statistics/monthly-summary'+range,at);assert.equal(monthly.avgAttendanceRate,50);assert.equal(monthly.totalAttendance,1);
+ let coach=await http('GET','/users/teachers/statistics'+range,at);const coaches=Array.isArray(coach)?coach:coach.coaches||coach.teachers||[];assert.equal(coaches.find(c=>c.id===teacher.id || c.teacherId===teacher.id).attendanceRate,50);
+ const serviceCheck=low=>execFileSync(process.execPath,['--import','tsx','scripts/verifyTemporaryAttendanceServices.ts',org.id,campus.id,cls.id,guest.id,day,String(low)],{cwd:backend,env,stdio:'pipe'});
+ serviceCheck(1);let work=await http('GET','/staff-work',tt);assert.ok(work.tasks.some(t=>t.key==='lowStudents:'+guest.id+':'+cls.id));assert.ok(work.tasks.some(t=>t.key==='lowClasses:'+cls.id));
+ const beforeSnapshot=await http('GET','/ai/context-summary?refresh=true',at);assert.equal(beforeSnapshot.lowAttendanceStudents,2);
+ checks.push('AI低出勤学员/班级工具实数执行与工作事项HTTP、AI快照HTTP计入临时请假，50%/低学员1，无付费模型请求');
+ checks.push('请假纠错返还1课时；真实HTTP课消应到2/实到1/净扣1/50%，班/学员低出勤、周报月报及教师统计一致50%');
+ await p.enrollment.create({data:{organizationId:org.id,classId:cls.id,studentId:guest.id,enrolledAt:new Date(+endTime-1)}});
+ await batch([{studentId:guest.id,status:'late'}]);assert.equal((await p.student.findUniqueOrThrow({where:{id:guest.id}})).remainingLessons,9);
+ assert.equal((await p.attendance.findFirstOrThrow({where:{studentId:guest.id,scheduleId:session.id}})).isTemporary,true);
+ consumption=await http('GET','/consumption/statistics',at);assert.equal(consumption.totalAttendanceCount,2);assert.equal(consumption.present,2);assert.equal(consumption.totalAttendance,2);assert.equal(consumption.attendanceRate,100);
+ checks.push('后来正式入班不覆写历史临时标记；再改迟到扣回一次，应到去重2/实到2/净扣2/100%');
+ weekly=await http('GET','/statistics/weekly-summary'+range,at);monthly=await http('GET','/statistics/monthly-summary'+range,at);assert.equal(weekly.avgAttendanceRate,100);assert.equal(weekly.totalAttendance,2);assert.equal(monthly.avgAttendanceRate,100);assert.equal(monthly.totalAttendance,2);lows=await http('GET','/attendances/low-attendance-students',at);assert.ok(!lows.some(r=>r.id===guest.id && r.classId===cls.id));lowClasses=await http('GET','/attendances/low-attendance-classes',at);assert.ok(!lowClasses.some(r=>r.class.id===cls.id));checks.push('昨天真实场次更正后周月报、低班/低学员二次HTTP对账100%，按场次日期归属而非操作时间');
+ serviceCheck(0);work=await http('GET','/staff-work',tt);assert.ok(!work.tasks.some(t=>t.key==='lowStudents:'+guest.id+':'+cls.id));assert.ok(!work.tasks.some(t=>t.key==='lowClasses:'+cls.id));
+ const snapshot=await http('GET','/ai/context-summary?refresh=true',at);assert.equal(snapshot.lowAttendanceStudents,1);checks.push('AI经营快照按共享逐学员场次口径，串课更正后仍有一名正式学员因另一已过场次未点名而低出勤');
+ const emptyClass=await p.class.create({data:{organizationId:org.id,campusId:campus.id,code:'EMPTY',name:'无正式报名班',courseType:'篮球',teacherId:teacher.id}});
+ const guestOnly=await p.schedule.create({data:{organizationId:org.id,campusId:campus.id,classId:emptyClass.id,teacherId:teacher.id,startTime:date,endTime}});
+ await batch([{studentId:rollback.id,status:'leave',temporary:true}],tt,guestOnly.id);const emptyLow=await http('GET','/attendances/low-attendance-classes',at);assert.equal(emptyLow.find(r=>r.class.id===emptyClass.id).attendanceRate,0);const emptyStudents=await http('GET','/attendances/low-attendance-students',at);assert.equal(emptyStudents.find(r=>r.id===rollback.id && r.classId===emptyClass.id).scheduleCount,1);checks.push('没有任何正式报名的班也计临时场次应到1、实到0，班级和学员低出勤均可追溯');
+ const emptyClass2=await p.class.create({data:{organizationId:org.id,campusId:campus.id,code:'EMPTY2',name:'第二临时班',courseType:'篮球',teacherId:teacher.id}});const guestOnly2=await p.schedule.create({data:{organizationId:org.id,campusId:campus.id,classId:emptyClass2.id,teacherId:teacher.id,startTime:date,endTime}});await batch([{studentId:rollback.id,status:'leave',temporary:true}],tt,guestOnly2.id);const uniqueSnapshot=await http('GET','/ai/context-summary?refresh=true',at);assert.equal(uniqueSnapshot.lowAttendanceStudents,1);const multiLow=await http('GET','/attendances/low-attendance-students',at);assert.equal(multiLow.filter(r=>r.id===rollback.id).length,2);checks.push('同一学员两个低出勤班保留两条班级明细，AI快照人数按学员去重仍为1');
+ const historyClass=await p.class.create({data:{organizationId:org.id,campusId:campus.id,code:'HISTORY',name:'真实离班周期',courseType:'篮球',teacherId:teacher.id}});
+ const historical=[];for(const status of ['completed','cancelled','transferred']){const s=await student('真实周期'+status);historical.push(s);await p.enrollment.create({data:{organizationId:org.id,classId:historyClass.id,studentId:s.id,status,enrolledAt:new Date('2024-05-01T00:00:00+08:00'),endedAt:new Date('2024-05-02T11:00:00+08:00')}});await p.enrollment.create({data:{organizationId:org.id,classId:historyClass.id,studentId:s.id,status:'active',enrolledAt:new Date('2024-05-03T00:00:00+08:00')}});}
+ const historySessions=[];for(let i=1;i<=3;i++)historySessions.push(await p.schedule.create({data:{organizationId:org.id,campusId:campus.id,classId:historyClass.id,teacherId:teacher.id,startTime:new Date('2024-05-0'+i+'T10:00:00+08:00'),endTime:new Date('2024-05-0'+i+'T11:00:00+08:00'),status:'completed'}}));
+ for(let i=0;i<3;i++){const historyRoster=await http('GET','/schedules/'+historySessions[i].id+'/roster',tt);assert.equal(historyRoster.students.length,i===1?0:3);if(i!==1)await batch(historical.map(s=>({studentId:s.id,status:i===0?'present':'leave'})),tt,historySessions[i].id);}
+ await batch([{studentId:historical[0].id,status:'leave',temporary:true}],tt,historySessions[0].id);assert.equal((await p.student.findUniqueOrThrow({where:{id:historical[0].id}})).remainingLessons,10);await batch([{studentId:historical[0].id,status:'present'}],tt,historySessions[0].id);assert.equal((await p.student.findUniqueOrThrow({where:{id:historical[0].id}})).remainingLessons,9);assert.equal((await p.attendance.findUniqueOrThrow({where:{studentId_scheduleId:{studentId:historical[0].id,scheduleId:historySessions[0].id}}})).isTemporary,false);checks.push('有可靠历史入班区间的旧正式考勤仍可纠错返还再扣回，temporary误传不改变历史正式标记');
+ const historyConsumption=await http('GET','/consumption/statistics?startDate=2024-05-01&endDate=2024-05-03',at);assert.equal(historyConsumption.totalAttendanceCount,6);assert.equal(historyConsumption.present,3);assert.equal(historyConsumption.totalAttendance,3);assert.equal(historyConsumption.attendanceRate,50);checks.push('completed/取消/转班有真实endedAt时保留离班前，边界不计、复入后恢复；三场HTTP名单3/0/3与课消应到6实到3净扣3一致');
+ const report={passed:checks.length,checks,database,port,productionWrites:0,realModelRequests:0,migration:sql.trim(),httpStats:{expected:consumption.totalAttendanceCount,present:consumption.present,netDeducted:consumption.totalAttendance,rate:consumption.attendanceRate}};
+ const target=path.join(backend,'../docs/acceptance/2026-11-06-temporary-attendance');fs.mkdirSync(target,{recursive:true});fs.writeFileSync(path.join(target,'backend-http.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+}
+main().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{if(child){child.kill('SIGTERM');await new Promise(r=>child.exitCode!==null?r():child.once('exit',r));}await p.$disconnect();if(created){execFileSync('dropdb',['-h','127.0.0.1',database]);console.log('CLEANED temporary HTTP process and database');}});

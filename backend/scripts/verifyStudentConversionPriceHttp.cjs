@@ -1,0 +1,38 @@
+// Isolated PostgreSQL and real HTTP only; does not open the user's database.
+const {execFileSync,spawn}=require('node:child_process'),{randomUUID,randomBytes}=require('node:crypto'),{userInfo}=require('node:os'),{PrismaClient}=require('@prisma/client'),bcrypt=require('bcryptjs'),assert=require('node:assert/strict'),net=require('node:net');
+const db='buzzer_import_price_'+randomBytes(6).toString('hex'), url='postgresql://'+encodeURIComponent(userInfo().username)+'@127.0.0.1:5432/'+db;
+const env={...process.env,DATABASE_URL:url,DATABASE_DIRECT_URL:url,JWT_SECRET:randomBytes(32).toString('hex'),NODE_ENV:'test',AI_PROVIDER:'mock',};
+const p=new PrismaClient({datasources:{db:{url}}});let child,created=false;const delay=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const socket=net.createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));env.PORT=String(port);
+ execFileSync('createdb',['-h','127.0.0.1',db]);created=true;execFileSync('./node_modules/.bin/prisma',['migrate','deploy'],{cwd:__dirname+'/..',env,stdio:'pipe'});
+ const org=await p.organization.create({data:{name:'金额测试',code:randomUUID()}}),foreignOrg=await p.organization.create({data:{name:'外机构',code:randomUUID()}});
+ const campus=await p.campus.create({data:{name:'校区',code:'MAIN',organizationId:org.id}}),foreignCampus=await p.campus.create({data:{name:'外校区',code:'MAIN',organizationId:foreignOrg.id}});
+ const pw=randomUUID(),hash=await bcrypt.hash(pw,10),user=async(role,c)=>p.user.create({data:{name:role,email:randomUUID()+'@isolated.test',role,password:hash,organizationId:c.organizationId,campusId:c.id}});
+ const admin=await user('manager',campus),seller=await user('sales',campus),outsider=await user('manager',foreignCampus);
+ child=spawn(process.execPath,['--import','tsx','src/index.ts'],{cwd:__dirname+'/..',env,stdio:['ignore','ignore','pipe']});let serverErrors='';child.stderr.on('data',chunk=>{serverErrors=(serverErrors+chunk.toString()).slice(-4000)});const base='http://127.0.0.1:'+port;let ready=false;for(let i=0;i<360;i++){if(child.exitCode!==null)throw Error('服务提前退出: '+serverErrors);try{if((await fetch(base+'/health')).ok){ready=true;break}}catch{}await delay(250)}assert(ready,'服务未就绪: '+serverErrors);
+ async function req(method,path,token,body){const r=await fetch(base+path,{method,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,json:await r.json()};}
+ async function login(u){const r=await req('POST','/api/auth/login',null,{email:u.email,password:pw});assert.equal(r.status,200);return r.json.data.token}const a=await login(admin),s=await login(seller),o=await login(outsider);
+ const order=async(price,extra={})=>p.conversion.create({data:{studentName:'金额样例-'+randomUUID(),contact:'',organizationId:org.id,salesId:seller.id,conversionDate:'2026-11-06',totalLessons:3,price,...extra}});
+ const body=(ord,extra={})=>({name:ord.studentName,purchasedLessons:3,remainingLessons:3,consumedLessons:0,totalPayment:0,conversionId:ord.id,...extra});
+ const num=x=>x===null?null:x.toString();
+ let ord=await order('500.12');let r=await req('POST','/api/students',a,body(ord,{conversionPrice:'600.35',expectedConversionPrice:'500.12'}));assert.equal(r.status,201,JSON.stringify(r));assert.equal(num((await p.conversion.findUnique({where:{id:ord.id}})).price),'600.35');assert.equal(Number(r.json.data.totalPayment),0);assert.equal(r.json.data.remainingLessons,3);assert.equal(await p.payment.count({where:{studentId:r.json.data.id}}),0);
+ r=await req('POST','/api/students',a,body(ord,{conversionPrice:'600.35',expectedConversionPrice:'500.12'}));assert.equal(r.status,409);assert.equal(await p.student.count({where:{name:ord.studentName}}),1);
+ ord=await order(null);r=await req('POST','/api/students',a,body(ord,{conversionPrice:0,expectedConversionPrice:null}));assert.equal(r.status,201,JSON.stringify(r));assert.equal(num((await p.conversion.findUnique({where:{id:ord.id}})).price),'0');
+ ord=await order('0');r=await req('POST','/api/students',a,body(ord,{conversionPrice:null,expectedConversionPrice:0}));assert.equal(r.status,201);assert.equal((await p.conversion.findUnique({where:{id:ord.id}})).price,null);
+ ord=await order('12.30');r=await req('POST','/api/students',a,body(ord));assert.equal(r.status,201);assert.equal(num((await p.conversion.findUnique({where:{id:ord.id}})).price),'12.3');
+ ord=await order('15');r=await req('POST','/api/students',a,body(ord,{conversionPrice:20,expectedConversionPrice:14}));assert.equal(r.status,409);assert.equal(await p.student.count({where:{name:ord.studentName}}),0);assert.equal(num((await p.conversion.findUnique({where:{id:ord.id}})).price),'15');
+ for(const invalid of ['-1','1.234','100000000','NaN',true,{},'']){r=await req('POST','/api/students',a,body(ord,{conversionPrice:invalid,expectedConversionPrice:15}));assert.equal(r.status,400,'invalid '+String(invalid));}
+ r=await req('POST','/api/students',a,{name:'无订单',conversionPrice:10,expectedConversionPrice:null});assert.equal(r.status,400);
+ r=await req('POST','/api/students',a,body(ord,{conversionPrice:10}));assert.equal(r.status,400);
+ r=await req('POST','/api/students',o,body(ord,{conversionPrice:10,expectedConversionPrice:15}));assert.equal(r.status,409);assert.equal(await p.student.count({where:{name:ord.studentName}}),0);
+ // A different salesperson cannot link someone else's order.
+ const rival=await user('sales',campus),otherOrder=await order('18',{salesId:rival.id});r=await req('POST','/api/students',s,{...body(otherOrder,{conversionPrice:20,expectedConversionPrice:18}),purchasedLessons:0,remainingLessons:0,salesId:seller.id});assert.equal(r.status,403);
+ // Existing refund blocks any change while preserving original import when unchanged.
+ const linkedStudent=await p.student.create({data:{name:'历史退款学员',organizationId:org.id,campusId:campus.id}});ord=await order('100');await p.refund.create({data:{organizationId:org.id,studentId:linkedStudent.id,studentName:linkedStudent.name,conversionId:ord.id,lessonsToRefund:0,amountToRefund:5,reason:'测试',submittedById:admin.id}});
+ r=await req('POST','/api/students',a,body(ord,{conversionPrice:101,expectedConversionPrice:100}));assert.equal(r.status,409);assert.equal(r.json.error.code,'CONVERSION_HAS_REFUNDS');assert.equal(await p.student.count({where:{name:ord.studentName}}),0);
+ r=await req('POST','/api/students',a,body(ord,{conversionPrice:100,expectedConversionPrice:'100.00'}));assert.equal(r.status,201);
+ // Concurrent retries must produce exactly one student and one initial lesson log.
+ ord=await order('80');const same=body(ord,{conversionPrice:90,expectedConversionPrice:80});const two=await Promise.all([req('POST','/api/students',a,same),req('POST','/api/students',a,same)]);assert.deepEqual(two.map(x=>x.status).sort(),[201,409]);assert.equal(await p.student.count({where:{name:ord.studentName}}),1);const sid=two.find(x=>x.status===201).json.data.id;assert.equal(await p.lessonLog.count({where:{studentId:sid}}),1);assert.equal(await p.payment.count({where:{studentId:sid}}),0);assert.equal(num((await p.conversion.findUnique({where:{id:ord.id}})).price),'90');
+ console.log('PASS 隔离真实 HTTP：成单金额同步、原价并发保护、null/0、退款约束、跨机构及角色、重复请求、课时与实收隔离');
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{if(child){child.kill('SIGTERM');await Promise.race([new Promise(r=>child.once('exit',r)),delay(3000)])}await p.$disconnect();if(created)execFileSync('dropdb',['-h','127.0.0.1','--if-exists',db])});

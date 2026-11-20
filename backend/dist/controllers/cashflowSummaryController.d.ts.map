@@ -1,0 +1,1 @@
+{"version":3,"file":"cashflowSummaryController.d.ts","sourceRoot":"","sources":["../../src/controllers/cashflowSummaryController.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,QAAQ,EAAE,YAAY,EAAE,MAAM,SAAS,CAAC;AACjD,OAAO,EAAE,WAAW,EAAE,MAAM,oBAAoB,CAAC;AAKjD,eAAO,MAAM,yBAAyB;sBACZ,WAAW,OAAO,QAAQ,QAAQ,YAAY;CAMvE,CAAC"}

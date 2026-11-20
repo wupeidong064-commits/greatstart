@@ -1,0 +1,44 @@
+/* 续费名单列数少：操作直接展示，不冻结右侧、不按比例撑大操作区。 */
+.cashflow-page[data-testid='cashflow-renewal'] .bz-table-wrap > .ant-table-wrapper {
+  overflow: visible;
+}
+.cashflow-page[data-testid='cashflow-renewal'] .bz-table-wrap .ant-table {
+  min-width: 0;
+}
+.cashflow-page[data-testid='cashflow-renewal'] .bz-table-wrap .ant-table-content {
+  overflow-x: auto !important;
+}
+.cashflow-page[data-testid='cashflow-renewal'] .renewal-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.cashflow-page[data-testid='cashflow-renewal'] .renewal-secondary-action {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--cfs-muted);
+  font: inherit;
+  font-size: var(--ui-text-small);
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+.cashflow-page[data-testid='cashflow-renewal'] .renewal-secondary-action:hover {
+  color: var(--cfs-purple);
+  background: var(--cfs-track);
+}
+.cashflow-page[data-testid='cashflow-renewal'] .renewal-secondary-action:focus-visible {
+  outline: 2px solid var(--cfs-purple);
+  outline-offset: 2px;
+}
+.cashflow-page[data-testid='cashflow-renewal'] .bz-table-wrap .ant-table-expanded-row .bz-x {
+  position: sticky;
+  left: 0;
+  width: min(100%, calc(100vw - 52px));
+}

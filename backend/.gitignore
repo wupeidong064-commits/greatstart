@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+# dist/ 是部署真相源，必须入库（2026-10-26 纠正历史遗漏）
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prisma
+*.db
+*.db-journal
+
+# seed 凭据文件（随机口令，勿入库）
+prisma/.seed-credentials.json
+
+# Private operations documents are never build or release inputs.
+src/data/knowledge/
+dist/data/knowledge/

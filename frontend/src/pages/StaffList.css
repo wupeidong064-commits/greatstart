@@ -1,0 +1,39 @@
+.staff-list-page { min-width: 0; }
+.staff-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.staff-list-panel > .ant-card-body { padding: 0; }
+.staff-list-panel { overflow: hidden; }
+.staff-list-table .ant-table-cell { overflow-wrap: anywhere; }
+.staff-list-actions { row-gap: 4px; }
+.staff-list-actions .ant-btn { white-space: nowrap; }
+.staff-reset-password {
+  padding: 12px 14px;
+  border: 1px solid var(--overlay-line);
+  border-radius: 8px;
+  background: var(--overlay-field);
+  color: var(--overlay-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.staff-list-table .ant-table-pagination { margin: 16px 20px; }
+
+/* Keep one horizontal scroll surface; the shared mobile table minimum width
+   otherwise makes the wrapper scroll separately from Ant's table content. */
+.staff-list-table.ant-table-wrapper {
+  overflow: visible;
+  min-width: 0;
+}
+.staff-list-table .ant-table {
+  min-width: 0;
+}
+@media (max-width: 768px) {
+  .staff-list-panel > .ant-card-body { padding: 0 !important; }
+  .staff-list-heading { gap: 8px; }
+  .staff-list-table .ant-table-pagination { margin: 12px; }
+}

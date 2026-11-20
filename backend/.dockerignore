@@ -1,0 +1,32 @@
+node_modules
+dist
+.git
+.env
+.env.*
+*.log
+logs
+storage
+coverage
+test-results
+playwright-report
+e2e/artifacts
+.DS_Store
+._*
+
+# Credential archives and local database dumps are never build inputs.
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.sql.gz
+**/*.dump
+backups
+**/.env
+**/.env.*
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# Private operations documents are never build or release inputs.
+src/data/knowledge/
+dist/data/knowledge/

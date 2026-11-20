@@ -1,0 +1,9 @@
+{
+  "description": "蜂鸣家长端：孩子课表、课时与站内通知",
+  "miniprogramRoot": "./",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "greatstart-parent",
+  "setting": { "urlCheck": true, "es6": true, "enhance": true, "postcss": true, "minified": true },
+  "packOptions": { "ignore": [{ "type": "folder", "value": "tests" }, { "type": "file", "value": "README.md" }] }
+}

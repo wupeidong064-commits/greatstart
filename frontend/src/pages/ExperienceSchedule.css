@@ -1,0 +1,9 @@
+.experience-registration-modal .ant-form-item { margin-bottom: 17px; }
+.experience-registration-modal .ant-form-item-label { padding-bottom: 6px; }
+.experience-registration-modal .ant-form-item-label > label { font-weight: 500; }
+.experience-registration-modal .ant-modal-footer { padding-top: 10px; border-top: 1px solid var(--line); }
+.experience-registration-modal .ant-form-item-extra { font-size: var(--ui-text-small); line-height: 1.65; }
+@media (max-width: 480px) {
+  .experience-registration-modal .ant-modal-body { padding-right: 0 !important; }
+  .experience-registration-modal .ant-form-item { margin-bottom: 15px; }
+}

@@ -1,0 +1,1164 @@
+// Prisma Schema - 智能课务系统数据库模型
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_DIRECT_URL")
+}
+
+// 机构表
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique // 机构代码
+  address     String?
+  phone       String?
+  email       String?
+  isActive    Boolean  @default(true)
+  startdate   DateTime? // 开通时间
+  enddate     DateTime? // 结束时间
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  campuses    Campus[]
+  users       User[]
+  students    Student[]
+  classes     Class[]
+  courses     Course[]
+  enrollments Enrollment[]
+  payments    Payment[]
+  schedules   Schedule[]
+  attendances Attendance[]
+  leads       Lead[]
+  conversions Conversion[]
+  experienceLessons ExperienceLesson[]
+  lessonLogs  LessonLog[]
+  settings    Setting[]
+  integrationKey IntegrationKey?
+  lessonTransfers LessonTransfer[]
+  refunds         Refund[]
+
+  @@index([code])
+  @@map("organizations")
+}
+
+// 校区表
+model Campus {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  code           String   // 校区代码（在同一机构内唯一）
+  address        String?
+  phone          String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          User[]
+  students       Student[]
+  classes        Class[]
+  schedules      Schedule[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("campuses")
+}
+
+// 用户表（包含所有角色）
+model User {
+  id             String   @id @default(uuid())
+  email          String?  @unique
+  password       String
+  name           String
+  phone          String?  @unique
+  role           String   // admin, manager, teacher, staff, parent
+  isPlatformAdmin Boolean @default(false) // 平台运营身份：独立授予，与租户角色无关；可访问平台账务管理
+  organizationId String?
+  campusId       String?
+  isActive       Boolean  @default(true)
+  managementLevel String @default("none") // none, manager, super; separate from job role
+  managementGrantedById String?
+  managementGrantedAt DateTime?
+  lastLoginAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  campus         Campus?       @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  parentLinks ParentStudentLink[]
+  taughtClasses  Class[]       @relation("ClassTeacher")
+  salesStudents  Student[]     @relation("StudentSales")
+  recallStudents Student[]     @relation("StudentRecallTeacher")
+  schedules      Schedule[]
+  attendances    Attendance[]
+  enrollments    Enrollment[]
+  payments       Payment[]
+  conversionSales Conversion[]  @relation("ConversionSales")
+  experienceLessonTeacher ExperienceLesson[] @relation("ExperienceLessonTeacher")
+  experienceLessonAssignee ExperienceLesson[] @relation("ExperienceLessonAssignee")
+  lessonLogOperations LessonLog[] @relation("LessonLogOperator")
+  assignedLeads Lead[] @relation("LeadAssignee")
+  transferOperations LessonTransfer[] @relation("TransferOperator")
+  refundSubmissions Refund[] @relation("RefundSubmitter")
+  refundReviews Refund[] @relation("RefundReviewer")
+  submittedRemovals Student[] @relation("StudentRemovalSubmitter")
+  reviewedRemovals Student[] @relation("StudentRemovalReviewer")
+
+  @@index([email])
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([role])
+  @@map("users")
+}
+
+// 学员表
+model Student {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String?
+  name           String
+  gender         String?  // M, F
+  birthDate      DateTime?
+  // Age as recorded on a particular date; it is not a substitute for a birthday.
+  recordedAge    Int?
+  recordedAgeAt  DateTime?
+  phone          String?
+  parentName     String?  // 家长姓名
+  parentPhone    String?  // 家长电话
+  parentEmail    String?  // 家长邮箱
+  address        String?
+  emergencyContact String? // 紧急联系人
+  emergencyPhone  String?  // 紧急联系电话
+  notes          String?  // 备注
+  status         String   @default("active") // active, inactive, graduated
+  archivedAt     DateTime?
+  archiveReason  String?
+  archiveNote    String?
+  archivePreviousStatus String?
+
+  // 课时与缴费相关字段
+  cardOpenDate     DateTime?  // 开卡时间
+  purchasedLessons Int        @default(0) // 已购课时
+  consumedLessons  Int        @default(0) // 消耗课时
+  remainingLessons Int        @default(0) // 剩余课时
+  totalPayment     Decimal?   @default(0) // 缴费金额
+
+  // 课时冻结
+  frozenLessons    Int        @default(0) // 冻结课时
+  frozenAt         DateTime?  // 冻结时间
+  frozenReason     String?    // 冻结原因
+  unfreezeAt       DateTime?  // 预计解冻时间
+  salesId          String?    // 销售ID（关联用户）
+  recallTeacherId  String?    // 沉默/召回待入班学员的回访老师；不授予在班教学或续费权限
+  lastClassDate    DateTime?  // 最后上课日期
+
+  // 续费与退费相关字段
+  renewalStatus   String?  // renewing, no_renewal, pending
+  noRenewalReason String?  // 不续费原因
+  noRenewalDate   DateTime? // 不续费日期
+  refundReason    String?  // 退费原因
+  refundDate      DateTime? // 退费日期
+
+  // 移除花名册审批字段
+  removalStatus             String?   // null | pending | approved | rejected
+  removalReason             String?   // 移除原因
+  removalExpectedRecallDate DateTime? // 预计召回日期
+  removalSubmittedById      String?   // 提交人ID
+  removalSubmittedByName    String?   // 提交人姓名
+  removalSubmittedAt        DateTime? // 提交时间
+  removalReviewedById       String?   // 审批人ID
+  removalReviewedByName     String?   // 审批人姓名
+  removalReviewedAt         DateTime? // 审批时间
+  removalRejectReason       String?   // 驳回原因
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campus         Campus?      @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  sales          User?        @relation("StudentSales", fields: [salesId], references: [id], onDelete: SetNull)
+  recallTeacher  User?        @relation("StudentRecallTeacher", fields: [recallTeacherId], references: [id], onDelete: SetNull)
+  enrollments    Enrollment[]
+  attendances    Attendance[]
+  payments       Payment[]
+  conversions    Conversion[]
+  lessonLogs     LessonLog[]
+  lessonTransfers LessonTransfer[]
+  refunds         Refund[]
+
+  parentLinks ParentStudentLink[]
+  parentNotices ParentNotice[]
+  removalSubmittedBy User? @relation("StudentRemovalSubmitter", fields: [removalSubmittedById], references: [id], onDelete: SetNull)
+  removalReviewedBy  User? @relation("StudentRemovalReviewer", fields: [removalReviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([name])
+  @@index([status])
+  @@index([salesId])
+  @@index([recallTeacherId])
+  @@index([removalStatus])
+  @@map("students")
+}
+
+// 班级表
+model Class {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String?
+  name           String
+  code           String   // 班级代码
+  courseType     String   // 课程类型
+  level          String?  // 班级水平：第一阶段-第七阶段
+  capacity       Int      @default(20) // 容量
+  teacherId      String?  // 教练ID
+  status         String   @default("active") // active, inactive, completed
+  startDate      DateTime?
+  endDate        DateTime?
+  description    String?
+  scheduleRule   Json?    // 排课规则：{recurrenceType, startDate, endDate, weekDays, startTime, endTime, location}
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  weeklyRules    ClassWeeklyRule[]
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campus         Campus?      @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  teacher        User?        @relation("ClassTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
+  enrollments    Enrollment[]
+  schedules      Schedule[]
+  attendances    Attendance[]
+  conversions    Conversion[]
+  experienceLessons ExperienceLesson[]
+  transferFrom   LessonTransfer[] @relation("TransferFrom")
+  transferTo     LessonTransfer[] @relation("TransferTo")
+  refunds        Refund[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([teacherId])
+  @@index([status])
+  @@map("classes")
+}
+
+// 班级时间（常规每周上课规则）：只是规则，保存不产生排课。按北京时间每周重复。
+model ClassWeeklyRule {
+  id             String   @id @default(uuid())
+  organizationId String
+  classId        String
+  weekday        Int      // 0=周日，1-6=周一至周六
+  startTime      String   // HH:mm（北京时间）
+  endTime        String   // HH:mm（北京时间）
+  classroom      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@index([classId])
+  @@index([organizationId])
+  @@map("class_weekly_rules")
+}
+
+// 课程表（课程模板）
+model Course {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  code           String   // 课程代码
+  description    String?
+  duration       Int      @default(60) // 时长（分钟）
+  price          Decimal? @default(0) // 价格
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  schedules      Schedule[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("courses")
+}
+
+// 排课表
+model Schedule {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String?
+  classId        String
+  courseId       String?
+  teacherId      String?
+  startTime      DateTime
+  endTime        DateTime
+  classroom      String?  // 教室
+  isRecurring    Boolean  @default(false) // 是否重复
+  recurrenceRule String?  // 重复规则（如：每周一、三、五）
+  status         String   @default("scheduled") // scheduled, completed, cancelled, rescheduled
+  originalScheduleId String? // 如果是调课，记录原排课ID
+  lessonIndex    Int?     // 第几节课（课次模式）
+  weekNumber     Int?     // 第几周
+  scheduleGroupId String? // 同一批生成的排课共享同一个 groupId
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campus         Campus?      @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  class          Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  course         Course?       @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  teacher        User?         @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  experienceLessons ExperienceLesson[]
+  attendances    Attendance[]
+
+  @@index([organizationId])
+  @@index([campusId])
+  @@index([classId])
+  @@index([startTime])
+  @@index([status])
+  @@index([scheduleGroupId])
+  @@map("schedules")
+}
+
+// 学员报名表
+model Enrollment {
+  id             String   @id @default(uuid())
+  organizationId String
+  studentId      String
+  classId        String
+  enrolledBy     String?  // 报名操作人ID
+  endedAt        DateTime? // 生效区间结束；历史无依据时留空
+  enrolledAt     DateTime @default(now())
+  status         String   @default("active") // active, completed, cancelled, transferred
+  notes          String?
+  removalReceipt Json?    // Atomic remove-as-lost replay evidence.
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student        Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class          Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  enrolledByUser User?         @relation(fields: [enrolledBy], references: [id], onDelete: SetNull)
+  payments       Payment[]
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([classId])
+  @@index([status])
+  @@map("enrollments")
+}
+
+// 出勤记录表
+model Attendance {
+  id             String   @id @default(uuid())
+  organizationId String
+  studentId      String
+  scheduleId     String
+  classId        String
+  isTemporary    Boolean  @default(false) // 仅本场次串课；不产生报名关系
+  checkedInBy    String?  // 签到操作人ID
+  status         String   // present, absent, late, leave, makeUp
+  checkInTime    DateTime?
+  checkOutTime   DateTime?
+  notes          String?  // 备注（如请假原因、补签原因等）
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student        Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  schedule       Schedule      @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  class          Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  checkedInByUser User?        @relation(fields: [checkedInBy], references: [id], onDelete: SetNull)
+
+  @@unique([studentId, scheduleId])
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([scheduleId])
+  @@index([classId])
+  @@index([status])
+  @@index([checkInTime])
+  @@map("attendances")
+}
+
+// 缴费记录表
+model Payment {
+  requestId      String?
+  requestHash    String?
+  id             String   @id @default(uuid())
+  organizationId String
+  enrollmentId   String
+  studentId      String
+  amount         Decimal
+  paymentType    String   // tuition, material, other
+  paymentMethod  String   // cash, card, transfer, alipay, wechat
+  paidBy         String?  // 缴费操作人ID
+  paidAt         DateTime @default(now())
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enrollment     Enrollment   @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  paidByUser     User?        @relation(fields: [paidBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([enrollmentId])
+  @@index([studentId])
+  @@index([paidAt])
+  @@unique([organizationId, requestId])
+  @@map("payments")
+}
+
+// 营销线索表（鱼池）
+model Lead {
+  id             String    @id @default(uuid())
+  organizationId String
+  customerName   String    // 客户姓名
+  age            Int?      // 年龄
+  contact        String    // 联系方式（手机号）
+  source         String?   // 来源
+  assigneeId     String?   // 负责人ID
+  assigneeName   String?   // 负责人姓名
+  createdById    String?   // 创建人ID
+  createdByName  String?   // 创建人姓名
+  status         String    @default("new") // new, contacted, visited, converted, lost
+  starred        Boolean   @default(false) // 星标（鱼池）
+  notes          String?   // 备注
+  lastContactAt  DateTime? // 最近联系时间
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignee       User?        @relation("LeadAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  conversions    Conversion[]
+  experienceLessons ExperienceLesson[]
+
+  @@index([organizationId])
+  @@index([customerName])
+  @@index([contact])
+  @@index([createdAt])
+  @@map("leads")
+}
+model Conversion {
+  id                  String    @id @default(uuid())
+  organizationId      String
+  studentId           String?
+  studentName         String
+  age                 Int?
+  gender              String?
+  contact             String
+  parentName          String?
+  address             String?
+  classId             String?
+  className           String?
+  courseType          String?
+  registrationSchedule Json?   // 报名时所选真实排课的快照
+  totalLessons        Int?
+  price               Decimal?  @db.Decimal(10, 2)
+  paymentMethod       String?
+  paymentStatus       String?   @default("paid")
+  salesId             String?
+  salesName           String?
+  conversionDate      String
+  notes               String?
+  experienceLessonId  String?
+  leadId              String?
+
+  // 审批流字段
+  approvalStatus      String    @default("pending") // pending, confirmed, rejected
+  reviewedById        String?
+  reviewedAt          DateTime?
+  rejectReason        String?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student             Student?         @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  class               Class?           @relation(fields: [classId], references: [id], onDelete: SetNull)
+  sales               User?            @relation("ConversionSales", fields: [salesId], references: [id], onDelete: SetNull)
+  experienceLesson    ExperienceLesson? @relation(fields: [experienceLessonId], references: [id], onDelete: SetNull)
+  lead                Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lessonLogs          LessonLog[]
+  refunds             Refund[]
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([classId])
+  @@index([salesId])
+  @@index([conversionDate])
+  @@index([approvalStatus])
+  @@map("conversions")
+}
+
+// 体验课表
+model ExperienceLesson {
+  id                  String    @id @default(uuid())
+  organizationId      String
+  studentName         String
+  age                 Int?
+  contact             String
+  source              String?
+  leadId              String?
+  classId             String?
+  className           String?
+  scheduleId          String?
+  scheduleDate        String
+  startTime           String?
+  endTime             String?
+  classroom           String?
+  teachingTeacherId   String?
+  teachingTeacherName String?
+  assigneeId          String?
+  assigneeName        String?
+  createdById         String?
+  createdByName       String?
+  status              String    @default("pending")
+  notes               String?
+  convertedAt         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead                Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  class               Class?       @relation(fields: [classId], references: [id], onDelete: SetNull)
+  schedule            Schedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  teachingTeacher     User?        @relation("ExperienceLessonTeacher", fields: [teachingTeacherId], references: [id], onDelete: SetNull)
+  assignee            User?        @relation("ExperienceLessonAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  conversions         Conversion[]
+
+  @@index([organizationId])
+  @@index([leadId])
+  @@index([classId])
+  @@index([teachingTeacherId])
+  @@index([assigneeId])
+  @@index([scheduleId])
+  @@index([scheduleDate])
+  @@index([status])
+  @@map("experience_lessons")
+}
+
+// 课时日志表
+model LessonLog {
+  batchPricing LessonBatchPricing?
+  ledgerSequence    Int? @default(autoincrement())
+  lessonSource      String?
+  purchasedReduction Int?
+  creditAmountCents Decimal? @db.Decimal(12, 0)
+  allocations       Json?
+  refundId          String?
+
+  conversionId   String?
+  conversion     Conversion? @relation(fields: [conversionId], references: [id], onDelete: Restrict)
+  @@unique([conversionId, type])
+  scheduleId     String?
+  businessDate   String?
+  reversalOfId   String?
+  id             String   @id @default(uuid())
+  organizationId String
+  studentId      String
+  studentName    String
+  type           String   // add, deduct
+  lessons        Int
+  notes          String?
+  operatorId     String?
+  operatorName   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student        Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  operator       User?        @relation("LessonLogOperator", fields: [operatorId], references: [id], onDelete: SetNull)
+
+   @@index([organizationId])
+  @@index([studentId])
+  @@index([operatorId])
+  @@index([createdAt])
+  // 库内既有索引补声明（对齐现网实际状态，消除漂移；不改变任何数据）
+  @@index([scheduleId, studentId])
+  @@map("lesson_logs")
+}
+
+// Successful add-lesson operations only; committed atomically with balance and log.
+// Scalar identifiers intentionally retain the receipt independently of later entity deletion.
+model LessonAddRequest {
+  organizationId String
+  requestId      String
+  studentId      String
+  actorId        String
+  payloadHash    String
+  response       Json
+  createdAt      DateTime @default(now())
+
+  @@id([organizationId, requestId])
+  @@index([studentId])
+  @@map("lesson_add_requests")
+}
+
+// Successful renewal requests are retained so a lost response can be retried safely.
+model RenewalRequest {
+  organizationId String
+  requestId      String
+  studentId      String
+  actorId        String
+  payloadHash    String
+  response       Json
+  createdAt      DateTime @default(now())
+
+  @@id([organizationId, requestId])
+  @@index([studentId])
+  @@map("renewal_requests")
+}
+
+// 系统设置表
+// One read-only external integration credential per organization. Never store plaintext.
+model IntegrationKey {
+  id             String   @id @default(uuid())
+  organizationId String   @unique
+  keyHash        String   @unique
+  keyPrefix      String
+  revision       String   @default(uuid())
+  createdById    String
+  creatorSessionTag String
+  createdAt      DateTime @default(now())
+  revokedAt      DateTime?
+  lastUsedAt     DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("integration_keys")
+}
+
+model Setting {
+  id             String   @id @default(uuid())
+  key            String
+  value          String
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([key, organizationId])
+  @@index([organizationId])
+  @@index([key])
+  @@map("settings")
+}
+
+// 知识库切块表（RAG 全文检索）
+// 知识库是全机构共享的业务规则，不按 organizationId 隔离
+model KnowledgeChunk {
+  id           String   @id @default(uuid())
+  sourceFile   String   // 来源文件名（不含扩展名），如 supervisor-targets
+  headingPath  String   // 标题路径，如 "5月实际完成 > 确认收入"
+  blockType    String   // 块类型：rule/target/performance/...
+  entity       String?  // 涉及实体（人/场馆），如 "张主管"
+  period       String?  // 时间周期，如 "5月"
+  content      String   // 块正文（markdown）
+  searchVector Unsupported("tsvector")? // 全文检索向量（raw SQL 维护）
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([sourceFile])
+  @@index([blockType])
+  @@map("knowledge_chunks")
+}
+
+// 划课记录表
+model LessonDeductionRecord {
+  scheduleId     String? @unique
+  id             String   @id @default(uuid())
+  organizationId String
+  classId        String
+  operatorId     String?
+  operatorName   String?
+  deductionDate  String   // YYYY-MM-DD
+  deductionCount Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([classId])
+  @@index([operatorId])
+  @@index([deductionDate])
+  @@map("lesson_deduction_records")
+}
+
+// 资源交接记录表
+model ResourceTransfer {
+  id               String   @id @default(uuid())
+  organizationId   String
+  fromTeacherId    String
+  fromTeacherName  String?
+  toTeacherId      String
+  toTeacherName    String?
+  transferDetails  Json?
+  status           String   @default("completed")
+  operatedBy       String?
+  operatedByName   String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([fromTeacherId])
+  @@index([toTeacherId])
+  @@map("resource_transfers")
+}
+
+// 转课记录表
+model LessonTransfer {
+  id                String   @id @default(uuid())
+  organizationId    String
+  studentId         String
+  fromClassId       String
+  toClassId         String
+  transferredLessons Int    // 转出课时
+  priceDifference   Decimal? @default(0) @db.Decimal(10, 2) // 差价
+  refundAmount      Decimal? @default(0) @db.Decimal(10, 2) // 退费金额
+  status            String   @default("completed") // pending, completed, cancelled
+  notes             String?
+  operatedBy        String?
+  operatedByName    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student           Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  fromClass         Class        @relation("TransferFrom", fields: [fromClassId], references: [id])
+  toClass           Class        @relation("TransferTo", fields: [toClassId], references: [id])
+  operator          User?        @relation("TransferOperator", fields: [operatedBy], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([fromClassId])
+  @@index([toClassId])
+  @@map("lesson_transfers")
+}
+
+// 退费记录表
+model Refund {
+  payout            RefundPayout?
+  id                String    @id @default(uuid())
+  organizationId    String
+  studentId         String
+  studentName       String
+  classId           String?
+  className         String?
+  conversionId      String?
+  lessonsToRefund   Int       // 退费课时数
+  amountToRefund    Decimal   @db.Decimal(10, 2) // 退费金额
+  reason            String    // 退费原因
+  status            String    @default("pending") // pending, approved, rejected
+  submittedById     String    // 提交人ID
+  submittedByName   String?   // 提交人姓名
+  reviewedById      String?   // 审批人ID
+  reviewedByName    String?   // 审批人姓名
+  reviewedAt        DateTime? // 审批时间
+  rejectReason      String?   // 驳回原因
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student           Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class             Class?       @relation(fields: [classId], references: [id], onDelete: SetNull)
+  conversion        Conversion?  @relation(fields: [conversionId], references: [id], onDelete: SetNull)
+  submittedBy       User         @relation("RefundSubmitter", fields: [submittedById], references: [id], onDelete: Cascade)
+  reviewedBy        User?        @relation("RefundReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([studentId])
+  @@index([classId])
+  @@index([submittedById])
+  @@index([status])
+  @@map("refunds")
+}
+
+
+// ==================== 校区 AI 积分服务（第一轮：钱包/入账/授权/对话计量） ====================
+// 记账单位：微积分（1 积分 = 10000 微积分），全程整数运算避免浮点误差。
+// 余额只在结算时变动；预留（reserved）是占用不是扣款。
+
+// 校区 AI 积分账户（以校区为开通/余额/消费归属单位；campusId 为空表示机构级账户）
+model RevokedAuthSession {
+  tokenHash String   @id
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("revoked_auth_sessions")
+}
+
+model AiCreditAccount {
+  id             String    @id @default(uuid())
+  organizationId String
+  campusId       String?
+  status         String    @default("active") // active | disabled
+  balanceMicros  Int       @default(0) // 总余额（微积分）
+  reservedMicros Int       @default(0) // 在途预留（微积分）
+  openedById     String?
+  openedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, campusId])
+  @@index([organizationId])
+  @@map("ai_credit_accounts")
+}
+
+// 积分流水（充值/赠送/扣费/调整；入账类必须带操作人+原因+幂等键）
+model AiCreditLedger {
+  id             String   @id @default(uuid())
+  accountId      String
+  type           String   // topup | grant | settle | adjust
+  source         String   // manual | package | chat | analysis | file | review
+  micros         Int      // 正=入账，负=扣费（微积分）
+  balanceAfter   Int      // 该笔后的账户余额（微积分）
+  billId         String?
+  operatorId     String?
+  reason         String?
+  idempotencyKey String?  @unique // 入账幂等：重复提交不重复加积分
+  createdAt      DateTime @default(now())
+
+  @@index([accountId, createdAt])
+  @@map("ai_credit_ledger")
+}
+
+// AI 任务账单（预留→结算→释放；一任务一账单，多轮模型调用归同一账单）
+model AiTaskBill {
+  id             String    @id @default(uuid())
+  accountId      String
+  organizationId String
+  campusId       String?
+  userId         String
+  taskType       String    // chat | analysis | file
+  status         String    @default("reserved") // reserved | settled | stopped | pending_review | failed_released
+  reservedMicros Int
+  settledMicros  Int       @default(0)
+  releasedMicros Int       @default(0)
+  stopReason     String?
+  usageJson      Json?     // 快照：{model,priceVersionId,inputMicrosPer1k,outputMicrosPer1k,estInputTokens,maxTokens,calls:[...]}
+  estimateMicros Int?      // 待核对时的估算消耗（不得当实际消费）
+  conversationId String?   // G1：关联会话（runId 即本账单 id）
+  createdAt      DateTime  @default(now())
+  settledAt      DateTime?
+
+  @@index([accountId, createdAt])
+  @@index([userId, createdAt])
+  @@map("ai_task_bills")
+}
+
+// 模型价格版本（按生效时间取当前版本；账单快照价格，历史消费不随调价变化）
+model AiModelPrice {
+  id                String   @id @default(uuid())
+  model             String
+  inputMicrosPer1k  Int
+  outputMicrosPer1k Int
+  effectiveFrom     DateTime @default(now())
+  note              String?
+
+  @@index([model, effectiveFrom])
+  @@map("ai_model_prices")
+}
+
+// 员工 AI 使用授权（校区管理员授权+限额；撤销后新任务立即拒绝）
+model AiEmployeeAuthorization {
+  id          String   @id @default(uuid())
+  accountId   String
+  userId      String
+  limitMicros Int?     // 累计消费上限（微积分），null=不限（仍受校区余额约束）
+  status      String   @default("active") // active | revoked
+  grantedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([accountId, userId])
+  @@map("ai_employee_authorizations")
+}
+
+// ==================== AI 会话记忆（G1） ====================
+// 会话按 ownerUserId+organizationId+campusId 归属；客户端只提交当前消息与会话 ID，
+// 历史一律由服务端读取，不信任客户端伪造的 assistant 历史或 system 指令。
+
+model AiConversation {
+  id             String    @id @default(uuid())
+  ownerUserId    String
+  organizationId String
+  campusId       String?
+  title          String?
+  status         String    @default("active") // active | deleted
+  contextSummary           String? @db.Text
+  summaryCoveredThroughMessageId String?
+  summaryVersion           Int     @default(0)
+  summaryFailedAttempts    Int     @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  messages       AiMessage[]
+
+  @@index([ownerUserId, organizationId, campusId, updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  sequence       Int
+  role           String   // user | assistant
+  content        String   @db.Text
+  status         String   @default("complete") // streaming | complete | stopped | failed
+  requestId      String?  @unique
+  billId         String?  // 关联消费记录（AiTaskBill.id 即 runId）
+  usageJson      Json?    // {promptChars, promptTokens, completionTokens}
+  evidenceJson   Json?    // G2：证据卡数组（数据卡确定性渲染；历史回放用）
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, sequence])
+  @@map("ai_messages")
+}
+
+model AiReportFile {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String?
+  createdById    String
+  conversationId String?
+  messageId      String?
+  requestId      String   @unique
+  billId         String?
+  status         String   @default("processing")
+  error          String?
+  title          String
+  periodStart    String?
+  periodEnd      String?
+  paramsJson     Json?
+  evidenceJson   Json?
+  fileName       String?
+  filePath       String?
+  fileHash       String?
+  downloadCount  Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, campusId, createdAt])
+  @@map("ai_report_files")
+}
+
+// 个人按日跟进进度，业务风险是否解除仍由原业务记录决定。
+model FollowUpCompletion {
+  id             String   @id @default(uuid())
+  organizationId String
+  campusId       String
+  userId         String
+  day            String
+  taskKey        String
+  revision       String
+  done           Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, campusId, day, taskKey, revision])
+  @@index([organizationId, campusId, userId, day])
+  @@map("follow_up_completions")
+}
+
+model CampusApplication {
+  id String @id @default(uuid())
+  organizationName String
+  contactName String
+  email String?
+  phone String?
+  status String @default("pending")
+  reviewedById String?
+  organizationId String?
+  createdAt DateTime @default(now())
+  reviewedAt DateTime?
+  @@index([status, createdAt])
+  @@map("campus_applications")
+}
+
+// Immutable manual evidence of an offline refund disbursement.
+model RefundPayout {
+  id String @id @default(uuid())
+  organizationId String
+  campusId String?
+  studentId String
+  refundId String @unique
+  requestId String
+  requestHash String
+  amount Decimal @db.Decimal(10,2)
+  paymentMethod String
+  proofReference String
+  recipientName String
+  paidAt DateTime
+  recordedById String
+  recordedByName String
+  createdAt DateTime @default(now())
+  refund Refund @relation(fields:[refundId], references:[id], onDelete: Restrict)
+  @@unique([organizationId, requestId])
+  @@unique([organizationId, proofReference])
+  @@index([organizationId, campusId, paidAt])
+  @@map("refund_payouts")
+}
+
+model ParentStudentLink {
+  parentId String
+  studentId String
+  createdAt DateTime @default(now())
+  parent User @relation(fields:[parentId],references:[id],onDelete:Cascade)
+  student Student @relation(fields:[studentId],references:[id],onDelete:Cascade)
+  @@id([parentId, studentId])
+  @@map("parent_student_links")
+}
+model ParentNotice {
+  id String @id @default(uuid())
+  studentId String
+  title String
+  body String
+  occurredAt DateTime @default(now())
+  student Student @relation(fields:[studentId],references:[id],onDelete:Cascade)
+  @@index([studentId,occurredAt])
+  @@map("parent_notices")
+}
+
+// Exact class-rule generation responses, including reused and newly created occurrences.
+model ScheduleGenerationReceipt {
+  organizationId String
+  requestId      String
+  campusId       String
+  classId        String
+  actorId        String
+  payloadHash    String
+  response       Json
+  createdAt      DateTime @default(now())
+
+  @@id([organizationId, requestId])
+  @@map("schedule_generation_receipts")
+}
+
+// Original response and normalized inputs of a committed activity deduction.
+model ActivityDeductReceipt {
+  lessonSource String @default("paid")
+  organizationId String
+  requestId      String   @db.Uuid
+  campusId       String
+  actorId        String
+  studentId      String
+  lessons        Int
+  notes          String
+  response       Json
+  createdAt      DateTime @default(now())
+
+  @@id([organizationId, requestId])
+  @@map("activity_deduct_receipts")
+}
+
+model RefundConfirmReceipt {
+  requestId      String @id
+  organizationId String
+  campusId       String
+  studentId      String
+  actorId        String
+  payloadHash    String
+  response       Json
+  @@map("refund_confirm_receipts")
+}
+
+
+// A committed marketing registration keeps its original response for later retries.
+model RegistrationReceipt {
+  organizationId String
+  operation      String
+  requestId      String @db.Uuid
+  campusId       String
+  actorId        String
+  payloadHash    String
+  resultId       String
+  snapshot       Json
+  createdAt      DateTime @default(now())
+
+  @@id([organizationId, operation, requestId])
+  @@map("registration_receipts")
+}
+
+model LessonBatchPricing {
+  id              String @id @default(uuid())
+  organizationId  String
+  campusId        String
+  studentId       String
+  creditLogId     String @unique
+  creditLog       LessonLog @relation(fields:[creditLogId],references:[id],onDelete:Restrict)
+  originalLessons Int
+  amountCents     Decimal @db.Decimal(12,0)
+  basisType       String
+  orderId         String? @unique
+  notes           String
+  actorId         String
+  requestId       String @db.Uuid
+  payloadHash     String
+  createdAt       DateTime @default(now())
+
+  @@unique([organizationId,requestId])
+  @@index([organizationId,studentId])
+  @@map("lesson_batch_pricing")
+}
+
+model UserManagementEvent {
+  id String @id @default(uuid())
+  organizationId String
+  actorId String
+  userId String
+  fromLevel String
+  toLevel String
+  jobRole String?
+  origin String
+  createdAt DateTime @default(now())
+  @@index([organizationId, userId, createdAt])
+  @@map("user_management_events")
+}
+
+// 运营报告资料与任务：仅在独立AI测试数据库应用迁移。
+model OrgReportContext {
+  id             String   @id
+  organizationId String   @map("organization_id")
+  campusId       String?  @map("campus_id")
+  kind           String
+  periodLabel    String?  @map("period_label")
+  status         String   @default("confirmed_fact")
+  payload        Json
+  sourceLabel    String   @map("source_label")
+  createdAt      DateTime @default(now()) @map("created_at")
+  @@index([organizationId, kind])
+  @@map("org_report_contexts")
+}
+
+model OrgPilotReportTask {
+  id             String   @id
+  organizationId String   @map("organization_id")
+  createdById    String   @map("created_by_id")
+  campusId       String?  @map("campus_id")
+  kind           String
+  periodStart    String   @map("period_start")
+  periodEnd      String   @map("period_end")
+  compareStart   String?  @map("compare_start")
+  compareEnd     String?  @map("compare_end")
+  snapshotDate   String?  @map("snapshot_date")
+  requestId      String   @unique @map("request_id")
+  status         String   @default("processing")
+  progress       Int      @default(0)
+  progressLabel  String?  @map("progress_label")
+  error          String?
+  content        Json?
+  versions       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  @@map("org_pilot_report_tasks")
+}

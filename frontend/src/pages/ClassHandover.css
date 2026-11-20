@@ -1,0 +1,51 @@
+/* Let controls wrap while each table owns its horizontal scrolling. */
+.class-handover {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.class-handover :is(.ant-card, .ant-card-body, .ant-card-head-wrapper, .ant-table-wrapper, .ant-table-container, .ant-spin-nested-loading, .ant-spin-container, .ant-collapse, .ant-collapse-content, .ant-collapse-content-box) {
+  min-width: 0;
+  max-width: 100%;
+}
+.class-handover .ant-table-wrapper { width: 100%; }
+.class-handover .ant-table-content { max-width: 100%; overflow-x: auto; }
+.class-handover-card > .ant-card-head > .ant-card-head-wrapper {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.class-handover-card > .ant-card-head > .ant-card-head-wrapper > .ant-card-head-title {
+  min-width: 0;
+  white-space: normal;
+}
+.class-handover-card > .ant-card-head > .ant-card-head-wrapper > .ant-card-extra {
+  max-width: 100%;
+  margin-inline-start: 0;
+  white-space: normal;
+}
+.class-handover :is(.class-handover-bulk, .class-handover-actions > .ant-space) {
+  min-width: 0;
+  max-width: 100%;
+}
+.class-handover :is(.class-handover-bulk, .class-handover-actions) .ant-space-item {
+  min-width: 0;
+  max-width: 100%;
+}
+.class-handover :is(.class-handover-bulk, .class-handover-actions) .ant-btn {
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding-block: 5px;
+  white-space: normal;
+}
+.class-handover .ant-alert-content { min-width: 0; }
+@container (max-width: 480px) {
+  .class-handover-card > .ant-card-head { padding-inline: 16px; }
+  .class-handover-card > .ant-card-body { padding: 16px; }
+  .class-handover > .ant-alert { flex-wrap: wrap; row-gap: 8px; }
+  .class-handover > .ant-alert .ant-alert-action {
+    max-width: 100%;
+    margin-inline-start: 0;
+  }
+}

@@ -1,0 +1,220 @@
+.spf-page {
+  min-width: 0;
+}
+.spf-page .spf-toolbar {
+  margin-bottom: 17px;
+}
+.spf-page .cfs-heading {
+  padding-bottom: 19px;
+}
+.spf-alert {
+  margin: 0 0 12px;
+}
+.spf-page .spf-table {
+  background: var(--cfs-surface);
+  border-color: var(--cfs-glass-border);
+  border-radius: 15px;
+  backdrop-filter: blur(16px);
+}
+.spf-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--cfs-glass-border);
+}
+.spf-table-head h2 {
+  color: var(--cfs-text);
+  margin: 0;
+  font-size: var(--ui-text-body);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.spf-table-head p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 15px;
+  margin: 5px 0 0;
+  font-size: var(--ui-text-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--cfs-muted);
+}
+.spf-total {
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+  white-space: nowrap;
+}
+.spf-page .spf-table .ant-table-thead > tr > th {
+  white-space: normal;
+  line-height: 1.4;
+  font-size: var(--ui-text-small);
+  padding: 12px 10px;
+}
+.spf-page .spf-table .ant-table-column-sorters {
+  gap: 3px;
+}
+.spf-page .spf-table .ant-table-column-sorter {
+  font-size: var(--ui-text-small);
+  margin-inline-start: 0;
+}
+.spf-page .spf-table .ant-table-tbody > tr.ant-table-row > td {
+  height: 64px;
+  padding: 10px;
+  line-height: 1.55;
+}
+.spf-page .spf-table .ant-table-tbody .ant-table-row-expand-icon-cell {
+  width: 35px;
+  padding-inline: 7px;
+}
+.spf-table .ant-pagination {
+  margin: 12px 16px;
+}
+.spf-name,
+.spf-metric,
+.spf-net {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.spf-name {
+  min-width: 64px;
+}
+.spf-name b,
+.spf-metric b,
+.spf-net b {
+  font-size: var(--ui-text-body);
+  line-height: 1.45;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.spf-name small,
+.spf-metric small,
+.spf-net small {
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+  line-height: 1.5;
+  font-weight: 500;
+}
+.spf-metric,
+.spf-net {
+  font-variant-numeric: tabular-nums;
+}
+.spf-emphasis b,
+.spf-net b {
+  color: var(--cfs-purple);
+}
+.spf-up {
+  color: var(--cfs-purple);
+}
+.spf-down {
+  color: var(--cfs-peach);
+}
+.spf-partial {
+  display: block;
+  color: var(--cfs-muted);
+}
+.spf-notes {
+  margin: 13px 2px 0;
+  font-size: var(--ui-text-small);
+  line-height: 1.75;
+  color: var(--cfs-muted);
+}
+.spf-notes p {
+  margin: 2px 0;
+}
+.spf-detail-note {
+  font-size: var(--ui-text-small);
+  color: var(--cfs-muted);
+  margin-top: 12px;
+}
+.spf-page button:focus-visible,
+.spf-page [tabindex]:focus-visible {
+  outline: 2px solid var(--cfs-purple);
+  outline-offset: 2px;
+}
+.spf-page .ant-picker-focused {
+  outline: 2px solid var(--cfs-purple);
+  outline-offset: 1px;
+}
+.spf-mobile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 10px;
+  margin: 12px 0 2px;
+}
+.spf-mobile-grid dt {
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+}
+.spf-mobile-grid dd {
+  margin: 3px 0 0;
+}
+@media (max-width: 1080px) {
+  .spf-page .spf-table .ant-table-thead > tr > th {
+    padding: 10px 7px;
+  }
+  .spf-page .spf-table .ant-table-tbody > tr.ant-table-row > td {
+    padding-inline: 7px;
+  }
+}
+@media (max-width: 780px) {
+  .spf-table-head {
+    padding: 14px 15px;
+    align-items: flex-start;
+  }
+  .spf-table .ant-pagination {
+    margin: 10px;
+    flex-wrap: wrap;
+  }
+  .spf-table .ant-pagination-total-text {
+    font-size: var(--ui-text-small);
+  }
+  .spf-mobile-record > .spf-name b {
+    font-size: var(--ui-text-body);
+  }
+  .spf-page .spf-table .ant-table-tbody .ant-table-row-expand-icon-cell {
+    vertical-align: top;
+  }
+  .spf-page .spf-table .ant-table-tbody > tr.ant-table-row > td {
+    padding: 13px 10px;
+  }
+}
+@media (max-width: 767px) {
+  .spf-page .spf-table .ant-table {
+    min-width: 0;
+    width: 100%;
+  }
+  .spf-page .spf-table .ant-table table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  .spf-mobile-grid > div {
+    min-width: 0;
+  }
+}
+@media (max-width: 500px) {
+  .spf-page .spf-toolbar {
+    gap: 8px;
+  }
+  .spf-page .spf-toolbar .cfs-date-range {
+    flex: 1 0 100%;
+    min-width: 0;
+  }
+  .spf-page .spf-toolbar .cfs-staff-select {
+    flex: 1;
+    min-width: 0;
+  }
+  .spf-mobile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .spf-table-head p {
+    gap: 2px 12px;
+  }
+  .spf-table-head {
+    gap: 6px;
+  }
+  .spf-mobile-record {
+    min-width: 0;
+  }
+}

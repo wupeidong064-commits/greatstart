@@ -1,0 +1,17 @@
+<view class="login safe">
+  <text class="eyebrow">蜂鸣 · 家长空间</text>
+  <view class="title">陪伴成长，<view>每一节都清楚。</view></view>
+  <view class="muted intro">查看孩子课表、剩余课时与机构通知。</view>
+  <view class="card">
+    <view class="section-title">家长账号登录</view>
+    <view class="muted">使用机构为您开通的家长账号与密码</view>
+    <view class="label">手机号或邮箱</view>
+    <input class="field" value="{{identity}}" bindinput="onIdentity" placeholder="请输入手机号或邮箱" maxlength="254" disabled="{{busy}}" />
+    <view class="label">密码</view>
+    <input class="field" value="{{password}}" bindinput="onPassword" password="true" placeholder="请输入登录密码" maxlength="128" disabled="{{busy}}" confirm-type="go" bindconfirm="submit" />
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <button class="primary submit" loading="{{busy}}" disabled="{{busy}}" bindtap="submit">登录</button>
+    <view class="muted help">没有账号或忘记密码，请联系孩子所在机构。共用手机号请使用邮箱登录。</view>
+  </view>
+  <view class="muted privacy">仅关联您本人账号的孩子；不提供员工和机构管理功能。</view>
+</view>

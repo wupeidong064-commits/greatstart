@@ -1,0 +1,120 @@
+import { Prisma } from '@prisma/client';
+import { AuthRequest } from '../middleware/auth';
+import { RegistrationActor } from './registrationRequestService';
+export declare const attendedStatuses: string[];
+export declare const signupExperienceStatuses: string[];
+export declare function registrationWindow(start?: Date): {
+    start: Date;
+    end: Date;
+    timezone: "Asia/Shanghai";
+};
+export declare function experienceAccess(actor: RegistrationActor): Prisma.ExperienceLessonWhereInput;
+export declare function confirmedSignup(actor: RegistrationActor): Prisma.ConversionWhereInput;
+export declare function unconvertedWhere(actor: RegistrationActor, includeNoShows?: boolean): Prisma.ExperienceLessonWhereInput;
+export declare function availableSchedules(actor: RegistrationActor, classId: unknown): Promise<{
+    period: {
+        start: Date;
+        end: Date;
+        timezone: "Asia/Shanghai";
+    };
+    schedules: {
+        id: string;
+        classId: string;
+        className: string;
+        startTime: Date;
+        endTime: Date;
+        classroom: string | null;
+        teacherId: string | null;
+        teacherName: string | null;
+    }[];
+}>;
+export declare function registerExperience(req: AuthRequest): Promise<{
+    data: {
+        id: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        notes: string | null;
+        status: string;
+        classId: string | null;
+        assigneeId: string | null;
+        age: number | null;
+        contact: string;
+        source: string | null;
+        assigneeName: string | null;
+        createdById: string | null;
+        createdByName: string | null;
+        studentName: string;
+        startTime: string | null;
+        endTime: string | null;
+        classroom: string | null;
+        className: string | null;
+        scheduleDate: string;
+        teachingTeacherName: string | null;
+        convertedAt: string | null;
+        leadId: string | null;
+        scheduleId: string | null;
+        teachingTeacherId: string | null;
+    };
+    status: "legacy";
+} | {
+    data: Prisma.JsonValue;
+    status: "replayed";
+} | {
+    data: {
+        id: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        notes: string | null;
+        status: string;
+        classId: string | null;
+        assigneeId: string | null;
+        age: number | null;
+        contact: string;
+        source: string | null;
+        assigneeName: string | null;
+        createdById: string | null;
+        createdByName: string | null;
+        studentName: string;
+        startTime: string | null;
+        endTime: string | null;
+        classroom: string | null;
+        className: string | null;
+        scheduleDate: string;
+        teachingTeacherName: string | null;
+        convertedAt: string | null;
+        leadId: string | null;
+        scheduleId: string | null;
+        teachingTeacherId: string | null;
+    };
+    status: "created";
+}>;
+export declare function editExperience(actor: RegistrationActor, id: string, body: Record<string, unknown>): Promise<{
+    id: string;
+    organizationId: string;
+    createdAt: Date;
+    updatedAt: Date;
+    notes: string | null;
+    status: string;
+    classId: string | null;
+    assigneeId: string | null;
+    age: number | null;
+    contact: string;
+    source: string | null;
+    assigneeName: string | null;
+    createdById: string | null;
+    createdByName: string | null;
+    studentName: string;
+    startTime: string | null;
+    endTime: string | null;
+    classroom: string | null;
+    className: string | null;
+    scheduleDate: string;
+    teachingTeacherName: string | null;
+    convertedAt: string | null;
+    leadId: string | null;
+    scheduleId: string | null;
+    teachingTeacherId: string | null;
+}>;
+//# sourceMappingURL=experienceRegistrationService.d.ts.map

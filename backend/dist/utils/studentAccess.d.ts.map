@@ -1,0 +1,1 @@
+{"version":3,"file":"studentAccess.d.ts","sourceRoot":"","sources":["../../src/utils/studentAccess.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,MAAM,EAAE,MAAM,gBAAgB,CAAC;AAC7C,OAAO,KAAK,EAAE,WAAW,EAAE,MAAM,oBAAoB,CAAC;AAKtD,eAAO,MAAM,aAAa,GAAI,KAAK,WAAW,EAAE,UAAS;IAAE,aAAa,CAAC,EAAE,OAAO,CAAA;CAAO;;;;;;;;;;;;;;;;;;WAmBgD,MAAM,CAAC,iBAAiB;CAChK,CAAC"}

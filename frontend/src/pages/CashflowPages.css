@@ -1,0 +1,311 @@
+/* Cashflow list pages share the existing report palette; summary rules stay unchanged. */
+.cashflow-page {
+  --cashflow-action: var(--ui-action);
+  --cashflow-action-hover: var(--ui-action-hover);
+  min-width: 0;
+}
+.cashflow-page .cashflow-heading {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.cashflow-heading .biz-head-copy {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.cashflow-heading h1 {
+  margin: 0;
+}
+.cashflow-heading p {
+  line-height: 1.75;
+}
+.cashflow-page .biz-head-actions,
+.cashflow-filter-controls,
+.cashflow-quick-filter,
+.cashflow-stats-period,
+.cashflow-selection-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+.cashflow-page .biz-head-actions {
+  padding-top: 6px;
+}
+.cashflow-page .cashflow-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 18px;
+  margin: 0 0 18px;
+  border-radius: 14px;
+  overflow: visible;
+}
+.cashflow-experience-filters,
+.cashflow-order-filters {
+  flex-direction: column;
+  align-items: stretch !important;
+}
+.cashflow-page .cashflow-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+  font-weight: 500;
+}
+.cashflow-toolbar .ant-select,
+.cashflow-toolbar .ant-input-affix-wrapper,
+.cashflow-toolbar .ant-input-search,
+.cashflow-toolbar .ant-picker {
+  max-width: 100%;
+  min-width: 0;
+}
+.cashflow-page .ant-select-selector,
+.cashflow-page .ant-input-affix-wrapper,
+.cashflow-page .ant-picker {
+  border-color: var(--cfs-glass-border) !important;
+  background: var(--cfs-surface) !important;
+  border-radius: 8px;
+  box-shadow: none;
+}
+.cashflow-page .ant-input-affix-wrapper .ant-input {
+  background: transparent;
+}
+.cashflow-page .ant-input-search .ant-input-search-button {
+  color: var(--cfs-purple);
+  background: var(--cfs-surface);
+  border-color: var(--cfs-glass-border);
+}
+.cashflow-page .ant-btn-default {
+  background: var(--cfs-surface);
+  border-color: var(--cfs-glass-border);
+  box-shadow: none;
+}
+.cashflow-page .ant-btn-primary {
+  background: var(--cashflow-action);
+  border-color: var(--cashflow-action);
+  box-shadow: none;
+}
+.cashflow-page .ant-btn-primary:not(:disabled):hover {
+  background: var(--cashflow-action-hover);
+  border-color: var(--cashflow-action-hover);
+}
+.cashflow-page .ant-btn .lucide,
+.cashflow-page .ant-input-prefix .lucide,
+.cashflow-page .ant-tabs-tab .lucide {
+  display: inline-block;
+  vertical-align: -3px;
+}
+.cashflow-quick-filter .ant-segmented {
+  max-width: 100%;
+  background: var(--cfs-track);
+  padding: 3px;
+  border-radius: 9px;
+  font-size: var(--ui-text-small);
+}
+.cashflow-quick-filter .ant-segmented-item-selected {
+  color: var(--cfs-purple);
+  border-radius: 6px;
+}
+.cashflow-quick-filter .ant-radio-button-wrapper {
+  background: transparent;
+  border-color: var(--cfs-glass-border);
+  font-size: var(--ui-text-small);
+}
+.cashflow-quick-filter .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  color: var(--cfs-purple);
+  background: var(--cfs-track);
+  border-color: var(--cfs-purple);
+}
+.cashflow-page .bz-table-wrap {
+  background: var(--cfs-surface);
+  border-color: var(--cfs-glass-border);
+  border-radius: 17px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+}
+.cashflow-page .bz-table-wrap .ant-table-thead > tr > th,
+.cashflow-page .bz-table-wrap .ant-table-thead > tr > td,
+.cashflow-page .bz-table-wrap .ant-table-title {
+  background: var(--cfs-inner);
+  color: var(--cfs-muted);
+  border-color: var(--cfs-glass-border);
+}
+.cashflow-page .bz-table-wrap .ant-table-tbody > tr > td {
+  border-color: var(--cfs-glass-border);
+  font-size: var(--ui-text-body);
+  line-height: 1.6;
+}
+.cashflow-page .bz-table-wrap .ant-table-thead > tr > th.ant-table-cell-fix-left,
+.cashflow-page .bz-table-wrap .ant-table-thead > tr > th.ant-table-cell-fix-right,
+.cashflow-page .bz-table-wrap .ant-table-tbody > tr > td.ant-table-cell-fix-left,
+.cashflow-page .bz-table-wrap .ant-table-tbody > tr > td.ant-table-cell-fix-right {
+  background: var(--cfs-inner);
+}
+.cashflow-page .bz-table-wrap .ant-pagination {
+  margin: 14px 16px;
+  row-gap: 8px;
+  flex-wrap: wrap;
+}
+.cashflow-page .cashflow-edit-action {
+  height: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--acc-line);
+  border-radius: 999px;
+  color: var(--acc-strong);
+  background: var(--acc-bg);
+  font-size: var(--ui-text-small);
+}
+/* 成单表：让固定操作列融入整行，只在覆盖未滚出的内容时保留一条细分界。
+   固定列必须使用不透明底色，否则横滚或悬停时会透出下方文字。 */
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap {
+  --cashflow-order-row: var(--cfs-inner);
+  --cashflow-order-hover: color-mix(in srgb, var(--cfs-purple) 6%, var(--cfs-inner));
+  background: var(--cashflow-order-row);
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap > .ant-table-wrapper {
+  overflow: visible;
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table {
+  min-width: 0;
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table-content {
+  overflow-x: auto !important;
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table-thead > tr > th {
+  background: color-mix(in srgb, var(--cfs-purple) 4%, var(--cfs-inner));
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table-tbody > tr > td {
+  background: var(--cashflow-order-row);
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table-tbody > tr:hover > td,
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table-tbody > tr > td.ant-table-cell-row-hover {
+  background: var(--cashflow-order-hover);
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table-cell-fix-right-first::after {
+  display: none;
+}
+.cashflow-page[data-testid='cashflow-orders'] .bz-table-wrap .ant-table-ping-right .ant-table-cell-fix-right-first {
+  box-shadow: var(--ui-shadow-card);
+}
+.cashflow-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.cashflow-stat {
+  min-width: 0;
+  padding: 20px 22px;
+}
+.cashflow-stat-primary {
+  background: linear-gradient(120deg, var(--cfs-track), transparent), var(--cfs-surface);
+}
+.cashflow-stat .ant-statistic-title {
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+  margin-bottom: 12px;
+}
+.cashflow-stat .ant-statistic-content {
+  color: var(--cfs-text);
+  font-size: var(--ui-text-number);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cashflow-stat-primary .ant-statistic-content {
+  color: var(--cfs-purple);
+}
+.cashflow-stat .ant-statistic-content-prefix,
+.cashflow-stat .ant-statistic-content-suffix {
+  font-size: var(--ui-text-body);
+}
+.cashflow-stat-note,
+.cashflow-followup-note,
+.cashflow-summary-note {
+  display: block;
+  color: var(--cfs-muted);
+  font-size: var(--ui-text-small);
+  line-height: 1.75;
+  margin: 10px 0 0;
+}
+.cashflow-followup-note,
+.cashflow-summary-note {
+  margin: 0 0 14px;
+}
+.cashflow-stats-period {
+  margin-bottom: 12px;
+}
+.cashflow-selection-bar {
+  padding: 11px 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--acc-line);
+  border-radius: 12px;
+  background: var(--acc-bg);
+  font-size: var(--ui-text-small);
+}
+.cashflow-page .cashflow-stats-collapse {
+  margin-bottom: 18px;
+  background: var(--cfs-surface);
+  border: 1px solid var(--cfs-glass-border);
+  border-radius: 14px;
+}
+.cashflow-page .ant-tabs-tab {
+  color: var(--cfs-muted);
+}
+.cashflow-page .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--cfs-purple);
+}
+.cashflow-page .ant-tabs-ink-bar {
+  background: var(--cfs-purple);
+}
+@media (max-width: 720px) {
+  .cashflow-heading .biz-head-copy {
+    flex-basis: 100%;
+  }
+  .cashflow-page .biz-head-actions {
+    padding-top: 0;
+  }
+  .cashflow-page .cashflow-toolbar {
+    padding: 14px;
+  }
+  .cashflow-toolbar > .ant-select,
+  .cashflow-toolbar > .ant-input,
+  .cashflow-toolbar > .ant-input-search,
+  .cashflow-toolbar > .ant-picker,
+  .cashflow-filter-controls > .ant-select,
+  .cashflow-filter-controls > .ant-input-search,
+  .cashflow-filter-controls > .ant-picker {
+    width: 100% !important;
+  }
+  .cashflow-quick-filter .ant-segmented {
+    width: 100%;
+  }
+  .cashflow-quick-filter .ant-segmented-group {
+    display: flex;
+  }
+  .cashflow-quick-filter .ant-segmented-item {
+    flex: 1;
+    min-width: 0;
+  }
+  .cashflow-quick-filter .ant-segmented-item-label {
+    padding-inline: 0;
+  }
+  .cashflow-stats {
+    gap: 10px;
+  }
+  .cashflow-stat {
+    padding: 16px 13px;
+  }
+  .cashflow-stat .ant-statistic-content {
+    font-size: var(--ui-text-title);
+  }
+  .cashflow-page .bz-table-wrap .ant-pagination {
+    margin-inline: 10px;
+  }
+  /* Keep the action column reachable without pinning both sides across the phone viewport. */
+  .cashflow-page .bz-table-wrap .ant-table-cell-fix-left,
+  .cashflow-page .bz-table-wrap .ant-table-cell-fix-right:not(:last-child) {
+    position: static !important;
+  }
+}

@@ -1,0 +1,21 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.experienceLessonRoutes = void 0;
+const express_1 = require("express");
+const auth_1 = require("../middleware/auth");
+const rbac_1 = require("../middleware/rbac");
+const experienceLessonController_1 = require("../controllers/experienceLessonController");
+exports.experienceLessonRoutes = (0, express_1.Router)();
+exports.experienceLessonRoutes.use(auth_1.authenticate);
+exports.experienceLessonRoutes.use((0, rbac_1.requireOrganizationAccess)());
+exports.experienceLessonRoutes.get('/', experienceLessonController_1.experienceLessonController.getExperienceLessons);
+exports.experienceLessonRoutes.get('/unconverted', experienceLessonController_1.experienceLessonController.getUnconverted);
+exports.experienceLessonRoutes.get('/conversion-candidates', experienceLessonController_1.experienceLessonController.getConversionCandidates);
+exports.experienceLessonRoutes.get('/stats', experienceLessonController_1.experienceLessonController.getTeacherConversionStats);
+exports.experienceLessonRoutes.get('/available-schedules', experienceLessonController_1.experienceLessonController.getAvailableSchedules);
+exports.experienceLessonRoutes.get('/:id', experienceLessonController_1.experienceLessonController.getExperienceLessonById);
+exports.experienceLessonRoutes.post('/', experienceLessonController_1.experienceLessonController.createExperienceLesson);
+exports.experienceLessonRoutes.put('/:id', experienceLessonController_1.experienceLessonController.updateExperienceLesson);
+exports.experienceLessonRoutes.put('/:id/status', experienceLessonController_1.experienceLessonController.updateStatus);
+exports.experienceLessonRoutes.delete('/:id', experienceLessonController_1.experienceLessonController.deleteExperienceLesson);
+//# sourceMappingURL=experienceLessons.js.map

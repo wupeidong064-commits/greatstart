@@ -1,0 +1,5 @@
+{
+  "pages": ["pages/login/login", "pages/home/home"],
+  "window": { "navigationBarTitleText": "蜂鸣家长", "navigationBarBackgroundColor": "#f4f7f5", "navigationBarTextStyle": "black", "backgroundColor": "#f4f7f5", "backgroundTextStyle": "dark" },
+  "sitemapLocation": "sitemap.json"
+}

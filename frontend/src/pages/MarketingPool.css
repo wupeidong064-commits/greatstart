@@ -1,0 +1,8 @@
+.marketing-pool .marketing-contact-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-width: 0; }
+.marketing-pool .marketing-phone { color: var(--tx2); font-size: var(--ui-text-body); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.marketing-pool .marketing-notes-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; width: 100%; padding: 0; overflow: hidden; border: 0; background: none; color: var(--tx2); font: inherit; font-size: var(--ui-text-body); font-weight: 500; line-height: 1.65; white-space: normal; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.marketing-pool .marketing-notes-preview:hover { color: var(--acc-strong); }
+.marketing-pool .marketing-notes-preview:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; border-radius: 3px; }
+
+.marketing-pool .marketing-name-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.marketing-pool .marketing-owner-note { color: var(--tx2); font-size: var(--ui-text-small); margin-top: 4px; }

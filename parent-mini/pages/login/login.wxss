@@ -1,0 +1,1 @@
+.login{padding:90rpx 40rpx 40rpx}.intro{margin-bottom:48rpx}.label{font-size:25rpx;margin:30rpx 0 12rpx;color:#4f6557}.field{background:#f2f6f1;border:1rpx solid #e3ebe1;border-radius:16rpx;padding:0 24rpx;height:92rpx;font-size:28rpx}.submit{margin-top:32rpx;line-height:88rpx}.help{margin-top:24rpx}.privacy{text-align:center;padding:16rpx 24rpx}

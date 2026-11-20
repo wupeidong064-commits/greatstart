@@ -1,0 +1,121 @@
+/* Workbench interaction system: 160ms feedback, 320ms panels, 480ms theme reveal. */
+.lucide { width: 18px; height: 18px; stroke-width: 1.7; flex-shrink: 0; vertical-align: middle; }
+.bz-nav-icon .lucide, .bz-func-icon .lucide { width: 20px; height: 20px; }
+.bz-icon-btn .lucide { width: 19px; height: 19px; }
+.bz-magnetic { transform: translate(var(--magnet-x, 0px), var(--magnet-y, 0px)); transition: transform 260ms cubic-bezier(.16, 1, .3, 1); }
+.wb-home { padding-top: 40px; }
+.wb-inner { max-width: 1320px; grid-template-columns: minmax(0, 1fr) minmax(320px, 350px); gap: 36px; }
+.wb-greet { margin: 12px 0 28px; }
+.wb-kicker { display: flex; align-items: center; gap: 7px; color: var(--tx2); font-size: var(--ui-text-small); margin-bottom: 17px; letter-spacing: 0; }
+.wb-kicker > span { height: 5px; width: 5px; background: var(--acc-strong); border-radius: 50%; }
+.wb-greet h1 { font-size: var(--ui-text-title); line-height: 1.5; font-weight: 600; letter-spacing: 0; }
+.wb-greet p { margin-top: 10px; color: var(--tx2); font-size: var(--ui-text-small); }
+.wb-pills { margin-bottom: 26px; gap: 10px; }
+.wb-pill { padding: 17px 13px; gap: 12px; border-radius: 13px; box-shadow: var(--shadow-1); }
+.wb-pill .pk { display: flex; align-items: center; gap: 6px; max-width: 100%; color: var(--tx2); font-size: var(--ui-text-small); white-space: normal; overflow-wrap: anywhere; }
+.wb-pill .pk .lucide { width: 13px; height: 13px; flex-shrink: 0; color: var(--tx3); }
+.wb-pill .pv { font-size: var(--ui-text-number); font-weight: 600; letter-spacing: 0; line-height: 1.2; }
+.wb-pill.warn { border-color: var(--line); }
+.wb-pill.warn .pk .lucide { color: var(--warn); }
+.wb-composer-box { padding: 20px 18px; min-height: 82px; border-color: var(--line2); box-shadow: var(--ui-shadow-card); }
+.wb-composer-box:focus-within { border-color: var(--line2); box-shadow: var(--ui-shadow-card); }
+.wb-composer-box .wb-spark { color: var(--acc-strong); }
+.wb-chat-input { font-size: var(--ui-text-body); }
+.wb-chat-input:focus-visible { outline: none; }
+.wb-send-btn { border-radius: 50%; }
+.wb-chips { margin-top: 15px; gap: 8px; }
+.wb-chips .bz-chip { font-size: var(--ui-text-small); padding: 6px 10px; }
+.wb-side { position: sticky; top: 24px; }
+.wb-block-head { min-height: 26px; margin-bottom: 12px; }
+.wb-block-head h3 { display: flex; gap: 8px; align-items: center; font-size: var(--ui-text-body); font-weight: 600; }
+.wb-block-head h3 .lucide { width: 16px; height: 16px; color: var(--tx2); }
+.wb-block-head .sub { font-size: var(--ui-text-small); }
+.wb-panel { padding: 12px 10px; box-shadow: var(--shadow-1); border-radius: 14px; }
+.wb-dt td, .wb-dt th { padding: 12px 7px; font-size: var(--ui-text-small); }
+.wb-dt td:first-child { font-variant-numeric: tabular-nums; color: var(--tx); }
+.wb-main.is-chatting .wb-composer-box { min-height: 64px; padding: 14px 18px; }
+.wb-inner.is-chatting > .wb-side { max-height: 100%; overflow-y: auto; padding: 0 5px 16px; scrollbar-width: thin; }
+.wb-side .wb-block + .wb-block { margin-top: 26px; }
+.focus-panel { border: 1px solid var(--line); border-radius: 15px; padding: 18px 16px 12px; background: var(--card); box-shadow: var(--shadow-1); }
+.focus-refresh { display: grid; place-items: center; border: 0; background: transparent; color: var(--tx3); cursor: pointer; width: 26px; height: 26px; border-radius: 7px; }
+.focus-refresh:hover { background: var(--card2); color: var(--tx); }
+.focus-refresh:disabled { opacity: .4; cursor: wait; }
+.focus-refresh .lucide { width: 14px; height: 14px; }
+.focus-summary { display: flex; justify-content: space-between; align-items: center; padding: 2px 1px 15px; }
+.focus-eyebrow { font-size: var(--ui-text-small); color: var(--tx2); }
+.focus-summary p { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; }
+.focus-summary p b { color: var(--tx); font-size: var(--ui-text-number); font-weight: 500; letter-spacing: 0; line-height: 1.2; font-variant-numeric: tabular-nums; transition: color 180ms; }
+.focus-summary p > span { color: var(--tx3); font-size: var(--ui-text-small); font-variant-numeric: tabular-nums; }
+.focus-summary.is-complete p b { color: var(--ok); }
+.focus-progress-ring { display: grid; place-items: center; width: 43px; height: 43px; border-radius: 50%; padding: 2px; }
+.focus-progress-ring > span { display: grid; place-items: center; width: 100%; height: 100%; border-radius: 50%; background: var(--card); color: var(--ok); }
+.focus-progress { height: 3px; background: var(--line); border-radius: 3px; overflow: hidden; margin-bottom: 18px; }
+.focus-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--ok); transition: width 420ms cubic-bezier(.16,1,.3,1); }
+.focus-categories { display: flex; flex-direction: column; gap: 8px; }
+.focus-category { display: flex; align-items: center; width: 100%; padding: 11px 10px; gap: 10px; color: var(--tx); text-align: left; cursor: pointer; border: 1px solid transparent; border-radius: 10px; background: transparent; font: inherit; transition: background 160ms, border-color 160ms; }
+.focus-category:hover { background: var(--card2); border-color: var(--line); }
+.focus-category.is-selected { background: var(--acc-bg); border-color: var(--acc-line); }
+.focus-category-icon { display: grid; place-items: center; width: 33px; height: 33px; border: 1px solid var(--line); border-radius: 9px; background: var(--card2); color: var(--tx2); flex-shrink: 0; }
+.focus-category.is-selected .focus-category-icon { color: var(--acc-strong); background: var(--card); border-color: var(--acc-line); }
+.focus-category-copy { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+.focus-category-copy strong { font-size: var(--ui-text-small); font-weight: 500; }
+.focus-category-copy small { color: var(--tx3); font-size: var(--ui-text-small); line-height: 1.4; }
+.focus-count { color: var(--tx2); font-size: var(--ui-text-small); font-variant-numeric: tabular-nums; }
+.focus-count.is-done { color: var(--ok); }
+.focus-chevron { color: var(--tx3); width: 12px; height: 12px; transition: transform 200ms; }
+.is-open .focus-chevron { transform: rotate(180deg); }
+.focus-connected { position: relative; padding: 12px 0 5px 20px; }
+/* The line explains the selected card → checklist relationship. */
+.focus-connected::before { content: ''; position: absolute; top: 0; left: 26px; width: 13px; height: 27px; border-left: 1px solid var(--acc-strong); border-bottom: 1px solid var(--acc-strong); border-radius: 0 0 0 9px; transform-origin: top; animation: focus-line 280ms cubic-bezier(.16,1,.3,1) both; }
+.focus-task-panel { position: relative; border: 1px solid var(--line); background: var(--bg2); border-radius: 11px; overflow: hidden; animation: focus-reveal 320ms cubic-bezier(.16,1,.3,1) both; }
+.focus-tabs { display: flex; gap: 14px; padding: 13px 13px 0; border-bottom: 1px solid var(--line); }
+.focus-tabs button { position: relative; border: 0; background: none; font: inherit; font-size: var(--ui-text-small); padding-bottom: 11px; cursor: pointer; color: var(--tx3); }
+.focus-tabs button[aria-pressed='true'] { color: var(--tx); }
+.focus-tabs button[aria-pressed='true']::after { content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; border-radius: 2px; background: var(--acc-strong); }
+.focus-tabs button span { color: var(--tx3); padding-left: 3px; font-size: var(--ui-text-small); }
+.focus-task-list { max-height: 256px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.focus-task { display: flex; gap: 10px; padding: 13px; position: relative; align-items: flex-start; cursor: pointer; border-bottom: 1px solid var(--line); transition: background 180ms; }
+.focus-task:last-child { border-bottom: none; }
+.focus-task:hover { background: var(--card2); }
+.focus-task input { position: absolute; width: 18px; height: 18px; opacity: 0; left: 12px; top: 14px; z-index: 1; cursor: pointer; }
+.focus-checkbox { margin-top: 1px; width: 17px; height: 17px; display: grid; place-items: center; border-radius: 5px; border: 1px solid var(--line2); flex-shrink: 0; background: var(--card); pointer-events: none; transition: background 160ms, border-color 160ms, transform 160ms; }
+.focus-checkbox .lucide { width: 12px; height: 12px; opacity: 0; transform: scale(.5); transition: opacity 160ms, transform 220ms cubic-bezier(.34,1.56,.64,1); }
+.focus-task input:checked + .focus-checkbox { border-color: var(--ok); background: var(--ok); color: var(--bg); }
+.focus-task input:checked + .focus-checkbox .lucide { opacity: 1; transform: scale(1); }
+.focus-task input:focus-visible + .focus-checkbox { outline: 2px solid var(--acc-strong); outline-offset: 3px; }
+.focus-task-copy { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.focus-task-copy strong { position: relative; font-size: var(--ui-text-small); line-height: 18px; font-weight: 500; color: var(--tx); overflow-wrap: anywhere; }
+.focus-task-copy strong::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--tx3); transform: scaleX(0); transform-origin: left; transition: transform 260ms; }
+.focus-task.is-done .focus-task-copy strong::after { transform: scaleX(1); }
+.focus-task.is-done .focus-task-copy strong { color: var(--tx3); }
+.focus-task-copy small { font-size: var(--ui-text-small); line-height: 1.5; color: var(--tx3); overflow-wrap: anywhere; }
+.focus-business-link { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; border-top: 1px solid var(--line); padding: 12px 13px; background: var(--card); color: var(--tx2); font: inherit; font-size: var(--ui-text-small); cursor: pointer; }
+.focus-business-link:hover { color: var(--acc-strong); }
+.focus-business-link .lucide { width: 14px; height: 14px; }
+.focus-footnote { text-align: center; color: var(--tx3); font-size: var(--ui-text-small); margin: 15px 0 1px; }
+.focus-list-empty { padding: 23px 10px; color: var(--tx3); text-align: center; }
+.focus-list-empty .lucide { width: 22px; height: 22px; color: var(--ok); }
+.focus-list-empty p { font-size: var(--ui-text-small); margin-top: 8px; }
+.focus-truncated { font-size: var(--ui-text-small); color: var(--tx3); padding: 8px 12px; line-height: 1.6; }
+.focus-feedback-slot { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 1100; max-width: calc(100vw - 28px); }
+.focus-feedback { display: flex; align-items: center; gap: 11px; background: var(--bg2); color: var(--ok); border: 1px solid var(--ok-line); box-shadow: var(--shadow-2); border-radius: 15px; padding: 10px 17px 10px 11px; min-width: 280px; animation: focus-toast 280ms cubic-bezier(.16,1,.3,1); }
+.focus-feedback > span { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.focus-feedback strong { font-size: var(--ui-text-small); color: var(--tx); font-weight: 500; }
+.focus-feedback small { font-size: var(--ui-text-small); color: var(--tx3); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-text-button { border: 0; background: none; font: inherit; color: var(--acc-strong); cursor: pointer; font-size: var(--ui-text-small); }
+.focus-skeleton { display: grid; gap: 16px; padding: 12px; }
+.focus-skeleton i { display: block; height: 38px; background: var(--card2); border-radius: 8px; }
+.focus-panel button:focus-visible, .focus-feedback button:focus-visible { outline: 2px solid var(--acc-strong); outline-offset: 3px; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-new(root) { z-index: 1; }
+@keyframes focus-line { from { transform: scaleY(0); opacity: 0; } to { transform: scaleY(1); opacity: 1; } }
+@keyframes focus-reveal { from { opacity: 0; clip-path: circle(0% at 8% 0%); } to { opacity: 1; clip-path: circle(150% at 8% 0%); } }
+@keyframes focus-toast { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+@media (max-width: 1200px) and (min-width: 1101px) { .wb-inner { gap: 22px; grid-template-columns: minmax(0, 1fr) 310px; } .wb-pills { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .wb-inner { grid-template-columns: 1fr; gap: 28px; } .wb-side { position: static; align-items: start; } .wb-side .wb-block + .wb-block { margin-top: 0; } }
+@media (max-width: 640px) { .wb-home { padding-top: 24px; } .wb-greet { margin-top: 0; } .wb-kicker { font-size: var(--ui-text-small); } .wb-greet h1 { font-size: var(--ui-text-title); letter-spacing: 0; } .wb-pill { padding: 15px; } .wb-pill .pv { font-size: var(--ui-text-title); } .wb-side .wb-block + .wb-block { margin-top: 24px; } .wb-chips { gap: 6px; } .focus-feedback-slot { bottom: 16px; } .wb-inner.is-chatting > .wb-side { max-height: none; overflow: visible; padding: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .bz-magnetic { transform: none !important; transition: none; }
+  .focus-panel *, .focus-feedback, .focus-connected::before, .focus-progress > span { animation: none !important; transition: none !important; }
+  .focus-task-panel { clip-path: none; }
+}

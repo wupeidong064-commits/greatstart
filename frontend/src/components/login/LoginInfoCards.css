@@ -1,0 +1,217 @@
+/* Product cards are scoped to the login page; the application theme stays untouched. */
+.bz-login.bz-login-product { --card-height: 280px; --ui-text-small: 14px; --ui-text-body: 16px; --ui-text-title: 24px; font-size: var(--ui-text-body); font-weight: 500; }
+.bz-login.bz-login-product #slogan { font-size: var(--ui-text-title); }
+.bz-login.bz-login-product .page { padding-inline: 44px; }
+.bz-login.bz-login-product .masthead { max-width: 1260px; height: 72px; }
+.bz-login.bz-login-product .scene { max-width: 1260px; padding-bottom: 24px; }
+.bz-login.bz-login-product .login-panel { width: 400px; padding: 24px 28px 16px; border-radius: 18px; }
+.bz-login.bz-login-product .login-panel > .segmented > span { font-size: var(--ui-text-body); font-weight: 600; line-height: 1.5; }
+.bz-login.bz-login-product .login-mode-label { display: block; padding: 12px; text-align: center; width: 100%; }
+.bz-login.bz-login-product #login-form { margin-top: 20px; }
+.bz-login.bz-login-product .field { height: 48px; padding-inline: 14px; gap: 12px; margin-bottom: 12px; }
+.bz-login.bz-login-product .field > .icon { width: 18px; height: 18px; }
+.bz-login.bz-login-product .field input { font-size: var(--ui-text-body); font-weight: 500; }
+.bz-login.bz-login-product .field input::placeholder { font-size: var(--ui-text-small); color: #9b93a5; }
+.bz-login.bz-login-product .login-options { min-height: 24px; margin-top: 4px; }
+.bz-login.bz-login-product .remember-login { font-size: var(--ui-text-small); font-weight: 500; }
+.bz-login.bz-login-product .remember-login input { width: 16px; height: 16px; }
+.bz-login.bz-login-product .remember-note { font-size: var(--ui-text-small); }
+.bz-login.bz-login-product #login-form > .primary-button { height: 48px; margin-top: 16px; font-size: var(--ui-text-body); font-weight: 600; }
+.bz-login.bz-login-product .login-links { margin-top: 18px; font-size: var(--ui-text-small); gap: 8px; flex-wrap: wrap; }
+.bz-login.bz-login-product .login-links button, .bz-login.bz-login-product .login-links a { font-size: var(--ui-text-small); font-weight: 500; }
+.bz-login.bz-login-product .form-status { height: 20px; line-height: 20px; margin-top: 8px; font-size: var(--ui-text-small); }
+.bz-login .login-product { min-width: 0; min-height: 0; }
+.bz-login.bz-login-product .login-product-tabs { display: none; }
+.bz-login .login-product-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 18px; height: 100%; }
+.bz-login .login-product-card { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 22px 24px 20px; border: 1px solid #e4e2ee; border-radius: 20px; background: linear-gradient(145deg, #ffffffd9, #ffffffa8); box-shadow: inset 0 1px 0 #fff, var(--ui-shadow-card); backdrop-filter: blur(16px); animation: bz-login-arrive 380ms 140ms var(--ease) backwards; }
+.bz-login .login-product-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 21px; flex-shrink: 0; }
+.bz-login .login-product-heading h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--ui-text-body); font-weight: 600; line-height: 1.5; letter-spacing: 0; }
+.bz-login .login-product-heading h2 > svg { color: var(--accent); }
+.bz-login .login-product-heading > span { font-size: var(--ui-text-small); color: #9292a6; white-space: nowrap; }
+.bz-login .login-feature-grid { --cell-height: 40px; position: relative; isolation: isolate; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: var(--cell-height); gap: 6px; margin-top: 18px; }
+.bz-login .login-feature-selection { pointer-events: none; position: absolute; z-index: -1; top: 0; left: 0; width: calc((100% - 12px) / 3); height: var(--cell-height); border: 1px solid #dcd7f7; border-radius: 8px; background: #efecfc; transform: translate(calc(var(--feature-col) * (100% + 6px)), calc(var(--feature-row) * (var(--cell-height) + 6px))); transition: transform 220ms var(--ease); }
+.bz-login .login-feature-grid button { display: flex; align-items: center; justify-content: flex-start; gap: 7px; min-width: 0; padding: 0 8px; color: #77798b; background: transparent; border-radius: 8px; font-size: var(--ui-text-small); font-weight: 500; white-space: nowrap; transition: color 160ms, background 160ms; }
+.bz-login .login-feature-grid button > svg { flex-shrink: 0; color: #9490a8; }
+.bz-login .login-feature-grid button:hover { color: var(--accent); background: #f2f0fb88; }
+.bz-login .login-feature-grid button[aria-pressed='true'], .bz-login .login-feature-grid button[aria-pressed='true'] > svg { color: var(--accent); }
+.bz-login .login-feature-description { display: flex; align-items: center; min-height: 34px; margin-top: auto; padding-top: 12px; border-top: 1px solid #eeecf4; }
+.bz-login .login-feature-description p { display: flex; align-items: flex-start; gap: 7px; margin: 0; min-height: 40px; color: #716a7e; font-size: var(--ui-text-small); line-height: 1.6; animation: login-product-swap 200ms ease-out both; }
+.bz-login .login-description-dot { flex-shrink: 0; width: 4px; height: 4px; margin-top: 7px; border-radius: 50%; background: #9f91d7; }
+.bz-login .login-ai { background: radial-gradient(ellipse at 100% 0%, #ded6f32b, transparent 70%), linear-gradient(145deg, #ffffffc4, #f8f5ffcf); animation-delay: 190ms; }
+.bz-login .login-ai-heading { display: flex; align-items: center; gap: 10px; }
+.bz-login .login-ai-heading > div { min-width: 0; }
+.bz-login .login-bot { display: grid; place-items: center; width: 48px; height: 48px; flex-shrink: 0; color: var(--accent); background: linear-gradient(145deg, #f3ecfc, #e9e2f9); border: 1px solid #dfd5f4; border-radius: 14px; box-shadow: inset 0 1px 1px #fff; }
+.bz-login .login-ai-heading h2 { margin: 0; font-size: var(--ui-text-body); font-weight: 600; line-height: 1.5; letter-spacing: 0; }
+.bz-login .login-ai-heading p { margin: 4px 0 0; color: #9691a6; font-size: var(--ui-text-small); }
+.bz-login .login-ai-spark { margin-left: auto; align-self: flex-start; color: #b2a0d2; }
+.bz-login .login-ai-abilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 12px; }
+.bz-login .login-ai-abilities button { display: flex; align-items: center; justify-content: center; gap: 4px; height: 30px; border-radius: 6px; color: #80748f; background: transparent; font-size: var(--ui-text-small); font-weight: 500; white-space: nowrap; transition: color 180ms, background 180ms, box-shadow 180ms; }
+.bz-login .login-ai-abilities button > svg { flex-shrink: 0; }
+.bz-login .login-ai-abilities button[aria-pressed='true'] { color: var(--accent); background: #fff; box-shadow: var(--ui-shadow-card); }
+.bz-login .login-ai-abilities button:hover { color: var(--accent); background: #ffffffa1; }
+.bz-login .login-ai-example { display: flex; align-items: center; min-height: 68px; padding: 9px 0 8px; }
+.bz-login .login-ai-example > div { animation: login-product-swap 200ms ease-out both; }
+.bz-login .login-ai-example p { margin: 0; color: #625775; font-size: var(--ui-text-small); font-weight: 500; line-height: 1.6; }
+.bz-login .login-ai-example span { display: flex; align-items: center; gap: 4px; margin-top: 5px; color: #a09aaf; font-size: var(--ui-text-small); }
+.bz-login .login-tool-heading { display: flex; justify-content: space-between; gap: 6px; padding-top: 9px; margin-top: auto; border-top: 1px solid #eae3f3; color: #9390a3; font-size: var(--ui-text-small); line-height: 1.6; }
+.bz-login .login-tool-heading .login-api-note { font-size: var(--ui-text-small); color: #aaa4b8; white-space: nowrap; }
+.bz-login .login-ai-tools { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 9px; }
+.bz-login .login-ai-tools button { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 2px 0; color: #85808f; background: transparent; border-radius: 6px; transition: color 180ms, background 180ms; }
+.bz-login .login-ai-tools button:hover { color: #66528e; background: #fff9; }
+.bz-login .login-ai-tools img { width: 26px; height: 26px; object-fit: contain; filter: saturate(.68); transition: transform 200ms var(--ease), filter 180ms; }
+.bz-login .login-ai-tools button:hover img { transform: translateY(-2px); filter: saturate(1); }
+.bz-login .login-start { animation-delay: 240ms; }
+.bz-login .login-product-heading .login-free-badge { display: inline-flex; align-items: center; gap: 3px; padding: 3px 6px; border: 1px solid #e6e2f0; border-radius: 5px; color: #9b91b2; font-size: var(--ui-text-small); background: #fcfaff; }
+.bz-login .login-free-title { margin-top: 17px; font-size: var(--ui-text-title); font-weight: 600; line-height: 1.4; letter-spacing: 0; color: #363244; }
+.bz-login .login-free-title > span { color: var(--accent); }
+.bz-login .login-free-copy { margin: 12px 0 16px; color: #93909e; font-size: var(--ui-text-small); line-height: 1.8; }
+.bz-login .login-contact-button { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 42px; flex-shrink: 0; margin-top: auto; padding: 0 14px; border: 1px solid #dad2ec; border-radius: 10px; background: #f1ebfa; color: var(--accent); font-size: var(--ui-text-small); font-weight: 600; transition: border-color 180ms, background 180ms; }
+.bz-login .login-contact-button:hover { background: #e9e0f6; border-color: #cfc2e8; color: #73559e; }
+.bz-login .login-contact-button > svg { transition: transform 200ms var(--ease); }
+.bz-login .login-contact-button:hover > svg { transform: translateX(2px); }
+.bz-login .login-product-dialog { width: 440px; }
+.bz-login.bz-login-product .dialog-head h2 { font-size: var(--ui-text-title); font-weight: 600; line-height: 1.4; }
+.bz-login .login-help-list { margin: 22px 0; }
+.bz-login .login-help-list dt { margin-top: 17px; color: var(--ink); font-size: var(--ui-text-small); font-weight: 600; }
+.bz-login .login-help-list dd { margin: 7px 0 0; font-size: var(--ui-text-small); line-height: 1.8; color: var(--text); }
+.bz-login.keyboard-open .login-product { display: none; }
+@keyframes login-product-swap { from { opacity: .2; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 1150px) and (min-width: 761px) {
+  .bz-login .login-product-grid { gap: 12px; }
+  .bz-login .login-product-card { padding-inline: 16px; }
+  .bz-login .login-product-heading h2 { font-size: var(--ui-text-body); }
+  .bz-login .login-product-heading > span { font-size: var(--ui-text-small); }
+  .bz-login .login-feature-grid button { font-size: var(--ui-text-small); gap: 4px; padding-inline: 3px; }
+  .bz-login .login-feature-grid button > svg { width: 16px; height: 16px; }
+  .bz-login .login-ai-heading h2 { font-size: var(--ui-text-body); }
+  .bz-login .login-ai-spark { display: none; }
+  .bz-login .login-ai-abilities button { font-size: var(--ui-text-small); gap: 3px; }
+  .bz-login .login-ai-abilities button > svg { width: 11px; }
+  .bz-login .login-free-title { font-size: var(--ui-text-title); }
+}
+@media (min-width: 761px) and (min-height: 671px) and (max-height: 800px) {
+  .bz-login.bz-login-product { --card-height: 264px; }
+  .bz-login.bz-login-product .masthead { height: 56px; }
+  .bz-login.bz-login-product .login-panel { padding: 20px 24px 10px; }
+  .bz-login.bz-login-product .field { height: 44px; margin-bottom: 10px; }
+  .bz-login.bz-login-product #login-form { margin-top: 16px; }
+  .bz-login.bz-login-product #login-form > .primary-button { height: 44px; margin-top: 12px; }
+  .bz-login.bz-login-product .auth-stage { gap: 14px; }
+  .bz-login.bz-login-product .scene { gap: 16px; padding-bottom: 18px; }
+  .bz-login .login-product-card { padding-top: 15px; padding-bottom: 14px; }
+  .bz-login .login-feature-grid { --cell-height: 36px; margin-top: 12px; }
+  .bz-login .login-feature-description { padding-top: 9px; }
+  .bz-login .login-ai-abilities { margin-top: 8px; }
+  .bz-login .login-ai-example { min-height: 62px; }
+  .bz-login .login-tool-heading { padding-top: 6px; }
+  .bz-login .login-ai-tools { margin-top: 7px; }
+  .bz-login .login-free-title { margin-top: 12px; }
+  .bz-login .login-free-copy { margin: 8px 0 10px; }
+}
+@media (max-width: 760px), (min-width: 761px) and (max-height: 670px) {
+  .bz-login.bz-login-product { --card-height: 264px; }
+  .bz-login.bz-login-product .page { padding-inline: 20px; }
+  .bz-login.bz-login-product .scene { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) calc(var(--card-height) + 46px); gap: 14px; padding-bottom: 14px; }
+  .bz-login.bz-login-product .login-panel { padding: 20px 24px 12px; }
+  .bz-login.bz-login-product .field { height: 44px; }
+  .bz-login.bz-login-product #login-form { margin-top: 16px; }
+  .bz-login .login-product { display: grid; grid-template-rows: 38px minmax(0, 1fr); gap: 8px; }
+  .bz-login.bz-login-product .login-product-tabs { display: grid; flex-shrink: 0; }
+  .bz-login.bz-login-product .login-product-tabs { height: 38px; }
+  .bz-login.bz-login-product .login-product-tabs button { padding: 0 4px; line-height: 20px; }
+  .bz-login .login-product-grid { display: block; height: 100%; min-height: 0; }
+  .bz-login .login-product-card { display: none; height: 100%; padding: 18px 20px; animation: none; }
+  .bz-login .login-product-card.is-current { display: flex; }
+  .bz-login .login-free-title { font-size: var(--ui-text-title); }
+}
+@media (min-width: 761px) and (max-height: 670px) {
+  .bz-login.bz-login-product .scene { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: 1fr; gap: 44px; align-items: center; max-width: 1000px; padding: 4px 0 16px; }
+  .bz-login.bz-login-product .auth-stage { gap: 16px; }
+  .bz-login.bz-login-product #slogan { font-size: var(--ui-text-title); letter-spacing: 0; }
+  .bz-login .login-product { height: 320px; }
+}
+@media (min-width: 761px) and (max-width: 1150px) and (min-height: 671px) {
+  .bz-login .login-features .login-product-heading > span { display: none; }
+  .bz-login .login-feature-grid { --cell-height: 40px; margin-top: 10px; }
+  .bz-login .login-feature-grid button { flex-direction: column; gap: 2px; padding: 0; line-height: 21px; }
+  .bz-login .login-product-heading { gap: 4px; }
+  .bz-login .login-product-heading h2 { gap: 5px; }
+  .bz-login .login-ai-abilities { margin-top: 8px; }
+  .bz-login .login-ai-abilities button { height: 28px; gap: 0; }
+  .bz-login .login-ai-abilities button > svg { display: none; }
+  .bz-login .login-ai-example { min-height: 70px; padding-block: 6px; }
+  .bz-login .login-ai-example p, .bz-login .login-ai-example span { line-height: 1.5; }
+  .bz-login .login-ai-example span { margin-top: 4px; }
+  .bz-login .login-tool-heading { padding-top: 6px; line-height: 1.5; }
+  .bz-login .login-ai-tools { margin-top: 7px; }
+}
+@media (min-width: 761px) and (max-width: 900px) { .bz-login .login-ai-heading p { display: none; } .bz-login .login-bot { width: 42px; height: 42px; } }
+@media (max-width: 760px) and (max-height: 800px) {
+  .bz-login.bz-login-product { --card-height: 200px; }
+  .bz-login.bz-login-product .masthead { height: 48px; }
+  .bz-login.bz-login-product .scene { grid-template-rows: minmax(0, 1fr) calc(var(--card-height) + 46px); gap: 9px; padding-bottom: 10px; }
+  .bz-login.bz-login-product .auth-stage { gap: 10px; padding-bottom: 0; }
+  .bz-login.bz-login-product .login-panel { padding: 16px 20px 8px; }
+  .bz-login.bz-login-product .login-panel > .segmented > span { padding: 8px; }
+  .bz-login.bz-login-product #login-form { margin-top: 12px; }
+  .bz-login.bz-login-product .field { height: 40px; margin-bottom: 8px; }
+  .bz-login.bz-login-product #login-form > .primary-button { height: 42px; margin-top: 12px; }
+  .bz-login.bz-login-product .login-links { margin-top: 12px; }
+  .bz-login.bz-login-product .form-status { height: 18px; line-height: 18px; margin-top: 4px; }
+  .bz-login .login-product-card { padding: 10px 14px; }
+  .bz-login .login-feature-grid { --cell-height: 28px; margin-top: 8px; }
+  .bz-login .login-feature-description { padding-top: 8px; }
+  .bz-login .login-ai-heading { gap: 8px; }
+  .bz-login .login-bot { width: 30px; height: 30px; border-radius: 9px; }
+  .bz-login .login-bot > svg { width: 22px; height: 22px; }
+  .bz-login .login-ai-heading h2 { font-size: var(--ui-text-body); }
+  .bz-login .login-ai-heading p { display: none; }
+  .bz-login .login-ai-abilities { margin-top: 6px; }
+  .bz-login .login-ai-abilities button { height: 24px; }
+  .bz-login .login-ai-example { min-height: 58px; padding: 4px 0; }
+  .bz-login .login-tool-heading { padding-top: 5px; }
+  .bz-login .login-ai-tools { margin-top: 6px; }
+  .bz-login .login-ai-tools img { width: 20px; height: 20px; }
+  .bz-login .login-ai-tools button { gap: 4px; }
+  .bz-login .login-free-title { margin-top: 8px; font-size: var(--ui-text-title); line-height: 1.3; }
+  .bz-login .login-free-copy { margin: 6px 0 7px; line-height: 1.65; }
+}
+@media (max-width: 760px) and (max-height: 590px) {
+  .bz-login.bz-login-product { --card-height: 184px; }
+  .bz-login.bz-login-product .masthead { height: 44px; }
+  .bz-login.bz-login-product .auth-stage > h1, .bz-login.bz-login-product .login-panel > .segmented { display: none; }
+  .bz-login.bz-login-product #login-form { margin-top: 0; }
+  .bz-login.bz-login-product .login-panel { padding: 14px 18px 8px; }
+  .bz-login.bz-login-product .scene { grid-template-rows: minmax(0, 1fr) calc(var(--card-height) + 46px); gap: 7px; padding-bottom: 8px; }
+  .bz-login .login-product-tabs button { padding-block: 6px; }
+  .bz-login .login-product-card { padding: 9px 12px; }
+  .bz-login .login-product-heading h2 { font-size: var(--ui-text-body); }
+  .bz-login .login-feature-grid { --cell-height: 24px; margin-top: 7px; gap: 5px 6px; }
+  .bz-login .login-feature-grid button { gap: 4px; padding-inline: 4px; }
+  .bz-login .login-feature-selection { transform: translate(calc(var(--feature-col) * (100% + 6px)), calc(var(--feature-row) * (var(--cell-height) + 5px))); }
+  .bz-login .login-feature-description { padding-top: 6px; }
+  .bz-login .login-feature-description p { font-size: var(--ui-text-small); min-height: 26px; }
+  .bz-login .login-bot { width: 28px; height: 28px; border-radius: 7px; }
+  .bz-login .login-bot > svg { width: 21px; height: 21px; }
+  .bz-login .login-ai-heading h2 { font-size: var(--ui-text-body); }
+  .bz-login .login-ai-heading p { display: none; }
+  .bz-login .login-ai-abilities { margin-top: 6px; }
+  .bz-login .login-ai-abilities button { height: 24px; }
+  .bz-login .login-ai-example { min-height: 38px; }
+  .bz-login .login-ai-example span { display: none; }
+  .bz-login .login-ai-example p { font-size: var(--ui-text-small); }
+  .bz-login .login-ai-example span { font-size: var(--ui-text-small); margin-top: 2px; }
+  .bz-login .login-tool-heading { padding-top: 4px; font-size: var(--ui-text-small); }
+  .bz-login .login-ai-tools { margin-top: 5px; }
+  .bz-login .login-ai-tools img { width: 17px; height: 17px; }
+  .bz-login .login-ai-tools button { gap: 3px; }
+  .bz-login .login-free-title { font-size: var(--ui-text-title); margin-top: 7px; line-height: 1.25; }
+  .bz-login .login-free-copy { font-size: var(--ui-text-small); line-height: 1.5; margin: 5px 0 6px; }
+  .bz-login .login-contact-button { height: 31px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bz-login .login-feature-selection { transition: none; }
+  .bz-login .login-feature-description p, .bz-login .login-ai-example > div, .bz-login .login-product-card { animation: none; }
+  .bz-login .login-ai-tools button:hover img, .bz-login .login-contact-button:hover > svg { transform: none; }
+}

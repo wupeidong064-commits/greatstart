@@ -1,0 +1,51 @@
+// Isolated PostgreSQL + HTTP verification. Never opens the business database.
+const {execFileSync,spawn}=require('node:child_process');
+const {randomUUID,randomBytes}=require('node:crypto');
+const {userInfo}=require('node:os');
+const {PrismaClient}=require('@prisma/client');
+const bcrypt=require('bcryptjs'), assert=require('node:assert/strict'),net=require('node:net');
+const db='buzzer_archive_'+randomBytes(6).toString('hex');
+const url='postgresql://'+encodeURIComponent(userInfo().username)+'@127.0.0.1:'+(process.env.RENEWAL_TEST_PGPORT || process.env.PGPORT || '5432')+'/'+db;
+const env={...process.env,DATABASE_URL:url,DATABASE_DIRECT_URL:url,JWT_SECRET:randomBytes(32).toString('hex'),NODE_ENV:'test',AI_PROVIDER:'mock',};
+const p=new PrismaClient({datasources:{db:{url}}});let child,created=false;
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+ const socket=net.createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));env.PORT=String(port);
+ execFileSync('createdb',['-h','127.0.0.1','-p',new URL(url).port,db]);created=true;execFileSync('./node_modules/.bin/prisma',['migrate','deploy'],{cwd:__dirname+'/..',env,stdio:'pipe'});
+ const org=await p.organization.create({data:{name:'归档隔离',code:randomUUID()}}),other=await p.organization.create({data:{name:'其他机构',code:randomUUID()}});
+ const campus=await p.campus.create({data:{name:'校区',code:'MAIN',organizationId:org.id}}),otherCampus=await p.campus.create({data:{name:'其他校区',code:'MAIN',organizationId:other.id}});
+ const password=randomUUID(),hash=await bcrypt.hash(password,10);const makeUser=async(role,c)=>p.user.create({data:{name:role,email:randomUUID()+'@test.local',role,password:hash,organizationId:c.organizationId,campusId:c.id}});
+ const admin=await makeUser('manager',campus),sales=await makeUser('sales',campus),outsider=await makeUser('manager',otherCampus);
+ const cls=await p.class.create({data:{name:'测试班',code:'C1',courseType:'通用',organizationId:org.id,campusId:campus.id}});
+ const student=await p.student.create({data:{name:'归档学员',status:'active',remainingLessons:5,purchasedLessons:5,salesId:sales.id,organizationId:org.id,campusId:campus.id}});
+ const lost=await p.student.create({data:{name:'流失学员',status:'lost',organizationId:org.id,campusId:campus.id}});
+ const now=Date.now(),enrollment=await p.enrollment.create({data:{studentId:student.id,classId:cls.id,organizationId:org.id,enrolledAt:new Date(now-86400000*2)}});
+ const schedule=await p.schedule.create({data:{classId:cls.id,organizationId:org.id,campusId:campus.id,startTime:new Date(now-86400000),endTime:new Date(now-86400000+3600000)}});
+ child=spawn(process.execPath,['--import','tsx','src/index.ts'],{cwd:__dirname+'/..',env,stdio:'ignore'});const base='http://127.0.0.1:'+port;let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base+'/health')).ok){ready=true;break}}catch{}await delay(150)}assert(ready);
+ async function http(method,path,token,body,status){const r=await fetch(base+path,{method,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});const b=await r.json();assert.equal(r.status,status,method+' '+path+' '+JSON.stringify(b));return b;}
+ async function login(u){return(await http('POST','/api/auth/login',null,{email:u.email,password},200)).data.token}const a=await login(admin),s=await login(sales),o=await login(outsider);
+ const attend=status=>http('POST','/api/attendances/batch',a,{scheduleId:schedule.id,entries:[{studentId:student.id,status}]},200);
+ await attend('present');assert.equal((await p.student.findUnique({where:{id:student.id}})).remainingLessons,4);
+ const addRequest={requestId:randomUUID(),studentId:student.id,lessons:2,notes:'隔离增课'};await http('POST','/api/lesson-logs/add',a,addRequest,200);
+ await http('POST','/api/students/'+student.id+'/archive',s,{reason:'other'},403);
+ await http('POST','/api/students/'+student.id+'/archive',o,{reason:'other'},404);
+ await http('PUT','/api/students/'+student.id,a,{status:'archived'},409);
+ await http('GET','/api/students?status=archived',s,null,403);
+ let response=await http('POST','/api/students/'+student.id+'/archive',a,{reason:'no_renewal',note:'样例'},200);assert.equal(response.data.archivePreviousStatus,'active');assert.equal(response.data.archiveReason,'no_renewal');
+ await http('POST','/api/students/'+student.id+'/archive',a,{reason:'no_recall'},200);
+ const archived=await p.student.findUnique({where:{id:student.id}}),ended=await p.enrollment.findUnique({where:{id:enrollment.id}});assert.equal(archived.status,'archived');assert.equal(archived.remainingLessons,6);assert.equal(ended.status,'completed');assert(ended.endedAt);assert(+ended.endedAt>+schedule.endTime);
+ assert.equal(await p.attendance.count({where:{studentId:student.id}}),1);assert.equal(await p.lessonLog.count({where:{studentId:student.id}}),2);
+ response=await http('GET','/api/students',a,null,200);assert(!response.data.some(x=>x.id===student.id));response=await http('GET','/api/students?status=archived&search='+encodeURIComponent('归档'),a,null,200);assert.equal(response.pagination.total,1);assert.equal(response.data[0].id,student.id);
+ await http('GET','/api/students/'+student.id,s,null,403);await http('GET','/api/enrollments/'+enrollment.id,s,null,404);response=await http('GET','/api/lesson-logs?studentId='+student.id,s,null,200);assert.equal(response.data.length,0);
+ await http('PUT','/api/students/'+student.id,a,{status:'active'},409);
+ await http('POST','/api/lesson-logs/add',a,{...addRequest,requestId:randomUUID()},409);await http('POST','/api/lesson-logs/add',a,addRequest,200);
+ await http('POST','/api/conversions/renewal',a,{requestId:randomUUID(),studentId:student.id,totalLessons:3,price:0},409);
+ await attend('leave');assert.equal((await p.student.findUnique({where:{id:student.id}})).remainingLessons,7);assert.equal(await p.lessonLog.count({where:{studentId:student.id}}),3);
+ response=await http('POST','/api/students/'+student.id+'/restore',a,{},200);assert.equal(response.data.status,'active');await http('POST','/api/students/'+student.id+'/restore',a,{},200);assert.equal((await p.enrollment.findUnique({where:{id:enrollment.id}})).status,'completed');
+ await http('POST','/api/students/'+lost.id+'/archive',a,{reason:'no_recall'},200);response=await http('POST','/api/students/'+lost.id+'/restore',a,{},200);assert.equal(response.data.status,'lost');
+ // Future roll-call prevents any partial archive or enrollment closure.
+ const futureStudent=await p.student.create({data:{name:'未来考勤',organizationId:org.id,campusId:campus.id}}),futureEn=await p.enrollment.create({data:{studentId:futureStudent.id,classId:cls.id,organizationId:org.id,enrolledAt:new Date(now-3600000)}});
+ const future=await p.schedule.create({data:{classId:cls.id,organizationId:org.id,campusId:campus.id,startTime:new Date(now+3600000),endTime:new Date(now+7200000)}});await p.attendance.create({data:{organizationId:org.id,studentId:futureStudent.id,classId:cls.id,scheduleId:future.id,status:'leave'}});
+ await http('POST','/api/students/'+futureStudent.id+'/archive',a,{reason:'other'},409);assert.equal((await p.student.findUnique({where:{id:futureStudent.id}})).status,'active');assert.equal((await p.enrollment.findUnique({where:{id:futureEn.id}})).status,'active');
+ console.log('PASS 隔离 HTTP: 管理范围/越权、归档筛选、结束报名及历史保留、幂等、恢复原状态、续费增课拦截、历史签到更正、未来考勤原子回滚');
+})().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{if(child){child.kill('SIGTERM');await Promise.race([new Promise(r=>child.once('exit',r)),delay(3000)])}await p.$disconnect();if(created)execFileSync('dropdb',['-h','127.0.0.1','-p',new URL(url).port,'--if-exists',db])});
