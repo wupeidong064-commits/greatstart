@@ -153,7 +153,7 @@ app.use((req, res) => {
 // 错误处理
 app.use(logger_1.errorLogger);
 app.use(errorHandler_1.errorHandler);
-app.listen(PORT, () => {
+app.listen({ port: Number(PORT), host: process.env.BIND_HOST || undefined }, () => {
     console.log(`服务器运行在端口 ${PORT}`);
     if (process.env.NODE_ENV !== 'production')
         console.log(`API文档: http://localhost:${PORT}/api-docs`);

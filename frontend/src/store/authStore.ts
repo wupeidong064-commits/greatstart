@@ -90,10 +90,12 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.storageArea !== localStorage || (event.key !== null && event.key !== storageKey)) return;
     const token = useAuthStore.getState().token;
-    if (readSession().token === token) return;
+    const nextSession = readSession();
+    if (nextSession.token === token) return;
     // Dispose old forms and in-flight UI work before loading the other tab's identity.
     cacheService.clearAll();
     useAuthStore.setState(signedOut);
-    window.location.reload();
+    if (nextSession.token) window.location.reload();
+    else window.location.replace('/login');
   });
 }
