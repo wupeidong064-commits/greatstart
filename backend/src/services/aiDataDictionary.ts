@@ -664,6 +664,12 @@ export async function businessRecords(
     totals.学员人数 = rows.length;
     totals.剩余课时 = rows.reduce((n: number, r: any) => n + r.remainingLessons, 0);
   }
+  if (key === 'payments') {
+    totals['金额合计（元）'] = rows.reduce((n: number, r: any) => n + Number(r.amount ?? 0), 0);
+  }
+  if (key === 'refunds') {
+    totals['退费金额合计（元）'] = rows.reduce((n: number, r: any) => n + Number(r.amountToRefund ?? 0), 0);
+  }
   if (key === 'credit_account') {
     totals.可用积分 = rows.reduce(
       (n: number, r: any) => n + (r.balanceMicros - r.reservedMicros) / 10000,
