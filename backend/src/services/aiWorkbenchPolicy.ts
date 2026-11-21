@@ -266,6 +266,7 @@ export function inheritPreviousIntent(
     for (const [key,value] of Object.entries(card.filters || {})) {
       if (Object.prototype.hasOwnProperty.call(definition.paramsSchema,key) && value != null) params[key]=value;
     }
+    if (dateOnly) delete params.direction; // 纯改期追问重置排名方向，方向词只描述当前轮
     const domain = BUSINESS_DOMAINS[params.domain as BusinessDomain];
     const dated = !!definition.paramsSchema.startDate && (card.tool !== 'business_records' || (domain?.date && params.view!=='current'));
     if (dateOnly && !dated)
@@ -283,6 +284,12 @@ export function inheritPreviousIntent(
 
 /** Scope-wide order totals have one stable route; named people/classes still use entity resolution. */
 export function orderMetricIntent(q:string,today:string): AiIntent | undefined {
+  if (/净成单额/.test(q) && !/老师|教练|班级|学员|利润|区别|定义|口径|什么意思/.test(q)
+    && !/老师|教练|班级|学员/.test(q)) {
+    const calendar=resolveBusinessCalendar({question:q,today});
+    if(calendar.clarification)return {parsedOk:true,reply:calendar.clarification};
+    return {parsedOk:true,tools:[{name:'cost_and_income',params:{startDate:calendar.observation.start,endDate:calendar.observation.end}}]};
+  }
   if (/^(?:请(?:帮我)?(?:查询|统计)?\s*)?(?:(?:本|当前)(?:机构|校区)(?:的)?\s*)?(?:全部|所有|截至目前的?)(?:有效|已确认)(?:成单|订单)(?:\s*(?:一共|总共|共)?(?:有)?(?:多少|几)(?:笔|单))?[？?，,。\s]*(?:(?:成交|成单)?总(?:额|金额)(?:是)?(?:多少(?:元)?|多少钱))?[？?。\s]*$/.test(q.trim())) {
     return {parsedOk:true,tools:[{name:'all_confirmed_orders',params:{}}]};
   }
