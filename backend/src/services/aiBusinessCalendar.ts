@@ -322,7 +322,8 @@ export function resolveBusinessCalendar({
         : low
           ? parseToken(low.name.endsWith('classes') ? '近14天' : '近30天', today)
           : base.observation;
-    base.explicit = mentions.length > 0;
+    const inheritNoMention = mentions.length === 0 && previous?.explicit;
+    base.explicit = mentions.length > 0 || Boolean(inheritNoMention);
     base.singleDayMention =
       mentions.length > 0 && mentions.every(v => !v.joined &&
         !/^(?:最近|过去|近|未来|接下来)/.test(v.text) &&
