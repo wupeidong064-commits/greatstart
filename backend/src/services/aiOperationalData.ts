@@ -241,8 +241,10 @@ export async function studentAttendance(ctx: ToolContext, params: Record<string,
       const own=(byStudent.get(s.id)||[]).filter(f=>f.expected>0).sort((a,b)=>a.classId.localeCompare(b.classId));
       const due=own.reduce((sum,f)=>sum+f.expected,0),present=own.reduce((sum,f)=>sum+f.present,0);
       const label=displayNames.get(s.id) || s.name;
+      const contMax=Math.max(0,...own.map(f=>f.continuousAbsentCount||0));
       return {studentId:s.id,姓名:label,应到:due,实到:present,出勤率:due?Math.round(100*present/due):null,
-        班级明细:own.map(f=>(classNames.get(f.classId)||'班级')+'：应到 '+f.expected+'，实到 '+f.present).join('；') || '期间无应到课次',
+        连续未到:contMax||null,
+        班级明细:own.map(f=>(classNames.get(f.classId)||'班级')+'：应到 '+f.expected+'，实到 '+f.present+(f.continuousAbsentCount?'，连续未到 '+f.continuousAbsentCount+' 次':'')).join('；') || '期间无应到课次',
         classes:own.map(f=>({classId:f.classId,expected:f.expected,present:f.present})),排序结论:''};
     });
     if(ranking!=='none') {
@@ -264,7 +266,7 @@ export async function studentAttendance(ctx: ToolContext, params: Record<string,
       totals[sortBy+(highest?'最高':'最低')+'值']=leaders[0][sortBy];
     }
     return evidence(ctx,'student_attendance','学员历史出勤',period,
-      ['姓名','应到','实到','出勤率','班级明细',...(ranking!=='none'?['排序结论']:[])],rows,totals,
-      '按已完成场次及有效报名、已保存串课逐场核算，实到含迟到。按学员编号合计多个班级；出勤率按实到除以应到四舍五入至整数，百分比按显示值排名。',missing);
+      ['姓名','应到','实到','出勤率','连续未到','班级明细',...(ranking!=='none'?['排序结论']:[])],rows,totals,
+      '按已完成场次及有效报名、已保存串课逐场核算，实到含迟到；连续未到=自最近一次到课之后连续未到的已完成场次次数（该期间内）。按学员编号合计多个班级；出勤率按实到除以应到四舍五入至整数，百分比按显示值排名。',missing);
   },{isolationLevel:Prisma.TransactionIsolationLevel.RepeatableRead});
 }
