@@ -58,7 +58,7 @@ function clean(s: string) {
     });
 }
 const DATE_WORD =
-  /(?:(?:\d{4}年|去年|今年|明年)?\d+月(?:\d+[日号]?)?|\d{4}[-/.]\d+(?:[-/.]\d+)?|\d+[/]\d+|(?:最近|过去|近|未来|接下来)\d+天|(?:上上|上|本|这|下下|下|这个)(?:个?月|周|星期)|昨天|昨日|今天|今日|明天|前天|后天|\d+[号日])/g;
+  /(?:(?:最近|过去|近)(?:半个?年|\d+个?月)|(?:\d{4}年|去年|今年|明年)?\d+月(?:\d+[日号]?)?|\d{4}[-/.]\d+(?:[-/.]\d+)?|\d+[/]\d+|(?:最近|过去|近|未来|接下来)\d+天|(?:上上|上|本|这|下下|下|这个)(?:个?月|周|星期)|昨天|昨日|今天|今日|明天|前天|后天|\d+[号日])/g;
 const RANGE_LINK = /^(?:至|到|[-~～—–])$/;
 const AMBIGUOUS = '请明确要查询的起止日期，或分别说明观察期、目标期和比较期。';
 const point = (day: string) => ({ start: day, end: day });
@@ -66,6 +66,15 @@ const point = (day: string) => ({ start: day, end: day });
 function parseToken(raw: string, today: string, left?: BusinessPeriod): BusinessPeriod {
   const y = Number(today.slice(0, 4)),
     m = Number(today.slice(5, 7));
+  const rollingMonths = raw.match(/^(?:最近|过去|近)(?:半个?年|(\d+)个?月)$/);
+  if (rollingMonths) {
+    const count = rollingMonths[1] === undefined ? 6 : Number(rollingMonths[1]);
+    if (!Number.isSafeInteger(count) || count < 1 || count > 120)
+      throw new Error('请填写有效的时间跨度（月数）。');
+    const boundary = monthRange(y, m - count);
+    const days = Math.min(Number(today.slice(-2)), Number(boundary.end.slice(-2)));
+    return { start: shift(boundary.start, days), end: today };
+  }
   const chinese = raw.match(/^(?:(\d{4})年|(去年|今年|明年))?(\d+)月(?:(\d+)[日号]?)?$/);
   const numeric = raw.match(/^(\d{4})[-/.](\d+)(?:[-/.](\d+))?$/);
   if (chinese || numeric) {
@@ -221,9 +230,10 @@ export function resolveBusinessCalendar({
       /目标|指标草案|规划|计划/.test(q) &&
       (!/(?:目标|计划).{0,4}(?:完成|达成|实现|回顾)/.test(q) ||
         /(?:制定|设定|拟定|规划).{0,20}目标/.test(q));
+    const byTeacher = intent?.tools?.some((t) => t.name === 'teacher_performance_comparison');
     const compare =
       /环比|同比|对比|相比|比较|比起|[与和跟].*比|比.*(?:高|低|多|少|增长|下降)/.test(q) ||
-      intent?.purpose === 'comparison' ||
+      intent?.purpose === 'comparison' || byTeacher ||
       mentions.some((v, i) => i > 0 && /^比$/.test(q.slice(mentions[i - 1].end, v.start)));
     const slots: Partial<Record<Slot, BusinessPeriod>> = {};
     for (const v of mentions) {
@@ -291,7 +301,7 @@ export function resolveBusinessCalendar({
     const low = intent?.tools?.find((t) => /^low_attendance_(students|classes)$/.test(t.name));
     const defaultPeriod = isTeacherGoal
       ? monthRange(y, m - 1)
-      : weekly
+      : weekly || byTeacher
         ? parseToken('上周', today)
         : low
           ? parseToken(low.name.endsWith('classes') ? '近14天' : '近30天', today)
@@ -301,12 +311,13 @@ export function resolveBusinessCalendar({
       mentions.length > 0 && mentions.every(v => !v.joined &&
         !/^(?:最近|过去|近|未来|接下来)/.test(v.text) &&
         v.period.start === v.period.end && v.period.start === mentions[0].period.start);
-    base.observation = slots.observation || (retained && previous?.observation) || defaultPeriod;
+    const inheritTeacherPeriods = byTeacher && mentions.length === 0 && Boolean(previous?.comparison);
+    base.observation = slots.observation || ((retained || inheritTeacherPeriods) && previous?.observation) || defaultPeriod;
     base.target = slots.target || (retained ? previous?.target : undefined);
     base.asOfDate = slots.asOf?.end || today;
     if (slots.asOf && !intent?.tools?.some((t) => t.name === 'new_student_attendance')) {
       const rolling = mentions.find(
-        (v) => v.period === slots.observation && /^(最近|过去|近)\d+天$/.test(v.text)
+        (v) => v.period === slots.observation && /^(最近|过去|近)(?:\d+天|\d+个?月|半个?年)$/.test(v.text)
       );
       if (rolling) base.observation = parseToken(rolling.text, base.asOfDate);
       else if (base.asOfDate < base.observation.start && slots.observation)
@@ -321,6 +332,7 @@ export function resolveBusinessCalendar({
     }
     base.comparison =
       slots.comparison ||
+      (inheritTeacherPeriods && previous?.comparison) ||
       (compare || weekly ? comparisonFor(base.observation, /同比/.test(q)) : undefined);
     // Compare elapsed portions of named, still-open calendar periods. Explicit endpoints stay literal.
     const active = mentions.find((v) => v.period === slots.observation);

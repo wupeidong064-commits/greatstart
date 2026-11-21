@@ -52,8 +52,32 @@ export function isFileRequest(q: string) {
     && /导出|制表|(?:做成|整理成|转成|生成).*(?:表格|表|文件|报告|文档)|做.*(?:Excel|Word)|(?:Excel|Word|xlsx|docx)/i.test(q);
 }
 /** Financial ambiguity must be resolved before querying, for every provider. */
+export function isExplanationRequest(q: string) {
+  return /什么意思|是啥意思|怎么理解|如何理解|解释(?:一下|下)?(?:刚才|上面|这句话|这句|那个提示|为什么说)|说(?:得)?(?:简单|通俗|白话)一点|有何区别|有什么区别|什么是/.test(q)
+    && !/顺便|再帮我查|再算下|同时(?:算|查)|并(?:查|算|统计)|也查/.test(q);
+}
+
+export function explanationIntent(q: string, lastAnswer?: string): AiIntent | undefined {
+  if (!isExplanationRequest(q)) return undefined;
+  const refersBack = /这|那|上面|刚才|前面/.test(q);
+  const source = refersBack && !/净成单|课消|确认收入|利润/.test(q) ? q + (lastAnswer || '') : q;
+  if (/确认收入缺少可靠计价依据/.test(source))
+    return { parsedOk: true, purpose: 'explanation', reply: '这句话是经营对比报告里的说明。报表没有列实际课消金额和利润。净成单额可以查，按已确认新签加续费减退费。上掉的课值多少钱，可以单独查实际课消金额，按原购课批次计价。利润需要工资、房租等完整成本，目前缺少这些数据。' };
+  if (/净成单/.test(source) && /课消|利润/.test(source))
+    return { parsedOk: true, purpose: 'explanation', reply: '净成单额是已确认的新签加续费再减退费。实际课消金额是已经上掉的课按原购课批次计算的金额。利润还要扣除完整成本。比如 1,000 元买 10 节课，本期成交且无退费，净成单额是 1,000 元；本期上了 3 节，实际课消是 300 元。' };
+  if (/净成单/.test(source))
+    return { parsedOk: true, purpose: 'explanation', reply: '净成单额等于已确认的新签金额加续费金额，再减已确认退费。按各笔业务的日期统计，作废成单不计入。' };
+  return undefined;
+}
+
+export function generalAttendanceAdvice(q: string): AiIntent | undefined {
+  if (!/出勤|到课/.test(q) || !/怎么排查|如何排查|怎么分析|如何分析|怎么处理/.test(q)
+    || /数据|本机构|本校区|我们|这周|本周|上周|上月|刚才|上述|查一下|查出/.test(q)) return undefined;
+  return { parsedOk: true, purpose: 'advice', reply: '先按班级和课次核对实到与应到，区分是排课量变了，还是缺勤增加了。然后找连续两次以上未到的学员，核对请假、调课与错记，再联系家长确认原因。下一周按同样口径复查，看看调整后实到是否回升。' };
+}
+
 export function criticalMetricClarification(q: string): AiIntent | undefined {
-  if (/定义|区别|口径|理解|公式/.test(q)) return undefined;
+  if (/定义|区别|口径|理解|公式/.test(q) || isExplanationRequest(q)) return undefined;
   if (/赚|利润/.test(q) && !/净成单|实际课消/.test(q))
     return { parsedOk: true, reply: '你指净成单额（新签加续费减已确认退费），还是扣除完整成本后的利润？当前系统未采集完整成本，请先明确指标。' };
   if (/收入/.test(q) && !/净成单|现金流|成单|退费|课消|历史缴费/.test(q))

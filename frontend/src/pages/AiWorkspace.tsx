@@ -389,6 +389,7 @@ const AiWorkspace: React.FC = () => {
   // 会话列表与当前会话
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [loadingConvId, setLoadingConvId] = useState<string | null>(null);
   const [showAllConvs, setShowAllConvs] = useState(false);
   const [renameTarget, setRenameTarget] = useState<ConversationItem | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
@@ -407,6 +408,7 @@ const AiWorkspace: React.FC = () => {
   /** 初始化：拉会话列表 + 恢复上次会话（刷新接续） */
   useEffect(() => {
     let cancelled = false;
+    const generation = convGenRef.current;
     listConversations()
       .then((list) => {
         if (cancelled) return;
@@ -414,7 +416,7 @@ const AiWorkspace: React.FC = () => {
         const saved = (() => {
           try { return localStorage.getItem(`bz-ai-conv-${user?.id ?? 'anon'}`); } catch { return null; }
         })();
-        if (saved && list.some((c) => c.id === saved)) {
+        if (generation === convGenRef.current && saved && list.some((c) => c.id === saved)) {
           loadConversationRef.current?.(saved);
         }
       })
@@ -423,6 +425,7 @@ const AiWorkspace: React.FC = () => {
   }, [user?.id]);
 
   const chatlogRef = useRef<HTMLDivElement | null>(null);
+  const chatMainRef = useRef<HTMLDivElement | null>(null);
   const foldedScrollTopRef = useRef<number | null>(null);
   const foldButtonRef = useRef<HTMLButtonElement | null>(null);
   const resumeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -546,11 +549,12 @@ const AiWorkspace: React.FC = () => {
   /** 恢复会话：拉取服务端最新一页并还原到对话流（保持阅读位置） */
   const loadConversation = useCallback(async (id: string) => {
     const gen = ++convGenRef.current; // 代际：切换后旧请求结果直接丢弃
+    foldedScrollTopRef.current = null;
+    setChatCollapsed(false);
+    setLoadingConvId(id);
     try {
       const page = await fetchConversationMessages(id, 50);
       if (convGenRef.current !== gen) return; // 已切到其他会话
-      foldedScrollTopRef.current = null;
-      setChatCollapsed(false);
       setMessages(page.messages.map((m) => ({
         id: m.id,
         role: m.role,
@@ -561,13 +565,30 @@ const AiWorkspace: React.FC = () => {
       })));
       setMsgPage({ hasMore: page.hasMore, oldestSequence: page.oldestSequence });
       setActiveConvId(id);
+      activeConvRef.current = id;
+      setAutoFollowEnabled(true);
+      setIsNearBottom(true);
       try { localStorage.setItem(`bz-ai-conv-${user?.id ?? 'anon'}`, id); } catch { /* ignore */ }
       requestAnimationFrame(() => scrollToBottom(false));
     } catch {
       if (convGenRef.current === gen) antdMessage.error('会话加载失败，请重试');
+    } finally {
+      if (convGenRef.current === gen) setLoadingConvId(null);
     }
   }, [user?.id, scrollToBottom]);
   useEffect(() => { loadConversationRef.current = loadConversation; });
+
+  const selectConversation = (id: string) => {
+    if (id === activeConvId) {
+      if (loadingConvId) ++convGenRef.current;
+      setLoadingConvId(null);
+      setChatCollapsed(false);
+    } else if (id !== loadingConvId) {
+      abortRef.current?.abort();
+      void loadConversation(id);
+    }
+    requestAnimationFrame(() => chatMainRef.current?.scrollIntoView({ block: 'start' }));
+  };
 
   /** 向更早翻页：prepend 更早消息，保持当前阅读位置（记录滚动高度差） */
   const loadOlder = useCallback(async () => {
@@ -600,7 +621,7 @@ const AiWorkspace: React.FC = () => {
     }
   }, [activeConvId, msgPage, loadingOlder]);
 
-  const hasConversation = messages.length > 0 || isGenerating;
+  const hasConversation = Boolean(activeConvId || loadingConvId) || messages.length > 0 || isGenerating;
   const chatting = hasConversation && !chatCollapsed;
 
   /** 刷新会话列表（静默） */
@@ -613,7 +634,7 @@ const AiWorkspace: React.FC = () => {
   const send = useCallback(
     async (text: string, opts?: { skipUserAppend?: boolean }) => {
       const trimmed = text.trim();
-      if (!trimmed || isGenerating || attachmentBusy) return;
+      if (!trimmed || isGenerating || attachmentBusy || loadingConvId) return;
       if (!chatAllowed) { antdMessage.info(billingNotice || 'AI 服务暂不可用'); return; }
 
       const requestId = typeof crypto !== 'undefined' && crypto.randomUUID
@@ -646,6 +667,7 @@ const AiWorkspace: React.FC = () => {
           {
             onMessage:(id)=>setMessages(prev=>prev.map(m=>m.id===aiMsg.id?{...m,serverMessageId:id}:m)),
             onConversation: (cid, meta) => {
+              if (controller.signal.aborted) return;
               if (!activeConvRef.current) {
                 setActiveConvId(cid);
                 try { localStorage.setItem(`bz-ai-conv-${user?.id ?? 'anon'}`, cid); } catch { /* ignore */ }
@@ -713,7 +735,7 @@ const AiWorkspace: React.FC = () => {
         quota.reload();
       }
     },
-    [isGenerating, chatAllowed, billingNotice, scheduleFollow, scrollToBottom, user?.id, refreshConvList,attachments,attachmentBusy]
+    [isGenerating, chatAllowed, billingNotice, scheduleFollow, scrollToBottom, user?.id, refreshConvList,attachments,attachmentBusy,loadingConvId]
   );
 
   const retryLast = useCallback(() => {
@@ -764,7 +786,7 @@ const AiWorkspace: React.FC = () => {
     <div className={`wb-home${chatting ? ' is-chatting' : ''}`}>
       <div className={`wb-inner${chatting ? ' is-chatting' : ''}`}>
         {/* ---------- 主栏 ---------- */}
-        <div className={`wb-main${chatting ? ' is-chatting' : ''}`}>
+        <div ref={chatMainRef} className={`wb-main${chatting ? ' is-chatting' : ''}`}>
           {!chatting && (
             <div className="wb-greet wb-fade-in">
               <span className="wb-kicker"><span /> 工作台 · 每一份成长，都有迹可循</span>
@@ -832,7 +854,7 @@ const AiWorkspace: React.FC = () => {
                   placeholder="问问你的经营数据，例如：本周哪些班级出勤下降？"
                   aria-label="向蜂鸣 AI 提问"
                   value={input}
-                  disabled={isGenerating || !chatAllowed}
+                  disabled={isGenerating || !chatAllowed || Boolean(loadingConvId)}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) send(input);
@@ -842,7 +864,7 @@ const AiWorkspace: React.FC = () => {
               <AiAttachments
                 items={attachments}
                 onChange={setAttachments}
-                disabled={isGenerating || !chatAllowed}
+                disabled={isGenerating || !chatAllowed || Boolean(loadingConvId)}
                 onBusy={setAttachmentBusy}
                 controls={<>
                   <Select
@@ -875,7 +897,7 @@ const AiWorkspace: React.FC = () => {
                         className="wb-send-btn"
                         title={chatAllowed ? "发送" : billingNotice || "AI 暂不可用"}
                         aria-label="发送"
-                        disabled={input.trim() === '' || !chatAllowed || attachmentBusy}
+                        disabled={input.trim() === '' || !chatAllowed || attachmentBusy || Boolean(loadingConvId)}
                         onClick={() => send(input)}
                       >
                         <SendOutlined />
@@ -918,8 +940,9 @@ const AiWorkspace: React.FC = () => {
             </div>
           )}
           {/* 对话流（主栏剩余高度内滚 + 跟随状态机）；顶部可向更早翻页（R1-8） */}
-          <div id="wb-chatlog" className={`wb-chatlog${chatCollapsed ? ' is-hidden' : ''}`} ref={chatlogRef}>
-            {msgPage.hasMore && messages.length > 0 && (
+          <div id="wb-chatlog" className={`wb-chatlog${chatCollapsed ? ' is-hidden' : ''}`} ref={chatlogRef} aria-busy={Boolean(loadingConvId)}>
+            {loadingConvId && <div className="wb-empty" role="status">正在加载历史对话…</div>}
+            {!loadingConvId && msgPage.hasMore && messages.length > 0 && (
               <div className="wb-load-older">
                 <button type="button" className="wb-btn-ghost" onClick={loadOlder} disabled={loadingOlder}>
                   <HistoryIcon size={13} />
@@ -927,7 +950,7 @@ const AiWorkspace: React.FC = () => {
                 </button>
               </div>
             )}
-            {messages.map((m) =>
+            {!loadingConvId && messages.map((m) =>
               m.role === 'user' ? (
                 <div key={m.id} className="wb-msg-user">
                   {m.content}
@@ -994,9 +1017,13 @@ const AiWorkspace: React.FC = () => {
                 title="开始一个新会话"
                 aria-label="新建会话"
                 onClick={async () => {
+                  ++convGenRef.current;
                   abortRef.current?.abort();
                   setActiveConvId(null);
+                  activeConvRef.current = null;
+                  setLoadingConvId(null);
                   setMessages([]);
+                  setMsgPage({ hasMore: false, oldestSequence: null });
                   foldedScrollTopRef.current = null;
                   setChatCollapsed(false);
                   try { localStorage.removeItem(`bz-ai-conv-${user?.id ?? 'anon'}`); } catch { /* ignore */ }
@@ -1018,11 +1045,11 @@ const AiWorkspace: React.FC = () => {
                   {(showAllConvs ? conversations : conversations.slice(0, 8)).map((c) => (
                     <li
                       key={c.id}
-                      className={`wb-conv-item${c.id === activeConvId ? ' is-active' : ''}`}
+                      className={`wb-conv-item${c.id === (loadingConvId || activeConvId) ? ' is-active' : ''}`}
                       role="button"
                       tabIndex={0}
-                      onClick={() => { if (c.id !== activeConvId) { abortRef.current?.abort(); loadConversation(c.id); } }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (c.id !== activeConvId) { abortRef.current?.abort(); loadConversation(c.id); } } }}
+                      onClick={() => selectConversation(c.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectConversation(c.id); } }}
                     >
                       <span className="wb-conv-title">{c.title || '未命名会话'}</span>
                       <span className="wb-conv-meta">{dayjs(c.updatedAt).format('MM-DD HH:mm')}</span>

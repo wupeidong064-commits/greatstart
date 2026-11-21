@@ -13,6 +13,7 @@ import { consumptionMoney, readConsumptionValuation } from './consumptionValuati
 
 type StaffKind = 'instructor' | 'teaching' | 'sales';
 type Campus = { organizationId: string; campusId: string };
+type StaffQuery = Pick<AuthRequest, 'user' | 'query'>;
 const isRenewal = (value: string | null) => ['renewal', '续费', '续报'].includes(value?.trim().toLowerCase() || '');
 
 function personnelScope(req: AuthRequest): Campus {
@@ -22,7 +23,7 @@ function personnelScope(req: AuthRequest): Campus {
   return { organizationId: scope.organizationId, campusId: scope.campusId };
 }
 
-function period(req: AuthRequest) {
+function period(req: StaffQuery) {
   for (const field of ['startDate', 'endDate']) {
     const value = req.query[field];
     if (value !== undefined && (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)))
@@ -33,7 +34,7 @@ function period(req: AuthRequest) {
   return { start, end, dates: { gte: day(start), lte: day(end) } };
 }
 
-async function subjects(db: Prisma.TransactionClient | typeof prisma, req: AuthRequest, campus: Campus, kind: StaffKind) {
+async function subjects(db: Prisma.TransactionClient | typeof prisma, req: StaffQuery, campus: Campus, kind: StaffKind) {
   const actor = req.user!;
   const requested = req.query[kind === 'sales' ? 'salesId' : 'teacherId'];
   if (requested !== undefined && (typeof requested !== 'string' || !requested.trim()))
@@ -109,7 +110,14 @@ export async function salesPerformance(req: AuthRequest) {
 }
 
 export async function teachingPerformance(req: AuthRequest) {
-  const campus = personnelScope(req), range = period(req), now = new Date();
+  return readTeachingPerformance(req, personnelScope(req));
+}
+
+export async function readTeachingPerformance(req: StaffQuery, campus: Campus, includeClasses = false) {
+  const actor = req.user;
+  if (!actor || actor.isPlatformAdmin || actor.organizationId !== campus.organizationId || actor.campusId !== campus.campusId || !registrationRoles.includes(actor.role))
+    throw new ApiError('无权查询校区人员统计', 403, 'FORBIDDEN');
+  const range = period(req), now = new Date();
   return prisma.$transaction(async tx => {
     const people = await subjects(tx, req, campus, 'teaching');
     if (!people.length) return [];
@@ -117,7 +125,7 @@ export async function teachingPerformance(req: AuthRequest) {
     const orders = confirmedOrders(campus, range.dates);
     const [classes, personalOrders] = await Promise.all([
       tx.class.findMany({ where: { ...campus, teacherId: { in: ids } }, select: {
-        id: true, teacherId: true, status: true,
+        id: true, name: true, teacherId: true, status: true,
         enrollments: { where: { organizationId: campus.organizationId, student: campus }, select: {
           classId: true, studentId: true, status: true, enrolledAt: true, endedAt: true,
           student: { select: { status: true, renewalStatus: true, noRenewalDate: true } },
@@ -154,6 +162,13 @@ export async function teachingPerformance(req: AuthRequest) {
         const amount = valuation.bySchedule.get(schedule.id);
         return { cents: sum.cents + (amount?.cents ?? 0), unpricedLessons: sum.unpricedLessons + (amount?.unpricedLessons ?? 0) };
       }, { cents: 0, unpricedLessons: 0 }));
+      const classAttendance = includeClasses ? responsible.map(cls => ({
+        classId: cls.id, name: cls.name,
+        sessions: cls.schedules.map(schedule => ({
+          date: new Date(+schedule.startTime + 8 * 3600000).toISOString().slice(0, 10),
+          ...computeSessionAttendance({ schedules: [schedule], enrollments: cls.enrollments, attendances: schedule.attendances }),
+        })),
+      })) : undefined;
       return { teacherId: person.id, teacherName: person.name, role: person.role, classCount: activeClasses.length,
         studentCount, baseCount, attendanceRate: attendance.rate, expectedAttendance: attendance.expected, actualAttendance: attendance.present,
         enrollmentStart: flow.startCount, enrollmentAdded: flow.added, enrollmentEnded: flow.removedTotal,
@@ -166,7 +181,7 @@ export async function teachingPerformance(req: AuthRequest) {
         renewalRate: baseCount ? Math.round(renewalPeople / baseCount * 100) : null,
         ...monetary, consumptionAmount: monetary.actualConsumptionAmount, consumptionEstimated: false,
         consumptionNote: '当前主责班级内场次的实际净核销金额，含代课场次；不含无场次活动。购买批次先买先用，赠课0元，取消按原金额返还。',
-        totalOrderAmount: total.amount, missingPriceCount: total.missing };
+        totalOrderAmount: total.amount, missingPriceCount: total.missing, classAttendance };
     });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }

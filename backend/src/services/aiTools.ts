@@ -11,6 +11,9 @@ import prisma from '../config/database';
 import { buildOrgSnapshot, renderSnapshotText } from './aiService';
 import { RequestScope } from '../utils/scope';
 import { querySessionAttendance, SESSION_ATTENDANCE_CALIBER } from './attendanceStatsService';
+import { teacherPerformanceComparison } from './aiTeacherComparison';
+import { teacherPerformanceRanking } from './aiTeacherRanking';
+import type { AuthRequest } from '../middleware/auth';
 
 /**
  * AI 受控业务查询工具注册表（G2）
@@ -55,6 +58,7 @@ export interface ToolContext {
   /** 上海时区今天（YYYY-MM-DD） */
   today: string;
   userId?: string;
+  personnelActor?: AuthRequest['user'];
   signal?: AbortSignal;
 }
 
@@ -783,7 +787,7 @@ const WEEKLY_COMPARISON_TOOL: ToolFn = async (ctx, params) => {
       filters: { campusId: ctx.campusId, previousStart: prev.startDate, previousEnd: prev.endDate },
       caliber:
         (explicit ? '比较期按指定日期' : '上期为紧邻且等长的前一周期') + '；变化=本期减上期，出勤率变化为百分点；上期为零不计算增幅；实收与成单金额分别统计',
-      missing: ['确认收入缺少可靠计价依据，暂不核算；成本未采集，不计算利润'],
+      missing: [],
       columns: ['指标', '本期', '上期', '变化', '环比百分比', '说明'].map((key) => ({
         key,
         label: key,
@@ -979,6 +983,26 @@ export const AI_TOOLS: ToolDef[] = [
     description: '按稳定老师 ID 核算已完成授课场次、应到实到及出勤率；当前负责班级单列。用于教师表现及下月目标。',
     paramsSchema: {startDate:{type:'date',required:true},endDate:{type:'date',required:true},teacherId:{type:'string',max:64},teacherName:{type:'string',max:80},classId:{type:'string',max:64},className:{type:'string',max:80}},
     run: teacherPerformance,
+  },
+  {
+    name: 'teacher_performance_comparison',
+    description: '比较两个期间老师表现，按老师列出出勤率或实际课消下降的名单。用户说哪些老师下滑、变差时用此工具，不能用全校经营环比。',
+    paramsSchema: {
+      startDate: { type:'date', required:true }, endDate: { type:'date', required:true },
+      comparisonStartDate: { type:'date', required:true }, comparisonEndDate: { type:'date', required:true },
+      teacherName: { type:'string', max:80 }, metric: { type:'string', enum:['attendance','consumption'] },
+      breakdown: { type:'string', enum:['true'] },
+    },
+    run: teacherPerformanceComparison,
+  },
+  {
+    name: 'teacher_performance_ranking',
+    description: '按指定期间比较老师，给出表现最好或指标最高的人。支持出勤率、实际课消金额、个人成单额和个人新招人数。',
+    paramsSchema: {
+      startDate: { type:'date', required:true }, endDate: { type:'date', required:true },
+      metric: { type:'string', enum:['attendance','consumption','sales','signup'] },
+    },
+    run: teacherPerformanceRanking,
   },
   {
     name: 'weekly_comparison',

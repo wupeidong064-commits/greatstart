@@ -11,6 +11,9 @@ import {
   isPurePresentationRequest,
   requestedFormats,
   criticalMetricClarification,
+  explanationIntent,
+  isExplanationRequest,
+  generalAttendanceAdvice,
   normalizeBusinessFilters,
   classClarificationPlan,
   newStudentAttendanceIntent,
@@ -58,6 +61,8 @@ import { resolveBusinessCalendar } from '../services/aiBusinessCalendar';
 import { adviceTopic, renderOperatingAdvice } from '../services/aiOperatingAdvice';
 import { buildOperatingSnapshot, renderOperatingFacts } from '../services/aiOperatingFacts';
 import { alignMeasures, bindUserThreshold, comparisonFactIds, requestsTable, scopeClarification } from '../services/aiQueryRequirements';
+import { renderTeacherComparison, teacherComparisonIntent } from '../services/aiTeacherComparison';
+import { renderTeacherRanking, teacherRankingIntent } from '../services/aiTeacherRanking';
 import { businessToday, calendarTools, exceedsCalendarToolLimit, supportsHistoricalPeriod } from '../services/aiOperatingPlan';
 import {
   createOrGetReportFileTask,
@@ -557,11 +562,14 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     // ===== R1-2：意图解析（带界历史+摘要+服务端日期；signal 贯穿；失败按直接回答） =====
     let intent: AiIntent = {};
     let queryPlanAudit: Record<string, unknown> | undefined;
+    const teacherIntent = !/校区|机构|删除|修改数据|SQL|密码|密钥|绕过/.test(content)
+      ? teacherRankingIntent(content) || teacherComparisonIntent(content, previousBusiness) : undefined;
     if (scopeDecision === 'business') intent = (deniedScope ? {parsedOk:true,reply:deniedScope} : undefined) || blockedChatEntryIntent(content, hasLegacyDraft)
       || (mappedUploadComparison ? {parsedOk:true,tools:[]} : undefined)
       || workbenchHelpIntent(content, uploadIds.length > 0)
+      || explanationIntent(content, previousRow?.content) || generalAttendanceAdvice(content)
       || criticalMetricClarification(content) || newStudentAttendanceIntent(content, todaySH)
-      || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
+      || teacherIntent || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
       || (!previousBusiness.length && previousAnswer?.adviceText && isPurePresentationRequest(content)
         ? {parsedOk:true,reuseSnapshot:true,tools:[],fileRequested:isFileRequest(content),fileFormats:requestedFormats(content)}
         : inheritPreviousIntent(content, {}, previousBusiness, todaySH));
@@ -617,15 +625,31 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       ? {observation:previousBusiness[0].timeRange} : undefined);
     const deniedEntity = scopeClarification(content,campus.name,intent.entities?.campus);
     if (deniedEntity) intent = {parsedOk:true,reply:deniedEntity};
+    const explanationOnly = scopeDecision === 'business' && isExplanationRequest(content);
+    if (!deniedEntity && explanationOnly && !intent.reply && intent.tools?.length)
+      intent = { parsedOk: true, purpose: 'explanation', reply: '你想解释的是哪一句或哪个指标？把原话贴出来，我可以顺着这段内容解释。' };
+    if (!deniedEntity && intent.subject === 'teacher' && intent.purpose !== 'advice' && !intent.reply) {
+      const ranking = teacherRankingIntent(content);
+      const focused = ranking || teacherComparisonIntent(content, previousBusiness);
+      if (focused) {
+        const named = intent.entities?.teacher;
+        if (!ranking && named && content.includes(named)) focused.tools![0].params.teacherName = named;
+        intent = { ...intent, ...focused };
+      }
+    }
     const localReply = Boolean(deniedEntity) || !usageCalls.some(c => c.purpose === 'intent') && Boolean(intent.reply);
-    const topic = scopeDecision === 'business' && !localReply
+    const directExplanation = intent.purpose === 'explanation' && Boolean(intent.reply) && explanationOnly;
+    const topic = scopeDecision === 'business' && !localReply && !directExplanation
       ? adviceTopic(intent,content,previousAnswer?.topic) : undefined;
     const adviceContinuation = topic && previousAnswer?.topic === topic
       && /^(?:那|然后|接着|再|继续|请|能否|可以|说得|讲得|展开|具体|详细|一点|一些|些|说说|怎么落地|如何执行|[，。！？?\s])+$/.test(content);
     if (topic) {
       intent = { ...intent, reply:undefined };
+      const generalAdvice = intent.purpose === 'advice' && /一般|通常|通用|不查数据/.test(content) &&
+        !/本机构|本校区|根据|结合|我们|刚才|上周|本周|本月/.test(content);
+      if (generalAdvice) intent.tools = [];
       if (topic === 'compensation' && intent.purpose !== 'mixed' && !/测算|试算.*(?:工资|薪资)|根据.*(?:数据|历史)/.test(content)) intent.tools = [];
-      if (topic === 'teacher' && /表现|目标|绩效/.test(content)) {
+      if (!generalAdvice && topic === 'teacher' && /表现|目标|绩效/.test(content)) {
         const teacher = intent.tools?.find(t=>t.name==='teacher_performance');
         const selectedName = intent.entities?.teacher;
         const teacherQuery = teacher || {name:'teacher_performance',params:{}};
@@ -633,7 +657,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
         const otherRequested = (intent.tools || []).filter(t=>/低出勤/.test(content) && t.name.startsWith('low_attendance_'));
         intent.tools = [teacherQuery, ...otherRequested];
       }
-    } else if (intent.reply && !localReply && intent.parsedOk) {
+    } else if (intent.reply && !localReply && !directExplanation && intent.parsedOk) {
       // A direct model reply has no evidence bindings. Render its purpose from
       // server-owned labels, even if the model phrased an assertion as a question.
       const definitions = [
@@ -845,6 +869,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
             campusId: currentUser.campusId,
             today: todaySH,
             userId: owner.userId,
+            personnelActor: req.user,
             signal: upstreamAbort.signal,
           },
           plannedTools
@@ -928,14 +953,21 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       if (intent.reply) sections.push(intent.reply);
       else {
         const tableRequested = requestsTable(content,intent) || intent.reuseSnapshot && isFileRequest(content);
-        const facts = renderOperatingFacts(operatingSnapshot,{
-          factIds: calendar.comparison ? comparisonFactIds(content,operatingSnapshot.facts) : undefined,
-          compare: Boolean(calendar.comparison) || /偏低|偏高|是否达标|表现如何/.test(content),
+        const teacherCards = evidences.filter(c => ['teacher_performance_comparison', 'teacher_performance_ranking'].includes(c.tool) && !c.error);
+        for (const card of teacherCards) sections.push(card.tool === 'teacher_performance_ranking' ? renderTeacherRanking(card) : renderTeacherComparison(card));
+        const condensedIds = new Set(teacherCards.map(c => c.evidenceId));
+        const visibleSnapshot = teacherCards.length
+          ? { ...operatingSnapshot, facts: operatingSnapshot.facts.filter(f => !condensedIds.has(f.source)) }
+          : operatingSnapshot;
+        const facts = renderOperatingFacts(visibleSnapshot,{
+          factIds: calendar.comparison ? comparisonFactIds(content,visibleSnapshot.facts) : undefined,
+          compare: (!teacherCards.length || visibleSnapshot.facts.length > 0) &&
+            (Boolean(calendar.comparison) || /偏低|偏高|是否达标|表现如何/.test(content)),
           includeRows: !tableRequested && (/哪些|哪几|哪个|哪位|谁|明细|名单|列出|详情|来源|对照|同名|姓名相同/.test(content) || evidences.some(e=>e.tool==='student_attendance'))
         });
         if (facts && !tableRequested) sections.push(facts);
         if (tableRequested) {
-          const totals = operatingSnapshot.facts.filter(f=>f.kind === 'metric' && !f.entityName);
+          const totals = visibleSnapshot.facts.filter(f=>f.kind === 'metric' && !f.entityName);
           const groups = new Map<string,typeof totals>();
           for (const fact of totals) {
             const range = fact.period ? fact.period.start+' 至 '+fact.period.end : '当前快照';
@@ -950,8 +982,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
               '| '+cell(f.label)+' | '+cell(f.value)+(f.value===null?'':f.unit)+(f.coverage==='partial'?'（部分数据）':'')+' |'
             )].join('\n'));
           }
-          const notes = operatingSnapshot.facts.filter(f=>['missing','distribution','comparison'].includes(f.kind));
-          const shown = renderOperatingFacts({...operatingSnapshot,facts:notes});
+          const notes = visibleSnapshot.facts.filter(f=>['missing','distribution','comparison'].includes(f.kind));
+          const shown = renderOperatingFacts({...visibleSnapshot,facts:notes});
           if (shown) sections.push(shown.split('\n').filter(line=>!groups.has(line)).join('\n'));
         }
         if (tableRequested) sections.push(...evidences.filter(c=>!c.error && !['cost_and_income','signup_renewal'].includes(c.tool)).map(renderEvidenceTable).filter(Boolean));

@@ -1222,6 +1222,7 @@ html[data-theme='light'] .bz-main {
 
 .wb-main.is-chatting {
   position: relative;
+  scroll-margin-top: 64px;
   height: 100%;
   min-height: 0;
   display: flex;
