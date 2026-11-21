@@ -237,7 +237,7 @@ export function isPurePresentationRequest(text: string) {
 export function duoStudentAttendanceIntent(q: string): AiIntent | undefined {
   const text = q.trim();
   if (!/出勤|到课/.test(text) || /老师|教练|班级|其他机构|删除|修改/.test(text)) return undefined;
-  const m = /([\u4e00-\u9fa5·]{2,6})[和与跟]([\u4e00-\u9fa5·]{2,6})/.exec(text);
+  const m = /([\u4e00-\u9fa5·]{2,6})[和与跟]([\u4e00-\u9fa5·]{2,6}?)(?=[是的呢，,。？?!！]|各自|分别|$)/.exec(text);
   if (!m) return undefined;
   const a = m[1], b = m[2];
   if (!/各自|分别|是不是同一|是同一|两个人|同一个人|谁的|谁更|哪位/.test(text) && !/出勤|到课/.test(text.slice(m.index + m[0].length))) return undefined;
