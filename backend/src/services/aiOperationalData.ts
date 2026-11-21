@@ -172,8 +172,30 @@ export async function teacherPerformance(ctx: ToolContext, params: Record<string
     const teacherName = typeof params.teacherName === 'string' ? params.teacherName.trim() : '';
     const classTeachers=new Set(ids);
     const teachers = staff.filter(t => (!(classId || className) || classTeachers.has(t.id)) && (!teacherId || t.id === teacherId) && (!teacherName || t.name === teacherName));
-    if (!teachers.length && (teacherId || teacherName)) return evidence(ctx, 'teacher_performance', '老师授课与班级职责', period,
+    if (!teachers.length && (teacherId || teacherName)) {
+      // 盲测修复：点名的老师不是教练时，按销售岗业绩归属兜底（如“叶顾问呢？”）。
+      const salesUser = await tx.user.findFirst({ where: { ...scope, isPlatformAdmin: false, role: 'sales', name: teacherName || undefined, ...(teacherId ? { id: teacherId } : {}) }, select: { id: true, name: true } });
+      if (salesUser) {
+        const fromDay = new Date(+period.from + 8 * 3600000).toISOString().slice(0, 10);
+        const toDay = new Date(+period.to + 8 * 3600000 - 1).toISOString().slice(0, 10);
+        const orders = await tx.conversion.groupBy({
+          by: ['salesId'],
+          where: { organizationId: ctx.organizationId, approvalStatus: 'confirmed', conversionDate: { gte: fromDay, lte: toDay }, salesId: salesUser.id },
+          _count: { _all: true, price: true }, _sum: { price: true },
+        });
+        const g = orders[0];
+        const amount = g && g._sum && g._sum.price ? Number(g._sum.price) : 0;
+        const missing = g && g._count ? g._count._all - (g._count.price ?? 0) : 0;
+        return evidence(ctx, 'teacher_performance', (salesUser.name || '销售') + ' · 销售业绩', period,
+          ['老师','成单笔数','个人成单额'],
+          [{ 老师: salesUser.name, 成单笔数: g ? g._count._all : 0, 个人成单额: missing ? null : amount }],
+          { 成单笔数: g ? g._count._all : 0, 个人成单额: missing ? null : amount },
+          '按已确认成单的订单业绩归属统计；出勤/授课统计不适用于销售岗。',
+          ['销售岗不参与出勤与课消统计；如需出勤请指定教练。']);
+      }
+      return evidence(ctx, 'teacher_performance', '老师授课与班级职责', period,
       [],[],{},'仅按当前授权范围内的人员匹配。',['未找到符合姓名或编号的可识别老师，请核对姓名、编号或校区。']);
+    }
     const classNames = new Map(classes.map(c=>[c.id,c.name]));
     const teacherClasses = new Map<string,Set<string>>();
     for (const row of [...active.map(c=>({teacherId:c.teacherId,classId:c.id})),...sessions]) {
