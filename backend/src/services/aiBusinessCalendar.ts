@@ -58,7 +58,7 @@ function clean(s: string) {
     });
 }
 const DATE_WORD =
-  /(?:(?:最近|过去|近)(?:半个?年|\d+个?月)|半个?年|最近|近期|(?:\d{4}年|去年|今年|明年)?\d+月(?:\d+[日号]?)?|\d{4}[-/.]\d+(?:[-/.]\d+)?|\d{1,2}[-.]\d{1,2}|\d+[/]\d+|(?:最近|过去|近|未来|接下来)\d+天|(?:上上|上|本|这|下下|下|这个)(?:个?月|周|星期)|昨天|昨日|今天|今日|明天|前天|后天|\d+[号日])/g;
+  /(?:(?:最近|过去|近)(?:半个?年|\d+个?月)|半个?年|(?:\d{4}年|去年|今年|明年)?\d+月(?:\d+[日号]?)?|\d{4}[-/.]\d+(?:[-/.]\d+)?|\d{1,2}[-.]\d{1,2}|\d+[/]\d+|(?:最近|过去|近|未来|接下来)\d+天|(?:上上|上|本|这|下下|下|这个)(?:个?月|周|星期)|昨天|昨日|今天|今日|明天|前天|后天|\d+[号日])/g;
 const RANGE_LINK = /^(?:至|到|[-~～—–])$/;
 const AMBIGUOUS = '请明确要查询的起止日期，或分别说明观察期、目标期和比较期。';
 const point = (day: string) => ({ start: day, end: day });
@@ -309,8 +309,10 @@ export function resolveBusinessCalendar({
         phrase &&
         q.includes(clean(phrase)) &&
         !mentions.some((v) => clean(phrase).includes(v.text))
-      )
+      ) {
+        if (/^(?:最近|近期|近期内|最近)$/.test(clean(phrase))) continue; // 裸“最近/近期”按默认近30天窗口，不作模糊报错
         throw new Error(AMBIGUOUS);
+      }
     }
     const isTeacherGoal =
       goals &&
