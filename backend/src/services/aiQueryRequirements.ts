@@ -120,7 +120,9 @@ export function alignMeasures(intent: AiIntent, question: string): AiIntent {
       (t.name === 'business_records' && t.params.domain === 'students')
   );
   const proposed = intent.entities?.student || lookup?.params.studentName || lookup?.params.keyword;
-  const name = typeof proposed === 'string' && question.includes(proposed) ? proposed : undefined;
+  const name = typeof proposed === 'string'
+    && (question.includes(proposed) || (proposed.includes('、') && proposed.split('、').every(p => p && question.includes(p))))
+    ? proposed : undefined;
   if (
     /出勤|到课|签到|上课/.test(labels) &&
     (name || lookup?.name === 'student_attendance') &&
