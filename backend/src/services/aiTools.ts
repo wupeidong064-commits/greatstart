@@ -997,10 +997,11 @@ export const AI_TOOLS: ToolDef[] = [
   },
   {
     name: 'teacher_performance_ranking',
-    description: '按指定期间比较老师，给出表现最好或指标最高的人。支持出勤率、实际课消金额、个人成单额和个人新招人数。',
+    description: '按指定期间比较老师，给出表现最好或最差的人。支持出勤率、实际课消金额、个人成单额和个人新招人数；direction=min 返回指标最低或最后一名。',
     paramsSchema: {
       startDate: { type:'date', required:true }, endDate: { type:'date', required:true },
       metric: { type:'string', enum:['attendance','consumption','sales','signup'] },
+      direction: { type:'string', enum:['min','max'] },
     },
     run: teacherPerformanceRanking,
   },
