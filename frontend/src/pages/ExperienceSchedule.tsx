@@ -1,5 +1,5 @@
 import { useOverlaySubmit, Modal } from '../components/overlays';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Table, Button, Space, message, Form, Input, Select, DatePicker, InputNumber, Radio, Collapse, Segmented, Alert, Dropdown } from 'antd';
 import { Plus as PlusOutlined, Pencil as EditOutlined, Trash2 as DeleteOutlined, UserRoundPlus as UserAddOutlined, Import as ImportOutlined, CircleCheck as CheckCircleOutlined, RotateCw as ReloadOutlined, Clock3 as ClockCircleOutlined, UserRoundX as UserDeleteOutlined, Search as SearchOutlined } from 'lucide-react';
 import './CashflowSummary.css';
@@ -118,6 +118,18 @@ const ExperienceSchedule = () => {
   const canManageAll = normalizedRole === 'admin' || normalizedRole === 'manager';
 
   const [data, setData] = useState<any[]>([]);
+  const tableViewportRef = useRef<HTMLDivElement>(null);
+  const [pinTableColumns, setPinTableColumns] = useState(false);
+  useLayoutEffect(() => {
+    const viewport = tableViewportRef.current;
+    if (!viewport) return;
+    // The three pinned columns use 376px. Leave enough space to read and scroll the other columns.
+    const fitColumns = () => setPinTableColumns(viewport.clientWidth >= 660);
+    fitColumns();
+    const observer = new ResizeObserver(fitColumns);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
   const [modalVisible, setModalVisible] = useState(false);
@@ -670,7 +682,7 @@ const ExperienceSchedule = () => {
       dataIndex: 'studentName',
       key: 'studentName',
       width: 110,
-      fixed: 'left' as const,
+      fixed: pinTableColumns ? 'left' as const : undefined,
       render: (text: string, record: any) => (
         <button
           type="button"
@@ -727,7 +739,7 @@ const ExperienceSchedule = () => {
       dataIndex: 'status',
       key: 'status',
       width: 96,
-      fixed: 'right' as const,
+      fixed: pinTableColumns ? 'right' as const : undefined,
       render: (status: string, record: any) => {
         if (status === 'converted' && record.hasConfirmedSignup === false) {
           return <span className="bz-tag tone-warn" title="原成单已作废或尚未确认，请到成单信息表核对原记录">到场未成单</span>;
@@ -740,7 +752,7 @@ const ExperienceSchedule = () => {
       title: '操作',
       key: 'action',
       width: 170,
-      fixed: 'right' as const,
+      fixed: pinTableColumns ? 'right' as const : undefined,
       className: 'bz-cell-act',
       render: (_: any, record: any) => (
         <Space size={4}>
@@ -949,7 +961,7 @@ const ExperienceSchedule = () => {
       </Collapse>
 
       {/* 数据表格（bz-table 表格语言样板） */}
-      <div className="bz-table-wrap">
+      <div className="bz-table-wrap experience-records-table" ref={tableViewportRef}>
         <Table
           columns={columns}
           dataSource={data}

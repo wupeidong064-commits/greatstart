@@ -1,3 +1,42 @@
+.experience-records-table {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.experience-records-table > .ant-table-wrapper {
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.experience-records-table > .ant-table-wrapper .ant-table {
+  min-width: 0;
+}
+
+/* Keep sticky columns and horizontal scroll relative to the same viewport. */
+.bz-table-wrap.experience-records-table > .ant-table-wrapper .ant-table-content {
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  overscroll-behavior-x: contain;
+}
+
+.experience-records-table .ant-table-expanded-row .ant-table-expanded-row-fixed {
+  max-width: 100cqi;
+}
+
+.experience-records-table .ant-table-expanded-row .bz-x {
+  position: sticky;
+  inset-inline-start: 0;
+  width: 100cqi;
+  max-width: 100%;
+}
+
+@container (max-width: 430px) {
+  .experience-records-table .bz-x-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .experience-registration-modal .ant-form-item { margin-bottom: 17px; }
 .experience-registration-modal .ant-form-item-label { padding-bottom: 6px; }
 .experience-registration-modal .ant-form-item-label > label { font-weight: 500; }

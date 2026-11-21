@@ -1086,7 +1086,7 @@ const OrderInfo = () => {
           <span className="cashflow-stat-note">当前筛选范围内的全部成单</span>
         </article>
         <article className="cfs-glass cashflow-stat cashflow-stat-primary">
-          <Statistic title="成交总额（不等于实收）" value={stats?.totalAmount ?? '—'} loading={loading} precision={2} prefix="¥" />
+          <Statistic title="成交总额" value={stats?.totalAmount ?? '—'} loading={loading} precision={2} prefix="¥" />
           <span className="cashflow-stat-note">新签与续费的成交金额合计</span>
         </article>
       </section>
