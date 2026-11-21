@@ -65,8 +65,26 @@ export async function teacherPerformanceComparison(ctx: ToolContext, params: Rec
   const columns = ['老师', '上期应到', '上期实到', '本期应到', '本期实到', '上期出勤率', '本期出勤率', '出勤率变化', '上期课消', '本期课消', '课消变化'];
   let rows: Array<Record<string, unknown>> = [];
   let compared = 0;
+  const lengthDays = (p: { start: string; end: string }) => Date.parse(p.end) - Date.parse(p.start) + 86400000;
+  const nonOverlap = previous.end < current.start;
+  const bothBounded = lengthDays(current) <= 40 * 86400000 && lengthDays(previous) <= 40 * 86400000;
   if (!comparablePeriods(current, previous)) {
-    missing.push('两个期间长度不同或相互重叠，无法判断下滑。请选择可比的两个期间。');
+    if (!(nonOverlap && bothBounded)) {
+      missing.push('两个期间长度不同或相互重叠，无法判断下滑。请选择可比的两个期间。');
+    } else {
+      // 期间不等长但各自有界且不重叠（如 10月整月 vs 11月至今）：按各自期间实际数对齐，声明口径后作答。
+      const wantBreakdown = params.breakdown === 'true';
+      const read = (p: typeof current) => readTeachingPerformance({ user: actor, query: { startDate: p.start, endDate: p.end } }, campus, wantBreakdown);
+      const [latest, baseline] = await Promise.all([read(current), read(previous)]);
+      const selected = (list: Performance[]) => list.filter(t => !params.teacherName || t.teacherName === params.teacherName);
+      const active = selected(latest);
+      const prior = selected(baseline);
+      compared = active.filter(row => prior.some(before => row.teacherId === before.teacherId &&
+        (params.metric !== 'consumption' && row.attendanceRate !== null && before.attendanceRate !== null ||
+          params.metric !== 'attendance' && row.actualConsumptionAmount !== null && before.actualConsumptionAmount !== null))).length;
+      rows = teacherDeclines(active, prior, params.metric);
+      missing.push('两个期间长度不同（' + Math.round(lengthDays(current)/86400000) + ' 天 vs ' + Math.round(lengthDays(previous)/86400000) + ' 天），已按各自期间实际数对齐说明；结论仅指示方向，不代表日均速率。');
+    }
   } else {
     const wantBreakdown = params.breakdown === 'true';
     const read = (p: typeof current) => readTeachingPerformance({ user: actor, query: { startDate: p.start, endDate: p.end } }, campus, wantBreakdown);

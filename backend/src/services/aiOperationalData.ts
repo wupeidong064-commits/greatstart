@@ -1,4 +1,5 @@
 import {computeSessionAttendance,computeStudentSessions} from './attendanceStatsService';
+import { readConsumptionValuation, consumptionMoney } from './consumptionValuation';
 import { entityDisplayNames } from './aiOperatingFacts';
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
@@ -206,19 +207,25 @@ export async function teacherPerformance(ctx: ToolContext, params: Record<string
       teacherClasses.set(row.teacherId,group);
     }
     const displayNames = entityDisplayNames(staff.map(t=>({...t,classes:[...(teacherClasses.get(t.id)||[])]})));
+    const valuation = await readConsumptionValuation(tx, scope, sessions.map(s => s.id));
     const rows = teachers.map(t => {
       const own = sessions.filter(s => s.teacherId === t.id);
       const attendance = computeSessionAttendance({ schedules: own, enrollments, attendances });
+      const money = consumptionMoney(own.reduce((sum, schedule) => {
+        const amount = valuation.bySchedule.get(schedule.id);
+        return { cents: sum.cents + (amount?.cents ?? 0), unpricedLessons: sum.unpricedLessons + (amount?.unpricedLessons ?? 0) };
+      }, { cents: 0, unpricedLessons: 0 }));
       return { teacherId: t.id, 老师: displayNames.get(t.id) || t.name, 当前负责班级数: active.filter(c => c.teacherId === t.id).length,
-        实际授课场次: own.length, 应到: attendance.expected, 实到: attendance.present, 出勤率: attendance.rate };
+        实际授课场次: own.length, 应到: attendance.expected, 实到: attendance.present, 出勤率: attendance.rate,
+        实际课消金额: money.actualConsumptionAmount };
     });
     const known = new Set(teachers.map(t => t.id));
     const scopedSessions = teacherId || teacherName ? sessions.filter(s=>s.teacherId && known.has(s.teacherId)) : sessions;
     const unassigned = scopedSessions.filter(s => !s.teacherId || !known.has(s.teacherId)).length;
     const all = computeSessionAttendance({ schedules: scopedSessions, enrollments, attendances });
     return evidence(ctx, 'teacher_performance', (classId || className ? classes[0].name+' · ' : '')+'老师授课与班级职责', period,
-      ['老师','当前负责班级数','实际授课场次','应到','实到','出勤率'], rows,
-      { 实际授课场次: scopedSessions.length, 应到: all.expected, 实到: all.present, 出勤率: all.rate, 未归属授课场次: unassigned },
+      ['老师','当前负责班级数','实际授课场次','应到','实到','出勤率','实际课消金额'], rows,
+      { 实际授课场次: scopedSessions.length, 应到: all.expected, 实到: all.present, 出勤率: all.rate, 未归属授课场次: unassigned, 实际课消金额: rows.reduce((n:number,r:any)=>n+Number(r.实际课消金额||0),0) },
       '授课按已完成场次的实际授课老师统计；应到按当场有效报名和已保存的串课，实到含迟到；出勤率取整。当前负责班级数按查询日的有效班级统计。',
       [...(teacherName && teachers.length>1 ? ['当前范围有多位同名老师，已按班级和编号尾号分别列示。可用班级或完整人员编号确认。'] : []), '个人续费率缺少到期学员分母。订单销售归属与授课、班级职责分别核算。']);
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });

@@ -681,6 +681,11 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       if (plan.reuseSnapshot) return plan;
       if (calendar.explicit && calendar.observation.end < todaySH && plan.tools?.length
         && plan.tools.every(t=>AI_TOOLS.some(d=>d.name===t.name) && !supportsHistoricalPeriod(t))) {
+        // 盲测修复（S06R4）：改期追问撞上快照类工具时，优先复用上一轮可回溯期间的同款查询，而不是直接拒绝。
+        if (previousBusiness.length) {
+          const inherited = inheritPreviousIntent(content, { parsedOk: true, tools: [] }, previousBusiness, todaySH);
+          if (inherited.tools?.length) return { ...inherited, tools: calendarTools(inherited, calendar) };
+        }
         return {parsedOk:true,reply:'该资料只能查询当前快照，无法还原 '+calendar.observation.start+' 至 '+calendar.observation.end+' 的历史状态。请指定需要按业务日期统计的指标。'};
       }
       const tools = calendarTools(plan,calendar);

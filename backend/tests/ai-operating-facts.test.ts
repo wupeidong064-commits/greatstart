@@ -76,7 +76,7 @@ describe('经营事实快照',()=>{
 it('实际授课教师与当前班级负责人分开，同名两人分别核算，缺归属场次不分摊',async()=>{
   const startTime=new Date('2026-10-13T02:00:00Z');
   const load=(rows:unknown[])=>({findMany:vi.fn().mockResolvedValue(rows)});
-  const tx={ class:load([{id:'c1',teacherId:'t2',status:'active'}]),user:load([{id:'t1',name:'同名'},{id:'t2',name:'同名'}]),
+  const tx={ class:load([{id:'c1',teacherId:'t2',status:'active'}]),user:load([{id:'t1',name:'同名'},{id:'t2',name:'同名'}]),lessonLog:load([]),lessonAddReceipt:load([]),
     schedule:load(['t1','t1',null].map((teacherId,i)=>({id:'s'+i,classId:'c1',teacherId,startTime,endTime:startTime}))),
     enrollment:load([{classId:'c1',studentId:'kid',enrolledAt:new Date(0),endedAt:null,status:'active'}]),
     attendance:load([{classId:'c1',scheduleId:'s0',studentId:'kid',status:'present',isTemporary:false}]) };

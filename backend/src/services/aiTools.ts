@@ -270,7 +270,7 @@ const SEARCH_STUDENTS_TOOL: ToolFn = async (ctx, params) => {
 /** 续费期名单：在读、未标记不续费、剩余课时≤阈值（盲测场景 S12） */
 const RENEWAL_CANDIDATES_TOOL: ToolFn = async (ctx, params) => {
   const maxRemaining = typeof params.maxRemaining === 'number' && params.maxRemaining > 0 && params.maxRemaining <= 20 ? Math.floor(params.maxRemaining) : 3;
-  const where: any = { organizationId: ctx.organizationId, status: 'active', renewalStatus: { not: 'no_renewal' } };
+  const where: any = { organizationId: ctx.organizationId, status: 'active', OR: [{ renewalStatus: null }, { renewalStatus: { not: 'no_renewal' } }] };
   if (ctx.campusId) where.campusId = ctx.campusId;
   const students = await prisma.student.findMany({
     where,

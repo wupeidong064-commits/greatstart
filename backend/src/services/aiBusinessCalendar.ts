@@ -272,6 +272,7 @@ export function resolveBusinessCalendar({
       )
         v.slot = 'comparison';
       else if (/(?:相比于|相较于|较之|比起)$/.test(before)) v.slot = 'comparison';
+      else if (compare && /(?:比|较)$/.test(before.slice(-2)) && !/^(?:本|这|下)/.test(v.text)) v.slot = 'comparison';
       else if (
         hints.length === 1 &&
         (hints[0] === 'observation' ||
