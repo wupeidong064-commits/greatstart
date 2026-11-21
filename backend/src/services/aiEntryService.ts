@@ -17,7 +17,7 @@ export function blockedChatEntryIntent(question: string, hasLegacyDraft = false)
   if (hasLegacyDraft && /^(?:金额|课时|电话|联系方式|负责人|班级)\s*[：:]?\s*(?:\d|我)/.test(q)) return closed();
   if (/(?:体验课?|新签|学员|学生).{0,35}(?:成单了|成单啦|签约了|报名了)/.test(q)
     && !/吗|么|多少|几笔|几单|哪些|是否|有没有/.test(q)) return closed();
-  const business = /体验|学员|学生|成单|新签|续费|订单|课时|档案|报名|课表|排课|班级|出勤|到课|缴费|退款|退费/;
+  const business = /体验|学员|学生|成单|新签|续费|订单|课时|档案|报名|课表|排课|班级|出勤|到课|考勤|点名|缴费|退款|退费/;
   const mutate = /录入|录一下|登记|导入|写入|创建|新增|提交|保存|建档|修改|删除|作废|取消|签到|点名|扣课|上系统|记到|记进/;
   if (business.test(q) && mutate.test(q) && !/^(?:为什么|如何|怎么|怎样).*(?:口径|统计|分析|计算|定义|区别)/.test(q)) return closed();
   if (/(?:把|将).{0,12}(?:这些|这份|这个|上面的).{0,12}(?:录入|写入|存进|上系统)/.test(q)) return closed();

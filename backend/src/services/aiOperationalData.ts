@@ -29,7 +29,11 @@ export async function attendanceFollowup(ctx: ToolContext, params: Record<string
   const inclusive = params.thresholdMode === 'lte';
   const qualifies = (rate: number | null) => rate !== null && (inclusive ? rate <= threshold : rate < threshold);
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) throw new Error('出勤率阈值应为 0 至 100');
-  const classes = await prisma.class.findMany({ where: { organizationId: ctx.organizationId, campusId: ctx.campusId, status: 'active' }, select: { id: true, name: true, teacher: { select: { id: true, organizationId: true, campusId: true, name: true } } } });
+  const classFilterId = typeof params.classId === 'string' && params.classId ? params.classId : null;
+  const classFilterName = typeof params.className === 'string' && params.className.trim() ? params.className.trim() : null;
+  const classes = await prisma.class.findMany({ where: { organizationId: ctx.organizationId, campusId: ctx.campusId, status: 'active',
+    ...(classFilterId ? { id: classFilterId } : {}), ...(classFilterName ? { name: { contains: classFilterName } } : {}) },
+    select: { id: true, name: true, teacher: { select: { id: true, organizationId: true, campusId: true, name: true } } } });
   const ids = classes.map(c => c.id);
   const [sessions, enrollments, attendances, currentStudents] = await Promise.all([
     prisma.schedule.findMany({ where: { organizationId: ctx.organizationId, campusId:ctx.campusId, classId: { in: ids }, status: 'completed', startTime: { gte: range.from, lt: range.to } }, select: { id: true, classId: true, startTime: true, endTime: true } }),

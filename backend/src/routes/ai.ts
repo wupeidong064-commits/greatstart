@@ -963,7 +963,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
           factIds: calendar.comparison ? comparisonFactIds(content,visibleSnapshot.facts) : undefined,
           compare: (!teacherCards.length || visibleSnapshot.facts.length > 0) &&
             (Boolean(calendar.comparison) || /偏低|偏高|是否达标|表现如何/.test(content)),
-          includeRows: !tableRequested && (/哪些|哪几|哪个|哪位|谁|明细|名单|列出|详情|来源|对照|同名|姓名相同/.test(content) || evidences.some(e=>e.tool==='student_attendance'))
+          includeRows: !tableRequested && (/哪些|哪几|哪个|哪位|谁|排名|排行|各班|明细|名单|列出|详情|来源|对照|同名|姓名相同/.test(content) || evidences.some(e=>e.tool==='student_attendance'))
         });
         if (facts && !tableRequested) sections.push(facts);
         if (tableRequested) {
