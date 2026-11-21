@@ -196,7 +196,8 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
   } else if (/退费明细|退费状态/.test(q)) {
     name = 'business_records';
     params.domain = 'refunds';
-  } else if (/退费|退款|退了|退多少|已退|净成单|现金|收入/.test(q)) name = 'cost_and_income';
+  } else if (/快上完课|该续费|该提醒|续费名单|快要上完/.test(q)) name = 'renewal_candidates';
+  else if (/退费|退款|退了|退多少|已退|净成单|现金|收入/.test(q)) name = 'cost_and_income';
   else if (/成单|新签|续费/.test(q)) name = 'signup_renewal';
   else if (/环比|比较|对比/.test(q)) name = 'weekly_comparison';
   else if (/实际课消|课消.*金额|课消多少钱/.test(q)) name = 'actual_consumption';
@@ -232,6 +233,55 @@ export function isPurePresentationRequest(text: string) {
   const remaining = text.replace(/(?:请|麻烦|帮我|建议|小表|那张|针对|刚才的?|之前的?|上条的?|上一条的?|这份|这个|这些|这组|那份|这数|结果|数据|把|将|做成|做|制作|整理成|转成|导出|生成|制表|表格|清单|报告|表|文件|文档|不用导出|不需要文件|不用|只在对话|仅在对话|展示|Excel|Word|docx|xlsx|和|并|成|[，,。！!？?\s])/gi,'');
   return /表格|制表|导出|Excel|Word|docx|xlsx/i.test(text) && !remaining;
 }
+/** 裸实体追问兜底：实体名必须出现在上一轮业务卡行内才接管，避免误触新问题。 */
+export function entitySwapFollowupIntent(question: string, previous: any[]): AiIntent | undefined {
+  const text = question.trim();
+  if (text.length > 26) return undefined;
+  if (!/[呢？?]|数字|怎么样|应到|实到|出勤/.test(text)) return undefined;
+  if (/成单|退费|课消金额|余额|课时数|利润|收入|排名|新签|续费名单|转化|体验课|现金流|满班|对比|合计|比例|为什么|原因|哪些老师|哪位老师/.test(text)) return undefined;
+  const prev = previous.find(c => c && !c.error && Array.isArray(c.rows) && c.rows.length);
+  const toolDef = prev ? AI_TOOLS.find(t => t.name === prev.tool) : undefined;
+  if (!prev || !toolDef) return undefined;
+  const entityFields = ['班级', '姓名', '老师', '名称'] as const;
+  let entity: string | null = null;
+  let entityField: (typeof entityFields)[number] | null = null;
+  for (const row of prev.rows.slice(0, 50)) {
+    for (const f of entityFields) {
+      const v = row[f];
+      if (typeof v === 'string' && v.length >= 2 && v.length <= 20 && text.includes(v)) { entity = v; entityField = f; break; }
+    }
+    if (entity) break;
+  }
+  if (!entity) return undefined;
+  const params: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(prev.filters || {})) {
+    if (Object.prototype.hasOwnProperty.call(toolDef.paramsSchema, k) && v != null) params[k] = v;
+  }
+  if (prev.timeRange?.start && prev.timeRange?.end
+    && Object.prototype.hasOwnProperty.call(toolDef.paramsSchema, 'startDate')) {
+    params.startDate = prev.timeRange.start;
+    params.endDate = prev.timeRange.end;
+  }
+  if (entityField === '班级' || (/班$/.test(entity) && Boolean(toolDef.paramsSchema.className))) {
+    if (!toolDef.paramsSchema.className && !toolDef.paramsSchema.classId) return undefined;
+    if (toolDef.paramsSchema.className) params.className = entity;
+    if (toolDef.paramsSchema.classId && !params.classId) {
+      const hit = prev.rows.find((r: any) => r.班级 === entity && typeof r.classId === 'string');
+      if (hit) params.classId = hit.classId;
+    }
+  } else if (entityField === '姓名' && toolDef.paramsSchema.studentName) {
+    params.studentName = entity;
+  } else if (entityField === '老师' && toolDef.paramsSchema.teacherName) {
+    if (!/老师|教练|顾问/.test(entity)) return undefined;
+    params.teacherName = entity;
+  } else if (entityField === '名称' && /班$/.test(entity) && toolDef.paramsSchema.className) {
+    params.className = entity;
+  } else {
+    return undefined;
+  }
+  return { parsedOk: true, tools: [{ name: prev.tool, params }] };
+}
+
 /** Restore only structured, owned evidence, never assistant prose or another conversation. */
 export function inheritPreviousIntent(
   q: string,

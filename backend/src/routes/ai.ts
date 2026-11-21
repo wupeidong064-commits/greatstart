@@ -18,6 +18,7 @@ import {
   classClarificationPlan,
   newStudentAttendanceIntent,
   securityProbeIntent,
+  entitySwapFollowupIntent,
   workbenchHelpIntent,
   naturalAttendanceIntent,
   orderMetricIntent,
@@ -573,7 +574,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || teacherIntent || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
       || (!previousBusiness.length && previousAnswer?.adviceText && isPurePresentationRequest(content)
         ? {parsedOk:true,reuseSnapshot:true,tools:[],fileRequested:isFileRequest(content),fileFormats:requestedFormats(content)}
-        : inheritPreviousIntent(content, {}, previousBusiness, todaySH));
+        : inheritPreviousIntent(content, {}, previousBusiness, todaySH))
+      || entitySwapFollowupIntent(content, previousBusiness);
     if (scopeDecision !== 'business')
       intent = {
         parsedOk: true,
@@ -854,6 +856,13 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       /上传|文件|文档|名单/.test(content) &&
       !/成单|退费|续费|新签|出勤|课消|现金流|排课|课表/.test(content);
     const plannedTools = fileOnly ? [] : intent.tools || [];
+    // 跨期合计（盲测遗留）：问“两周合计/比例”且已解析出比较期时，追加比较期同款查询。
+    if (/合计|总共|一共|比例/.test(content) && calendar.comparison && !intent.reply && !intent.reuseSnapshot) {
+      const base = plannedTools.find(t => ['signup_renewal','cost_and_income'].includes(t.name));
+      if (base && plannedTools.filter(t => t.name === base.name).length === 1) {
+        plannedTools.push({ name: base.name, params: { ...base.params, startDate: calendar.comparison.start, endDate: calendar.comparison.end } });
+      }
+    }
     let evidences: Evidence[] = [];
     if (!clientDisconnected && !intent.reply) {
       if (intent.reuseSnapshot) {
@@ -993,6 +1002,20 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
           if (shown) sections.push(shown.split('\n').filter(line=>!groups.has(line)).join('\n'));
         }
         if (tableRequested) sections.push(...evidences.filter(c=>!c.error && !['cost_and_income','signup_renewal'].includes(c.tool)).map(renderEvidenceTable).filter(Boolean));
+        // 跨期合计（盲测遗留）：两期同款成单卡已在证据里时，给出合计与占比的确定性小节。
+        if (/合计|总共|一共|比例/.test(content)) {
+          const moneyCards = evidences.filter(c => ['signup_renewal','cost_and_income'].includes(c.tool) && !c.error && c.timeRange && typeof c.totals?.['金额合计'] === 'number');
+          const seen = new Set<string>();
+          const uniq = moneyCards.filter(c => { const k = c.timeRange!.start + '..' + c.timeRange!.end; if (seen.has(k)) return false; seen.add(k); return true; });
+          if (uniq.length === 2) {
+            const [a, b2] = uniq;
+            const ma = a.totals['金额合计'] as number, mb = b2.totals['金额合计'] as number;
+            const total = ma + mb;
+            const share = total > 0 ? Math.round((ma / total) * 1000) / 10 : null;
+            const share2 = total > 0 ? Math.round((mb / total) * 1000) / 10 : null;
+            sections.push('两期合计：' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' ¥' + ma.toLocaleString('zh-CN') + '，' + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + ' ¥' + mb.toLocaleString('zh-CN') + '；合计 ¥' + total.toLocaleString('zh-CN') + (share != null ? '；占比 ' + share + '% / ' + share2 + '%' : '') + '。');
+          }
+        }
         if (adviceText) sections.push(adviceText);
         if (fileCards.some(c=>c.status==='ready')) sections.push('文件已按本次查询快照生成，可在下方下载。');
         if (fileCards.some(c=>c.status==='failed')) sections.push('部分文件未生成成功，可重试导出。');

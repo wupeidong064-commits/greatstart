@@ -44,9 +44,10 @@ export async function attendanceFollowup(ctx: ToolContext, params: Record<string
       organizationId: ctx.organizationId, campusId: ctx.campusId, status: 'active',
       OR: [{ renewalStatus: null }, { renewalStatus: { not: 'no_renewal' } }],
       enrollments: { some: currentEnrollmentWhere(ctx) },
-    }, select: { id: true } }),
+    }, select: { id: true, remainingLessons: true } }),
   ]);
   const currentStudentIds = new Set(currentStudents.map(student => student.id));
+  const remainingByStudent = new Map(currentStudents.map(student => [student.id, student.remainingLessons]));
 
   const rows: Array<Record<string, unknown>> = [];
   for (const cls of classes) {
@@ -55,7 +56,7 @@ export async function attendanceFollowup(ctx: ToolContext, params: Record<string
     const teacher = cls.teacher?.organizationId === ctx.organizationId && cls.teacher?.campusId === ctx.campusId ? cls.teacher : null;
     const names=new Map([...roster,...attendances.filter(a=>a.classId===cls.id)].map(e=>[e.studentId,e.student.name]));
     const facts = computeStudentSessions({ schedules: lessons, enrollments: roster, attendances: attendances.filter(a => a.classId === cls.id) });
-    const studentRow = (f: typeof facts[number]) => ({studentId:f.studentId,classId:cls.id,teacherId:teacher?.id ?? null,姓名:names.get(f.studentId) || '学员',班级:cls.name,负责老师:teacher?.name || '待分配',应到:f.expected,实到:f.present,缺席:f.expected-f.present,出勤率:f.rate,含临时串课:f.isTemporary ? '是' : '否'});
+    const studentRow = (f: typeof facts[number]) => ({studentId:f.studentId,classId:cls.id,teacherId:teacher?.id ?? null,姓名:names.get(f.studentId) || '学员',班级:cls.name,负责老师:teacher?.name || '待分配',应到:f.expected,实到:f.present,缺席:f.expected-f.present,出勤率:f.rate,含临时串课:f.isTemporary ? '是' : '否',剩余课时:remainingByStudent.get(f.studentId) ?? null});
     // 班级出勤保留发生时的全部有效历史；名单仅限当前仍在读且已入班的学员。
     const students = facts.map(studentRow);
     const low = facts.filter(f => currentStudentIds.has(f.studentId) && qualifies(f.rate)).map(studentRow);
@@ -238,7 +239,11 @@ export async function studentAttendance(ctx: ToolContext, params: Record<string,
   const classId = typeof params.classId === 'string' ? params.classId : null;
   const className = typeof params.className === 'string' ? params.className.trim() : null;
   const studentId = typeof params.studentId === 'string' ? params.studentId : null;
-  const name = typeof params.studentName === 'string' ? params.studentName.trim() : null;
+  const rawName = typeof params.studentName === 'string' ? params.studentName.trim() : null;
+  // 多姓名对比（盲测遗留 S21R1）：顿号/逗号分隔的多个学员各自出勤。
+  const nameList = rawName ? rawName.split(/[、,，]/).map(v => v.trim()).filter(Boolean) : null;
+  const name = nameList && nameList.length === 1 ? nameList[0] : null;
+  const nameIn = nameList && nameList.length > 1 ? nameList : null;
   const ranking = String(params.ranking || 'none');
   const sortBy = ranking.endsWith('_rate') ? '出勤率' : '实到';
   const highest = ranking.startsWith('highest');
@@ -247,7 +252,7 @@ export async function studentAttendance(ctx: ToolContext, params: Record<string,
     if((classId || className) && classes.length!==1) return evidence(ctx,'student_attendance','学员历史出勤',period,[],[],{},'仅匹配授权范围内的班级。',
       [classes.length?'存在多个同名班级，请提供完整班级编号。':'当前范围未找到该班级，请核对班名或编号。']);
     const classIds = classes.map(c=>c.id);
-    const students = await tx.student.findMany({where:{...scope,...(name ? {name} : {}),...(studentId ? {id:studentId} : {}),
+    const students = await tx.student.findMany({where:{...scope,...(nameIn ? {name:{in:nameIn}} : {}),...(name ? {name} : {}),...(studentId ? {id:studentId} : {}),
       ...((classId || className) ? {OR:[{enrollments:{some:{classId:{in:classIds},organizationId:ctx.organizationId}}},{attendances:{some:{classId:{in:classIds},organizationId:ctx.organizationId,isTemporary:true}}}]} : {})},
       select:{id:true,name:true},orderBy:[{name:'asc'},{id:'asc'}],take:5001});
     if(students.length>5000) throw new Error('学员超过 5000 名，请指定姓名或缩小范围');
@@ -270,7 +275,7 @@ export async function studentAttendance(ctx: ToolContext, params: Record<string,
     const classNames = new Map(classes.map(c=>[c.id,c.name]));
     const displayNames=entityDisplayNames(students.map(student=>({...student,
       classes:(byStudent.get(student.id)||[]).filter(f=>f.expected>0).map(f=>classNames.get(f.classId)||'班级')})));
-    const rows = students.filter(s=>name || studentId || byStudent.get(s.id)?.some(f=>f.expected>0)).map(s=>{
+    const rows = students.filter(s=>name || nameIn || studentId || byStudent.get(s.id)?.some(f=>f.expected>0)).map(s=>{
       const own=(byStudent.get(s.id)||[]).filter(f=>f.expected>0).sort((a,b)=>a.classId.localeCompare(b.classId));
       const due=own.reduce((sum,f)=>sum+f.expected,0),present=own.reduce((sum,f)=>sum+f.present,0);
       const label=displayNames.get(s.id) || s.name;
@@ -290,6 +295,7 @@ export async function studentAttendance(ctx: ToolContext, params: Record<string,
     }
     const missing = ['无应到课次者单列，缺分母时不比较出勤率或授课机会。'];
     if(name && students.length>1) missing.push('匹配到多位同名学员，可用班级或完整学员编号进一步确认。');
+  if(nameIn) missing.push('多学员对比按各自报名班级分别核算；同名学员请用完整学员编号确认。');
     if(!rows.length) missing.push('当前授权范围内未找到符合条件的学员出勤明细。');
     const due=rows.reduce((s,r)=>s+r.应到,0),present=rows.reduce((s,r)=>s+r.实到,0);
     const leaders=rows.filter(r=>r.排序结论);
