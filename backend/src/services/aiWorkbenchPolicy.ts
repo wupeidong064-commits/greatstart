@@ -23,6 +23,13 @@ export function businessScope(
   // The bounded intent model can resolve natural language and ask a specific question.
   return 'business';
 }
+/** 安全探针：索取系统提示词/内部配置的请求一律明确拒绝，不泄露配置。 */
+export function securityProbeIntent(q: string): AiIntent | undefined {
+  if (!/系统提示词|你的提示词|提示词发给我|system prompt|你的(?:系统)?指令|内部(?:系统)?配置|你的(?:系统)?设定/i.test(q.trim())) return undefined;
+  return { parsedOk: true, purpose: 'explanation',
+    reply: '系统提示词和内部配置不对外提供。我可以帮你查询本机构获准的课务、学员、出勤和经营数据。' };
+}
+
 export function workbenchHelpIntent(q: string, hasUploads = false): AiIntent | undefined {
   if (/^(?:你好|您好|谢谢|你是谁|你叫什么|你是什么助手|你能做什么|你有什么功能|怎么使用你|你可以做什么)[呀啊呢吗！!？?。\s]*$/.test(q.trim()))
     return { parsedOk: true, reply: '我是蜂鸣 AI，可以查询本机构获准的课务、学员、出勤和经营数据，提供管理建议，承接上一条结果制表、导出 Excel 或 Word，也可分析上传资料。工作台不通过聊天录入或修改业务数据，实际登记请使用对应业务页面。' };

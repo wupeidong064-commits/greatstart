@@ -17,6 +17,7 @@ import {
   normalizeBusinessFilters,
   classClarificationPlan,
   newStudentAttendanceIntent,
+  securityProbeIntent,
   workbenchHelpIntent,
   naturalAttendanceIntent,
   orderMetricIntent,
@@ -566,7 +567,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       ? teacherRankingIntent(content) || teacherComparisonIntent(content, previousBusiness) : undefined;
     if (scopeDecision === 'business') intent = (deniedScope ? {parsedOk:true,reply:deniedScope} : undefined) || blockedChatEntryIntent(content, hasLegacyDraft)
       || (mappedUploadComparison ? {parsedOk:true,tools:[]} : undefined)
-      || workbenchHelpIntent(content, uploadIds.length > 0)
+      || securityProbeIntent(content) || workbenchHelpIntent(content, uploadIds.length > 0)
       || explanationIntent(content, previousRow?.content) || generalAttendanceAdvice(content)
       || criticalMetricClarification(content) || newStudentAttendanceIntent(content, todaySH)
       || teacherIntent || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
