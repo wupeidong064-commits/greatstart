@@ -19,6 +19,7 @@ import {
   newStudentAttendanceIntent,
   securityProbeIntent,
   entitySwapFollowupIntent,
+  duoStudentAttendanceIntent,
   workbenchHelpIntent,
   naturalAttendanceIntent,
   orderMetricIntent,
@@ -575,7 +576,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || (!previousBusiness.length && previousAnswer?.adviceText && isPurePresentationRequest(content)
         ? {parsedOk:true,reuseSnapshot:true,tools:[],fileRequested:isFileRequest(content),fileFormats:requestedFormats(content)}
         : inheritPreviousIntent(content, {}, previousBusiness, todaySH))
-      || entitySwapFollowupIntent(content, previousBusiness);
+      || entitySwapFollowupIntent(content, previousBusiness)
+      || duoStudentAttendanceIntent(content);
     if (scopeDecision !== 'business')
       intent = {
         parsedOk: true,

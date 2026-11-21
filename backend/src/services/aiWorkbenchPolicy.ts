@@ -233,6 +233,18 @@ export function isPurePresentationRequest(text: string) {
   const remaining = text.replace(/(?:请|麻烦|帮我|建议|小表|那张|针对|刚才的?|之前的?|上条的?|上一条的?|这份|这个|这些|这组|那份|这数|结果|数据|把|将|做成|做|制作|整理成|转成|导出|生成|制表|表格|清单|报告|表|文件|文档|不用导出|不需要文件|不用|只在对话|仅在对话|展示|Excel|Word|docx|xlsx|和|并|成|[，,。！!？?\s])/gi,'');
   return /表格|制表|导出|Excel|Word|docx|xlsx/i.test(text) && !remaining;
 }
+/** 双学员出勤对比（盲测遗留 S21R1）：“温语夏和苏语夏…各自出勤”→ 一张卡并列两人。 */
+export function duoStudentAttendanceIntent(q: string): AiIntent | undefined {
+  const text = q.trim();
+  if (!/出勤|到课/.test(text) || /老师|教练|班级|其他机构|删除|修改/.test(text)) return undefined;
+  const m = /([\u4e00-\u9fa5·]{2,6})[和与跟]([\u4e00-\u9fa5·]{2,6})/.exec(text);
+  if (!m) return undefined;
+  const a = m[1], b = m[2];
+  if (!/各自|分别|是不是同一|是同一|两个人|同一个人|谁的|谁更|哪位/.test(text) && !/出勤|到课/.test(text.slice(m.index + m[0].length))) return undefined;
+  if (/课程|班级|机构|校区|老师|教练/.test(a + b)) return undefined;
+  return { parsedOk: true, tools: [{ name: 'student_attendance', params: { studentName: a + '、' + b } }] };
+}
+
 /** 裸实体追问兜底：实体名必须出现在上一轮业务卡行内才接管，避免误触新问题。 */
 export function entitySwapFollowupIntent(question: string, previous: any[]): AiIntent | undefined {
   const text = question.trim();
