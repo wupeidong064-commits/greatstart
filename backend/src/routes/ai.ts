@@ -859,10 +859,21 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       !/成单|退费|续费|新签|出勤|课消|现金流|排课|课表/.test(content);
     const plannedTools = fileOnly ? [] : intent.tools || [];
     // 跨期合计（盲测遗留）：问“两周合计/比例”且已解析出比较期时，追加比较期同款查询。
-    if (/合计|总共|一共|比例/.test(content) && calendar.comparison && !intent.reply && !intent.reuseSnapshot) {
+    if (/合计|总共|一共|比例/.test(content) && !intent.reply && !intent.reuseSnapshot) {
       const base = plannedTools.find(t => ['signup_renewal','cost_and_income'].includes(t.name));
-      if (base && plannedTools.filter(t => t.name === base.name).length === 1) {
-        plannedTools.push({ name: base.name, params: { ...base.params, startDate: calendar.comparison.start, endDate: calendar.comparison.end } });
+      if (base) {
+        // 另一期优先取解析出的比较期；否则取全会话历史中同款工具最近一个不同窗口的卡片。
+        let second: { start: string; end: string } | null | undefined = calendar.comparison;
+        if (!second) {
+          const prevCards = allRows.filter(r => r.role === 'assistant').reverse()
+            .flatMap(r => Array.isArray(r.evidenceJson) ? (r.evidenceJson as any[]) : [])
+            .filter(c => c && c.tool === base.name && !c.error && c.timeRange?.start && c.timeRange?.end);
+          const other = prevCards.find(c => c.timeRange.start !== String(base.params.startDate ?? '') || c.timeRange.end !== String(base.params.endDate ?? ''));
+          second = other?.timeRange ?? null;
+        }
+        if (second && (second.start !== String(base.params.startDate ?? '') || second.end !== String(base.params.endDate ?? ''))) {
+          plannedTools.push({ name: base.name, params: { ...base.params, startDate: second.start, endDate: second.end } });
+        }
       }
     }
     let evidences: Evidence[] = [];
