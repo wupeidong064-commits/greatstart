@@ -55,8 +55,12 @@ export async function teacherPerformanceComparison(ctx: ToolContext, params: Rec
   if (!ctx.campusId || !actor || !['admin', 'manager'].includes(actor.role))
     throw new Error('仅当前机构管理人员可查看老师比较');
   const campus = { organizationId: ctx.organizationId, campusId: ctx.campusId };
-  const current = { start: String(params.startDate), end: String(params.endDate) };
-  const previous = { start: String(params.comparisonStartDate), end: String(params.comparisonEndDate) };
+  let current = { start: String(params.startDate), end: String(params.endDate) };
+  let previous = { start: String(params.comparisonStartDate), end: String(params.comparisonEndDate) };
+  // 倒序期间规范化：用户问“A比B”时工具收到的先后顺序可能颠倒，按时间先后排列后再比较。
+  if (previous.start > current.start) {
+    const tmp = current; current = previous; previous = tmp;
+  }
   const filters = {
     campusId: ctx.campusId, previousStart: previous.start, previousEnd: previous.end,
     teacherName: params.teacherName, metric: params.metric, breakdown: params.breakdown,

@@ -319,11 +319,12 @@ export function resolveBusinessCalendar({
       (slots.target || /老师|教练|教师|表现|绩效/.test(q) || intent?.subject === 'teacher');
     const weekly = intent?.tools?.some((t) => t.name === 'weekly_comparison');
     const low = intent?.tools?.find((t) => /^low_attendance_(students|classes)$/.test(t.name));
+    const comparisonOnly = Boolean(slots.comparison && !slots.observation);
     const defaultPeriod = isTeacherGoal
       ? monthRange(y, m - 1)
-      : weekly || byTeacher
+      : (weekly || byTeacher) && !comparisonOnly
         ? parseToken('上周', today)
-        : low
+        : low && !comparisonOnly
           ? parseToken(low.name.endsWith('classes') ? '近14天' : '近30天', today)
           : base.observation;
     const inheritNoMention = mentions.length === 0 && previous?.explicit;
