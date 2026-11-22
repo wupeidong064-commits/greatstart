@@ -237,6 +237,10 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
   }
   if (/低出勤/.test(q) && /本月|上月|上个月|上周|本周|\d{4}-\d{2}-\d{2}/.test(q))
     Object.assign(params, { startDate: period.start, endDate: period.end });
+  if (name === 'business_records' && params.domain === 'students') {
+    if (/流失/.test(q)) params.status = '流失';
+    if (/归档/.test(q)) params.status = '已归档';
+  }
   return {
     parsedOk: true,
     tools: [{ name, params }],
