@@ -314,9 +314,11 @@ const CLASS_ATTENDANCE_TOOL: ToolFn = async (ctx, params) => {
   const start = (params.startDate as string) || shMonthRange().start;
   const end = (params.endDate as string) || shMonthRange().end;
   const classId = typeof params.classId === 'string' ? params.classId : null;
+  const className = typeof params.className === 'string' && params.className.trim() ? params.className.trim() : null;
   const classWhere: Prisma.ClassWhereInput = { organizationId: ctx.organizationId };
   if (ctx.campusId) classWhere.campusId = ctx.campusId;
   if (classId) classWhere.id = classId;
+  if (!classId && className) classWhere.name = className;
   const classes = await prisma.class.findMany({
     where: classWhere,
     select: { id: true, name: true },
@@ -963,6 +965,7 @@ export const AI_TOOLS: ToolDef[] = [
       thresholdMode: { type: 'string', enum:['lt','lte'] },
       classId: { type: 'string', max: 64 },
       className: { type: 'string', max: 50 },
+      maxRemaining: { type: 'number' },
     },
     run: (ctx, params) => attendanceFollowup(ctx, params, false),
   },
@@ -1048,6 +1051,7 @@ export const AI_TOOLS: ToolDef[] = [
       startDate: { type:'date', required:true }, endDate: { type:'date', required:true },
       metric: { type:'string', enum:['attendance','consumption','sales','signup'] },
       direction: { type:'string', enum:['min','max'] },
+      scope: { type:'string', enum:['teachers','all'] },
     },
     run: teacherPerformanceRanking,
   },
@@ -1091,6 +1095,7 @@ export const AI_TOOLS: ToolDef[] = [
     description: '班级出勤统计（应到/实到/出勤率，日期范围默认本月）',
     paramsSchema: {
       classId: { type: 'string', max: 64 },
+      className: { type: 'string', max: 50 },
       startDate: { type: 'date' },
       endDate: { type: 'date' },
     },

@@ -327,14 +327,16 @@ export function resolveBusinessCalendar({
         : low && !comparisonOnly
           ? parseToken(low.name.endsWith('classes') ? '近14天' : '近30天', today)
           : base.observation;
-    const inheritNoMention = mentions.length === 0 && previous?.explicit;
+    // 快照语义（复验必修 C1）：问“现在/还剩/余额/当前”等当前状态时，不继承历史显式期间。
+    const snapshotNow = /(现在|当前|目前|如今|最新|还剩|剩几|剩多少|剩余|余额|剩下|几节课|多少节课)/.test(q);
+    const inheritNoMention = mentions.length === 0 && previous?.explicit && !snapshotNow;
     base.explicit = mentions.length > 0 || Boolean(inheritNoMention);
     base.singleDayMention =
       mentions.length > 0 && mentions.every(v => !v.joined &&
         !/^(?:最近|过去|近|未来|接下来)/.test(v.text) &&
         v.period.start === v.period.end && v.period.start === mentions[0].period.start);
     const inheritTeacherPeriods = byTeacher && mentions.length === 0 && Boolean(previous?.comparison);
-    base.observation = slots.observation || ((retained || inheritTeacherPeriods || (mentions.length === 0 && previous?.explicit)) && previous?.observation) || defaultPeriod;
+    base.observation = slots.observation || ((retained || inheritTeacherPeriods || (mentions.length === 0 && previous?.explicit && !snapshotNow)) && previous?.observation) || defaultPeriod;
     base.target = slots.target || (retained ? previous?.target : undefined);
     base.asOfDate = slots.asOf?.end || today;
     if (slots.asOf && !intent?.tools?.some((t) => t.name === 'new_student_attendance')) {

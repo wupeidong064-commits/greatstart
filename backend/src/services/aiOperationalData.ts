@@ -30,6 +30,7 @@ export async function attendanceFollowup(ctx: ToolContext, params: Record<string
   const inclusive = params.thresholdMode === 'lte';
   const qualifies = (rate: number | null) => rate !== null && (inclusive ? rate <= threshold : rate < threshold);
   if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) throw new Error('出勤率阈值应为 0 至 100');
+  const maxRemaining = typeof params.maxRemaining === 'number' && params.maxRemaining >= 0 && params.maxRemaining <= 50 ? Math.floor(params.maxRemaining) : null;
   const classFilterId = typeof params.classId === 'string' && params.classId ? params.classId : null;
   const classFilterName = typeof params.className === 'string' && params.className.trim() ? params.className.trim() : null;
   const classes = await prisma.class.findMany({ where: { organizationId: ctx.organizationId, campusId: ctx.campusId, status: 'active',
@@ -60,7 +61,11 @@ export async function attendanceFollowup(ctx: ToolContext, params: Record<string
     // 班级出勤保留发生时的全部有效历史；名单仅限当前仍在读且已入班的学员。
     const students = facts.map(studentRow);
     const low = facts.filter(f => currentStudentIds.has(f.studentId) && qualifies(f.rate)).map(studentRow);
-    if (!byClass) { rows.push(...low); continue; }
+    if (!byClass) {
+      const picked = maxRemaining != null ? low.filter(f => { const rem = remainingByStudent.get(f.studentId); return rem != null && rem <= maxRemaining; }) : low;
+      rows.push(...picked);
+      continue;
+    }
     const expected = students.reduce((n, s) => n + s.应到, 0);
     const present = students.reduce((n, s) => n + s.实到, 0);
     const rate = expected ? Math.round(present / expected * 100) : null;

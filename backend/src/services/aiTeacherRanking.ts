@@ -10,13 +10,15 @@ const metricLabels = { attendance: '出勤率', consumption: '实际课消金额
 type Metric = keyof typeof metricLabels;
 
 export function teacherRankingIntent(q: string): AiIntent | undefined {
-  if (/班级|哪个班|各班|每班|班的/.test(q)) return undefined; // 班级问法走班级出勤，不误触老师排名
+  if (/班级|哪个班|各班|每班|班的|学员|学生|同学/.test(q)) return undefined; // 班级/学员问法走对应工具，不误触老师排名
   const minDirection = /最低|垫底|倒数|排在最后|排最后|谁最后|末位/.test(q);
   if (!/老师|教师|教练|出勤率|课消|成单额/.test(q) || !/最好|最佳|最强|谁第一|哪位.{0,12}第一|最高|最多|领先|最出色|最低|垫底|倒数|排在最后|排最后|谁最后|末位/.test(q)
     || /怎么评|如何评|薪资|工资|续费率|续费金额|续费笔数|续费单数|新签金额|体验课|授课场次|授课最多|上课最多|谁.{0,10}最差/.test(q)) return undefined;
   const metric: Metric = /成单|成交|销售额|销售业绩/.test(q) ? 'sales' : /课消|核销/.test(q) ? 'consumption'
     : /个人新招|新招人数|新签人数/.test(q) ? 'signup' : 'attendance';
-  return { parsedOk: true, purpose: 'facts', subject: 'teacher', tools: [{ name: toolName, params: { metric, ...(minDirection ? { direction: 'min' } : {}) } }] };
+  // 岗位范围（复验必修 R2）：问句限定“授课老师/任教/带班/老师中”时不含销售岗；放开全员才并入。
+  const teachersOnly = /授课老师|任教老师|带班老师|老师中|老师里|教师中|教练中|只在老师|仅老师|老师们中/.test(q);
+  return { parsedOk: true, purpose: 'facts', subject: 'teacher', tools: [{ name: toolName, params: { metric, ...(minDirection ? { direction: 'min' } : {}), ...(teachersOnly ? { scope: 'teachers' } : {}) } }] };
 }
 
 type TeachingRow = Pick<Awaited<ReturnType<typeof readTeachingPerformance>>[number],
@@ -43,11 +45,12 @@ export async function teacherPerformanceRanking(ctx: ToolContext, params: Record
     throw new Error('仅当前机构管理人员可查看老师表现');
   const metric: Metric = params.metric === 'sales' || params.metric === 'consumption' || params.metric === 'signup' ? params.metric : 'attendance';
   const direction = params.direction === 'min' ? 'min' : 'max';
+  const scopeTeachers = params.scope === 'teachers';
   const campus = { organizationId: ctx.organizationId, campusId: ctx.campusId };
   const period = { start: String(params.startDate), end: String(params.endDate) };
   let people: TeachingRow[] = await readTeachingPerformance({user:actor, query:{startDate:period.start, endDate:period.end}},campus);
-  if (metric === 'sales') {
-    // 个人成单额排名候选含销售岗等有业绩归属的人员（盲测场景：叶顾问）。
+  if (metric === 'sales' && !scopeTeachers) {
+    // 个人成单额排名候选含销售岗等有业绩归属的人员（问句放开全员时）；限定授课老师则不并入。
     const salesUsers = await prisma.user.findMany({
       where: { organizationId: ctx.organizationId, campusId: ctx.campusId, isPlatformAdmin: false, role: 'sales', isActive: true },
       select: { id: true, name: true },

@@ -245,6 +245,29 @@ export function duoStudentAttendanceIntent(q: string): AiIntent | undefined {
   return { parsedOk: true, tools: [{ name: 'student_attendance', params: { studentName: a + '、' + b } }] };
 }
 
+/** 组合条件（复验必修 C3）：承接低出勤名单，按剩余课时阈值求交集。 */
+export function lowAttendanceRenewalIntent(q: string, previous: any[]): AiIntent | undefined {
+  if (!/剩\s*\d+\s*节|\d+\s*节以内|剩\d+节|余额.{0,6}以内|课时.{0,6}以内/.test(q.replace(/\s+/g, ''))) return undefined;
+  const prev = previous.find(c => c && !c.error && c.tool === 'low_attendance_students' && Array.isArray(c.rows));
+  if (!prev) return undefined;
+  const m = /(\d+)\s*节以内|剩\s*(\d+)\s*节/.exec(q.replace(/\s+/g, ''));
+  const maxRemaining = Math.min(Number(m?.[1] ?? m?.[2] ?? 3), 50);
+  const params: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(prev.filters || {})) {
+    if (['startDate', 'endDate', 'threshold', 'thresholdMode', 'classId', 'className'].includes(k) && v != null) params[k] = v;
+  }
+  params.maxRemaining = maxRemaining;
+  return { parsedOk: true, tools: [{ name: 'low_attendance_students', params }] };
+}
+
+/** 学员出勤排名（复验必修 G1）：学员/学生 + 出勤率 + 最高最低 → student_attendance 排名，不走老师排名。 */
+export function studentRankingIntent(q: string): AiIntent | undefined {
+  if (!/学员|学生|同学/.test(q) || /老师|教师|教练|其他机构|删除|修改/.test(q)) return undefined;
+  if (!/出勤|到课/.test(q) || !/最低|最高|最好|最差|最后|倒数|第一|垫底|排名|排行/.test(q)) return undefined;
+  const ranking = /最低|最差|最后|倒数|垫底/.test(q) ? 'lowest_rate' : 'highest_rate';
+  return { parsedOk: true, purpose: 'facts', subject: 'student', tools: [{ name: 'student_attendance', params: { ranking } }] };
+}
+
 /** 裸实体追问兜底：实体名必须出现在上一轮业务卡行内才接管，避免误触新问题。 */
 export function entitySwapFollowupIntent(question: string, previous: any[]): AiIntent | undefined {
   const text = question.trim();

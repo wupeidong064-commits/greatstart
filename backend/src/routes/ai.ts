@@ -20,6 +20,8 @@ import {
   securityProbeIntent,
   entitySwapFollowupIntent,
   duoStudentAttendanceIntent,
+  studentRankingIntent,
+  lowAttendanceRenewalIntent,
   workbenchHelpIntent,
   naturalAttendanceIntent,
   orderMetricIntent,
@@ -577,7 +579,9 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
         ? {parsedOk:true,reuseSnapshot:true,tools:[],fileRequested:isFileRequest(content),fileFormats:requestedFormats(content)}
         : inheritPreviousIntent(content, {}, previousBusiness, todaySH))
       || entitySwapFollowupIntent(content, previousBusiness)
-      || duoStudentAttendanceIntent(content);
+      || duoStudentAttendanceIntent(content)
+      || studentRankingIntent(content)
+      || lowAttendanceRenewalIntent(content, previousBusiness);
     if (scopeDecision !== 'business')
       intent = {
         parsedOk: true,
@@ -858,8 +862,11 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       /上传|文件|文档|名单/.test(content) &&
       !/成单|退费|续费|新签|出勤|课消|现金流|排课|课表/.test(content);
     const plannedTools = fileOnly ? [] : intent.tools || [];
-    // 跨期合计（盲测遗留）：问“两周合计/比例”且已解析出比较期时，追加比较期同款查询。
-    if (/合计|总共|一共|比例/.test(content) && !intent.reply && !intent.reuseSnapshot) {
+    // 跨期合计（复验必修 M1）：仅在问句明确要求两期合计（两期/两周/两个月…合计/一共/比例）
+    // 且本轮未自带显式期间时，才引入另一期间；显式单期间只查单期。
+    const asksCrossPeriodSum = /(?:两|二|双)(?:段|期|周|个月|个期间)[^。？?]{0,8}(?:合计|一共|总共|总和|加起来|合起来|比例)|两期合计|两周合计/.test(content)
+      && !/(?:\d{4}年|\d{1,2}月\d{1,2}|\d{4}-\d{1,2}|上月|上个月|本月|这周|上周|最近|半年|去年|今年|今天|昨天)/.test(content);
+    if (asksCrossPeriodSum && !intent.reply && !intent.reuseSnapshot) {
       const base = plannedTools.find(t => ['signup_renewal','cost_and_income'].includes(t.name));
       if (base) {
         // 另一期优先取解析出的比较期；否则取全会话历史中同款工具最近一个不同窗口的卡片。
@@ -1015,18 +1022,23 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
           if (shown) sections.push(shown.split('\n').filter(line=>!groups.has(line)).join('\n'));
         }
         if (tableRequested) sections.push(...evidences.filter(c=>!c.error && !['cost_and_income','signup_renewal'].includes(c.tool)).map(renderEvidenceTable).filter(Boolean));
-        // 跨期合计（盲测遗留）：两期同款成单卡已在证据里时，给出合计与占比的确定性小节。
-        if (/合计|总共|一共|比例/.test(content)) {
+        // 跨期合计小节：仅两期合计问法渲染；两期相交时澄清而不相加。
+        if (asksCrossPeriodSum) {
           const moneyCards = evidences.filter(c => ['signup_renewal','cost_and_income'].includes(c.tool) && !c.error && c.timeRange && typeof c.totals?.['金额合计'] === 'number');
           const seen = new Set<string>();
           const uniq = moneyCards.filter(c => { const k = c.timeRange!.start + '..' + c.timeRange!.end; if (seen.has(k)) return false; seen.add(k); return true; });
           if (uniq.length === 2) {
             const [a, b2] = uniq;
+            const overlaps = a.timeRange!.start <= b2.timeRange!.end && b2.timeRange!.start <= a.timeRange!.end;
+            if (overlaps) {
+              sections.push('两个期间有重叠（' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' 与 ' + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + '），直接相加会重复计算。请确认要合计的具体期间，或按订单去重的口径。');
+            } else {
             const ma = a.totals['金额合计'] as number, mb = b2.totals['金额合计'] as number;
             const total = ma + mb;
             const share = total > 0 ? Math.round((ma / total) * 1000) / 10 : null;
             const share2 = total > 0 ? Math.round((mb / total) * 1000) / 10 : null;
             sections.push('两期合计：' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' ¥' + ma.toLocaleString('zh-CN') + '，' + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + ' ¥' + mb.toLocaleString('zh-CN') + '；合计 ¥' + total.toLocaleString('zh-CN') + (share != null ? '；占比 ' + share + '% / ' + share2 + '%' : '') + '。');
+            }
           }
         }
         if (adviceText) sections.push(adviceText);
