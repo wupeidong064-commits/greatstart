@@ -205,6 +205,11 @@ function extract(q: string, today: string): Mention[] {
   return out;
 }
 
+/** Explicit periods in conversational order, validated by the same business calendar as single queries. */
+export function mentionedPeriods(question: string, today: string): BusinessPeriod[] {
+  return extract(clean(question), today).map(mention => mention.period);
+}
+
 function comparisonFor(p: BusinessPeriod, yearly: boolean): BusinessPeriod {
   const y = Number(p.start.slice(0, 4)),
     m = Number(p.start.slice(5, 7));

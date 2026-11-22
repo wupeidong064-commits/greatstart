@@ -65,11 +65,13 @@ export function rankFollowupBinding(
   return { parsedOk: true, purpose: 'facts', subject: 'teacher', tools: [{ name: 'teacher_performance_ranking', params }] };
 }
 
-/** 合计问句点名的指标：成交/成单→money，净成单→net，出勤/实到/人次→attendance。 */
-export function sumMetricFor(q: string): 'money' | 'net' | 'attendance' {
-  if (/净成单/.test(q)) return 'net';
-  if (/出勤|实到|到课|人次/.test(q)) return 'attendance';
-  return 'money';
+export type SumMetric = 'money' | 'net' | 'attendance' | 'receipts';
+export function sumMetricFor(q: string, fallback: SumMetric = 'money'): SumMetric {
+  if (/净(?:成单|成交)/.test(q)) return 'net';
+  if (/出勤|实到|应到|到课|人次/.test(q)) return 'attendance';
+  if (/实收|收款|实缴/.test(q)) return 'receipts';
+  if (/成交|成单|销售额/.test(q)) return 'money';
+  return fallback;
 }
 
 export interface SumWindow {
@@ -140,18 +142,16 @@ export type PeriodSelection =
 
 /** 解析对候选期间的选择：「第1和第3个」「1和3」「一、三」。无效（越界/同一项/只给一个）→ invalid。 */
 export function parsePeriodSelection(q: string, count: number): PeriodSelection {
-  const norm = q.trim().replace(/第/g, ' ').replace(/个/g, ' ');
-  const parts = norm.split(/[和与跟、,，\s]+/).filter(Boolean);
-  if (parts.length !== 2) {
-    const one = parts.length === 1 && cnNum(parts[0]) !== undefined;
-    return one ? { kind: 'invalid' } : undefined;
-  }
-  const a = cnNum(parts[0]);
-  const b = cnNum(parts[1]);
-  if (a === undefined || b === undefined || a === b || a < 1 || b < 1 || a > count || b > count) {
-    return { kind: 'invalid' };
-  }
-  return { kind: 'pair', first: Math.min(a, b), second: Math.max(a, b) };
+  const norm = q.normalize('NFKC').trim()
+    .replace(/^(?:那就|那么|那|我就|我想|我要|我|请|就)*(?:选(?:择)?|用|取|算|按)?\s*/, '')
+    .replace(/(?:这两(?:个|项|段|周)|吧|啊|呀|好了|就好|即可|就行|来算|合计|[。.!！?？\s])*$/, '')
+    .replace(/第\s*/g, '').replace(/(?:个|项|段|周)/g, '').trim();
+  if (!/^[\d一二两三四五六七八九十和与跟以及、,，\s]+$/.test(norm)) return undefined;
+  const parts = norm.split(/(?:以及|[和与跟及、,，\s])+/).filter(Boolean);
+  if (parts.length !== 2) return { kind: 'invalid' };
+  const a = cnNum(parts[0]), b = cnNum(parts[1]);
+  if (!a || !b || a === b || a > count || b > count) return { kind: 'invalid' };
+  return { kind: 'pair', first: a, second: b };
 }
 
 /** 候选期间的展示文案（会话查询次序编号）。 */

@@ -28,7 +28,8 @@ import {
   naturalAttendanceIntent,
   orderMetricIntent,
 } from '../services/aiWorkbenchPolicy';
-import { rankFollowupBinding, bindSumWindows, sumMetricFor, parsePeriodSelection, formatPeriodCandidates, SumWindow } from '../services/aiQueryBinding';
+import { rankFollowupBinding } from '../services/aiQueryBinding';
+import { crossPeriodQuery, renderPeriodSum } from '../services/aiCrossPeriodQuery';
 import { blockedChatEntryIntent } from '../services/aiEntryService';
 import {
   saveUpload,
@@ -580,11 +581,26 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       ? rankFollowupBinding(content, previousBusiness, todaySH)
         || teacherRankingIntent(content) || teacherComparisonIntent(content, previousBusiness)
       : undefined;
-    if (scopeDecision === 'business') intent = (deniedScope ? {parsedOk:true,reply:deniedScope} : undefined) || blockedChatEntryIntent(content, hasLegacyDraft)
+    const priorityIntent = scopeDecision === 'business' ? (deniedScope ? {parsedOk:true,reply:deniedScope} : undefined) || blockedChatEntryIntent(content, hasLegacyDraft)
       || (mappedUploadComparison ? {parsedOk:true,tools:[]} : undefined)
       || securityProbeIntent(content) || workbenchHelpIntent(content, uploadIds.length > 0)
       || explanationIntent(content, previousRow?.content) || generalAttendanceAdvice(content)
-      || criticalMetricClarification(content) || newStudentAttendanceIntent(content, todaySH)
+      || criticalMetricClarification(content) : undefined;
+    const cross = scopeDecision === 'business' && !priorityIntent && !uploadIds.length
+      ? await crossPeriodQuery(content, {
+          today: todaySH, recent: previousBusiness, completed: previousAnswer?.crossSum,
+          pending: previousRow && priorPending?.kind === 'period' ? priorPending : undefined,
+          history: () => allRows.filter(r => r.role === 'assistant' && r.status === 'complete')
+            .flatMap(r => Array.isArray(r.evidenceJson) ? r.evidenceJson as any[] : []),
+          findClasses: () => prisma.$queryRaw<Array<{id:string; name:string}>>`
+            SELECT id,name FROM classes WHERE "organizationId"=${organizationId}
+              AND "campusId"=${currentUser.campusId} AND status<>'deleted'
+              AND ((length(name)>1 AND strpos(${content},name)>0) OR (length(code)>1 AND strpos(${content},code)>0))
+              ORDER BY length(name) DESC,id LIMIT 21`,
+        })
+      : undefined;
+    if (cross?.pending) pendingClarification = cross.pending;
+    if (scopeDecision === 'business') intent = priorityIntent || cross?.intent || newStudentAttendanceIntent(content, todaySH)
       || teacherIntent || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
       || ((): AiIntent | undefined => {
           // 修复链式短路（复验 S07/C3 根因）：inheritPreviousIntent 未命中时返回的空对象会被
@@ -666,7 +682,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     }
     const localReply = Boolean(deniedEntity) || !usageCalls.some(c => c.purpose === 'intent') && Boolean(intent.reply);
     const directExplanation = intent.purpose === 'explanation' && Boolean(intent.reply) && explanationOnly;
-    const topic = scopeDecision === 'business' && !localReply && !directExplanation
+    const topic = scopeDecision === 'business' && !cross && !localReply && !directExplanation
       ? adviceTopic(intent,content,previousAnswer?.topic) : undefined;
     const adviceContinuation = topic && previousAnswer?.topic === topic
       && /^(?:那|然后|接着|再|继续|请|能否|可以|说得|讲得|展开|具体|详细|一点|一些|些|说说|怎么落地|如何执行|[，。！？?\s])+$/.test(content);
@@ -740,7 +756,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       if (exceedsCalendarToolLimit(tools)) return {parsedOk:true,reply:'请将比较缩小到两组业务指标，再核对每组的本期与基期。'};
       return {...plan,tools};
     };
-    intent = bindPlan(localReply ? intent : alignMeasures(intent,content));
+    if (!cross) intent = bindPlan(localReply ? intent : alignMeasures(intent,content));
     // Validate before any business query. One bounded repair is metered as a separate call.
     if (intent.parsedOk && !intent.reply && intent.tools?.length) {
       const checked = validateToolPlan(intent.tools);
@@ -830,7 +846,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     }
 
     timings.intentMs = Date.now() - startedAt;
-    if (scopeDecision === 'business' && intent.parsedOk) {
+    if (scopeDecision === 'business' && intent.parsedOk && !cross) {
       if (!intent.reuseSnapshot && !intent.tools?.length) intent = inheritPreviousIntent(content, intent, previousBusiness, todaySH);
       intent = normalizeBusinessFilters(content, intent);
       if (mappedUploadComparison && !intent.reply) {
@@ -901,88 +917,9 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       /上传|文件|文档|名单/.test(content) &&
       !/成单|退费|续费|新签|出勤|课消|现金流|排课|课表/.test(content);
     const plannedTools = fileOnly ? [] : intent.tools || [];
-    // ===== 跨期/跨指标合计（K 轮共用流程）：先定本轮任务与指标，再绑定用户引用的两段期间，
-    // 无法唯一确定时列候选请用户选（待选状态跨轮可承接）。mock 与真实共用同一判定。
-    const storedCross = previousAnswer?.crossSum as
-      | { windows: Array<{ start: string; end: string }>; metric: 'money' | 'net' | 'attendance' }
-      | undefined;
-    const periodPending = (lastAssistant?.usageJson as any)?.pendingClarification?.kind === 'period'
-      ? ((lastAssistant as any).usageJson.pendingClarification as { kind: 'period'; candidates: Array<{ start: string; end: string }>; metric: 'money' | 'net' | 'attendance' })
-      : undefined;
-    const sumPhrase = /(?:两|二|双)(?:段|期|周|个月|个期间)[^。？?]{0,8}(?:合计|一共|总共|总和|加起来|合起来|比例)|两期合计|两周合计/.test(content);
-    const hasDateToken = /(?:\d{4}年|\d{1,2}月\d{1,2}|\d{4}-\d{1,2}|上月|上个月|本月|这周|上周|去年|今年|今天|昨天)/.test(content);
-    const userChoiceRx = /(?:先问|让我选|我要选|先让我|让我先|先选)/.test(content) && /(?:两|二|双)(?:段|期|周|个月|个期间)/.test(content);
-    const metricSwitchFup = Boolean(storedCross) && content.length <= 26 && !hasDateToken && !sumPhrase
-      && !/(?:最早|最后|最先)(?:查|问|的)/.test(content)
-      && !userChoiceRx
-      && /(?:实到|人次|出勤|成交|成单|净成单|金额|钱|到课)/.test(content)
-      && /(?:呢|多少|合计|一共|换成|改成|切)/.test(content)
-      && !/学员|学生|班级|老师|教师|教练|学科|课程|科目|哪门|余额|课时/.test(content);
-    const periodSel = periodPending ? parsePeriodSelection(content, periodPending.candidates.length) : undefined;
-    const sumWanted = sumPhrase || metricSwitchFup || userChoiceRx || (periodPending && periodSel !== undefined);
-    if (sumWanted && !intent.reuseSnapshot) {
-      const toolFor = (m: 'money' | 'net' | 'attendance') =>
-        m === 'attendance' ? 'class_attendance' : m === 'net' ? 'cost_and_income' : 'signup_renewal';
-      // 候选窗口：会话内成单/现金流/出勤工具讨论过的有日期窗口（按查询次序去重）。
-      const datedCards = allRows
-        .flatMap(r => Array.isArray(r.evidenceJson) ? (r.evidenceJson as any[]) : [])
-        .filter(c => c && ['signup_renewal', 'cost_and_income', 'class_attendance'].includes(c.tool) && !c.error && c.timeRange?.start && c.timeRange?.end);
-      const windows: SumWindow[] = [];
-      for (const c of datedCards) {
-        if (!windows.some(w => w.start === c.timeRange.start && w.end === c.timeRange.end))
-          windows.push({ start: c.timeRange.start, end: c.timeRange.end, seq: windows.length + 1 });
-      }
-      const metric: 'money' | 'net' | 'attendance' = periodPending && periodSel
-        ? (periodPending.metric || 'money')
-        : sumMetricFor(content);
-      let boundPair: [SumWindow, SumWindow] | null = null;
-      let clarifyCands: SumWindow[] = [];
-      let clarifyMode = '';
-      if (periodPending && periodSel) {
-        if (periodSel.kind === 'pair') {
-          const pick = (n: number) => ({ start: periodPending!.candidates[n - 1].start, end: periodPending!.candidates[n - 1].end, seq: n });
-          boundPair = [pick(periodSel.first), pick(periodSel.second)];
-        } else {
-          clarifyCands = periodPending.candidates.map((w, i) => ({ ...w, seq: i + 1 }));
-          clarifyMode = 'invalid-choice';
-        }
-      } else if (metricSwitchFup && storedCross) {
-        boundPair = [
-          { ...storedCross.windows[0], seq: 1 },
-          { ...storedCross.windows[1], seq: 2 },
-        ];
-      } else {
-        // 同句显式两区间（K4）：按「和/与/，」切半句，逐半句用日历解析出区间。
-        if (sumPhrase && hasDateToken) {
-          for (const half of content.split(/[和与，；]/)) {
-            if (!/(?:\d{4}年|\d{1,2}月|\d{4}-\d{1,2})/.test(half)) continue;
-            const cal = resolveBusinessCalendar({ question: half, today: todaySH });
-            if (!cal.clarification && cal.explicit && cal.observation?.start && cal.observation?.end) {
-                if (!windows.some(w => w.start === cal.observation.start && w.end === cal.observation.end))
-                  windows.push({ start: cal.observation.start, end: cal.observation.end, seq: windows.length + 1 });
-            }
-          }
-        }
-        const binding = bindSumWindows(content, windows);
-        if (binding.action === 'bind') boundPair = [binding.first, binding.second];
-        else { clarifyCands = binding.candidates; clarifyMode = binding.mode; }
-      }
-      if (boundPair) {
-        intent = { ...intent, reply: undefined, parsedOk: true, crossSum: true };
-        const tn = toolFor(metric);
-        plannedTools.splice(0, plannedTools.length,
-          { name: tn, params: { startDate: boundPair[0].start, endDate: boundPair[0].end } },
-          { name: tn, params: { startDate: boundPair[1].start, endDate: boundPair[1].end } });
-      } else if ((clarifyMode !== 'invalid-choice' || periodPending) && (!intent.reply || clarifyCands.length > 0)) {
-        const listed = formatPeriodCandidates(clarifyCands);
-        const head = clarifyMode === 'insufficient'
-          ? (clarifyCands.length === 1
-            ? '本对话只查过一段期间，还需另一段才能合计。已查：'
-            : '本对话还没有可合计的期间。请先分别查两段，或直接给出两段日期。')
-          : '要合计哪两个期间？本对话查过：';
-        intent = { parsedOk: true, reply: head + (clarifyCands.length ? listed : '') + (clarifyMode === 'insufficient' && clarifyCands.length ? '。请再查一段或给出另一段日期。' : '。回复「第1和第3个」这样的选择，或直接给出两段日期。') };
-        pendingClarification = { kind: 'period', candidates: clarifyCands, metric };
-      }
+    if (cross?.completed && isFileRequest(content) && !intent.reply) {
+      intent.fileRequested = true;
+      intent.fileFormats = requestedFormats(content);
     }
     let evidences: Evidence[] = [];
     if (!clientDisconnected && !intent.reply) {
@@ -1101,7 +1038,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
             (Boolean(calendar.comparison) || /偏低|偏高|是否达标|表现如何/.test(content)),
           includeRows: !tableRequested && (/哪些|哪几|哪个|哪位|谁|排名|排行|各班|明细|名单|列出|详情|来源|对照|同名|姓名相同/.test(content) || evidences.some(e=>e.tool==='student_attendance'))
         });
-        if (facts && !tableRequested) sections.push(facts);
+        if (facts && !tableRequested && !cross?.completed) sections.push(facts);
         if (tableRequested) {
           const totals = visibleSnapshot.facts.filter(f=>f.kind === 'metric' && !f.entityName);
           const groups = new Map<string,typeof totals>();
@@ -1123,41 +1060,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
           if (shown) sections.push(shown.split('\n').filter(line=>!groups.has(line)).join('\n'));
         }
         if (tableRequested) sections.push(...evidences.filter(c=>!c.error && !['cost_and_income','signup_renewal'].includes(c.tool)).map(renderEvidenceTable).filter(Boolean));
-        // 跨期/跨指标合计小节：两卡同款工具才相加；重叠期间澄清；出勤按加总分子分母算率。
-        const crossSumGate = sumWanted || (intent as any).crossSum === true;
-        if (crossSumGate) {
-          const moneyCards = evidences.filter(c => !c.error && c.timeRange?.start && c.timeRange?.end
-            && ['signup_renewal','cost_and_income','class_attendance'].includes(c.tool)
-            && (typeof c.totals?.['金额合计'] === 'number' || typeof c.totals?.['实到'] === 'number' || typeof c.totals?.['净成单额'] === 'number'));
-          const seen = new Set<string>();
-          const uniq = moneyCards.filter(c => { const k = c.timeRange!.start + '..' + c.timeRange!.end; if (seen.has(k)) return false; seen.add(k); return true; });
-          if (uniq.length === 2 && uniq[0].tool === uniq[1].tool) {
-            const [a, b2] = uniq;
-            const overlaps = a.timeRange!.start <= b2.timeRange!.end && b2.timeRange!.start <= a.timeRange!.end;
-            if (overlaps) {
-              sections.push('两个期间有重叠（' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' 与 ' + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + '），直接相加会重复计算。请确认要合计的具体期间，或按订单去重的口径。');
-            } else if (a.tool === 'cost_and_income') {
-              const na = a.totals['净成单额'] as number, nb = b2.totals['净成单额'] as number;
-              const total = na + nb;
-              sections.push('两期合计：' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' 净成单 ¥' + na.toLocaleString('zh-CN') + '，'
-                + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + ' 净成单 ¥' + nb.toLocaleString('zh-CN') + '；合计净成单 ¥' + total.toLocaleString('zh-CN') + '。');
-            } else if (a.tool === 'class_attendance') {
-              const due1 = a.totals['应到'] as number, due2 = b2.totals['应到'] as number;
-              const act1 = a.totals['实到'] as number, act2 = b2.totals['实到'] as number;
-              const due = due1 + due2, act = act1 + act2;
-              const rate = due > 0 ? Math.round((act / due) * 1000) / 10 : null;
-              sections.push('两期合计：' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' 实到 ' + act1 + ' 人次，'
-                + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + ' 实到 ' + act2 + ' 人次；合计实到 ' + act + ' 人次，合计应到 ' + due
-                + ' 人次' + (rate != null ? '，合计出勤率 ' + rate + '%（' + act + '／' + due + ' 人次）' : '') + '。');
-            } else {
-            const ma = a.totals['金额合计'] as number, mb = b2.totals['金额合计'] as number;
-            const total = ma + mb;
-            const share = total > 0 ? Math.round((ma / total) * 1000) / 10 : null;
-            const share2 = total > 0 ? Math.round((mb / total) * 1000) / 10 : null;
-            sections.push('两期合计：' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' ¥' + ma.toLocaleString('zh-CN') + '，' + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + ' ¥' + mb.toLocaleString('zh-CN') + '；合计 ¥' + total.toLocaleString('zh-CN') + (share != null ? '；占比 ' + share + '% / ' + share2 + '%' : '') + '。');
-            }
-          }
-        }
+        if (cross?.completed) sections.push(renderPeriodSum(cross.completed, evidences));
         if (adviceText) sections.push(adviceText);
         if (fileCards.some(c=>c.status==='ready')) sections.push('文件已按本次查询快照生成，可在下方下载。');
         if (fileCards.some(c=>c.status==='failed')) sections.push('部分文件未生成成功，可重试导出。');
@@ -1291,9 +1194,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
           ...(queryPlanAudit ? { queryPlan: queryPlanAudit } : {}),
           operatingAnswer: {version:operatingSnapshot.version,calendar,adviceText,topic:adviceText ? topic || previousAnswer?.topic : undefined,
             factIds:operatingSnapshot.facts.map(f=>f.id),purpose:intent.purpose,subject:intent.subject,actions:intent.actionIds,
-            crossSum: (intent as any).crossSum === true && evidences.length >= 2
-              ? { windows: evidences.filter(c => !c.error && c.timeRange?.start).slice(0, 2).map(c => ({ start: c.timeRange!.start, end: c.timeRange!.end })), metric: sumMetricFor(content) }
-              : undefined},
+            crossSum: cross?.completed && !intent.reply && evidences.length === 2 && evidences.every(c => !c.error)
+              ? cross.completed : undefined},
           queryErrors:evidences.filter(c=>c.error).map(c=>({tool:c.tool,error:c.error})),
         } as any,
       },
