@@ -207,8 +207,12 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
   } else if (/快上完课|该续费|该提醒|续费名单|快要上完/.test(q)) name = 'renewal_candidates';
   else if (/退费|退款|退了|退多少|已退|净成单|现金|收入/.test(q)) name = 'cost_and_income';
   else if (/成单|新签|续费/.test(q)) name = 'signup_renewal';
-  else if (/谁.{0,10}(?:第一|最高|最低|最差|最好|最后|倒数)|哪个(?:老师|教练).{0,8}(?:第一|最高|最低|最差|最好)/.test(q)
-    && /出勤|课消|成单|核销/.test(q) && !/学员|学生|班级|各班/.test(q)) name = 'teacher_performance_ranking';
+  else if ((/谁.{0,10}(?:第一|最高|最低|最差|最好|最后|倒数)|哪个(?:老师|教练|教师).{0,10}(?:第一|最高|最低|最差|最好|排名|排行)|(?:第一|最高|最低|最差|最好|较好|最后)(?:的)?(?:老师|教练)?[^。]{0,4}是谁|(?:老师|教练|教师)[^。]{0,8}(?:排名|排行)/.test(q))
+    && /出勤|课消|成单|核销/.test(q) && !/学员|学生|班级|各班/.test(q)) {
+    name = 'teacher_performance_ranking';
+    if (/课消|核销/.test(q)) params.metric = 'consumption';
+    else if (/成单|成交/.test(q)) params.metric = 'sales';
+  }
   else if (/环比|同比|对比/.test(q) && !/(?:比较|更|较)好|更好|较好|哪家强|谁更高/.test(q)) name = 'weekly_comparison';
   else if (/实际课消|课消.*金额|课消多少钱/.test(q)) name = 'actual_consumption';
   else if (/出勤|到课/.test(q)) name = 'class_attendance';
@@ -334,13 +338,22 @@ export function entitySwapFollowupIntent(question: string, previous: any[]): AiI
     params.teacherName = entity;
   } else if (entityField === '名称' && /班$/.test(entity) && toolDef.paramsSchema.className) {
     params.className = entity;
-  } else if (entityField === 'name' && /班$/.test(entity)) {
-    if (!toolDef.paramsSchema.classId && !toolDef.paramsSchema.className) return undefined;
-    if (toolDef.paramsSchema.classId) {
-      const hit = prev.rows.find((r: any) => r.name === entity && typeof r.id === 'string');
-      if (hit) params.classId = hit.id;
+  } else if (entityField === 'name') {
+    // 行字段 name 的含义随工具而定：班级行工具→班级参数；学员行工具→学员参数。
+    const classRowTools = ['class_attendance', 'low_attendance_classes', 'weekly_report_data', 'class_student_changes'];
+    const studentRowTools = ['search_students', 'student_attendance', 'renewal_candidates', 'low_attendance_students', 'new_student_attendance'];
+    if (classRowTools.includes(prev.tool) && (toolDef.paramsSchema.classId || toolDef.paramsSchema.className)) {
+      if (toolDef.paramsSchema.classId) {
+        const hit = prev.rows.find((r: any) => r.name === entity && typeof r.id === 'string');
+        if (hit) params.classId = hit.id;
+      }
+      if (toolDef.paramsSchema.className) params.className = entity;
+    } else if (studentRowTools.includes(prev.tool) && (toolDef.paramsSchema.studentName || toolDef.paramsSchema.keyword)) {
+      if (toolDef.paramsSchema.studentName) params.studentName = entity;
+      else params.keyword = entity;
+    } else {
+      return undefined;
     }
-    if (toolDef.paramsSchema.className) params.className = entity;
   } else {
     return undefined;
   }
