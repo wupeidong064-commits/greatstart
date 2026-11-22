@@ -117,6 +117,10 @@ describe('understand the request before querying', () => {
     const follow = studentBalanceIntent('那现在还剩几节？', prev)!;
     expect(follow.tools?.[0].params).toEqual({ keyword: '林沐辰' });
     expect(studentBalanceIntent('那现在还剩几节？', [])).toBeUndefined();
+    for (const q of ['换个问题，林沐辰现在还有几节课？','苏语夏目前还有多少课时？','何向晨的课时还剩多少？']) {
+      const name = q.match(/林沐辰|苏语夏|何向晨/)![0];
+      expect(studentBalanceIntent(q)?.tools?.[0].params).toEqual({ keyword: name });
+    }
     // 月份区间余额不绑定时点；由 bindPlan 拒绝区间统计（时点数值语义）。
     expect(studentBalanceIntent('2026年10月，林沐辰还剩几节课？')?.tools?.[0].params).toEqual({ keyword: '林沐辰' });
   });

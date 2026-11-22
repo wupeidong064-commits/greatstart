@@ -291,9 +291,9 @@ export function lowAttendanceRenewalIntent(q: string, previous: any[]): AiIntent
  * 明确单日按课时账回放该日余额；无日期或「现在」按当前快照；省略型追问复用上一轮余额卡对象。 */
 export function studentBalanceIntent(q: string, previous: any[] = []): AiIntent | undefined {
   const text = q.trim().replace(/不查老师|不要查?老师|不看老师|不管老师|不问老师/g, '');
-  if (!/还剩|余额|剩余课时|剩多少|还剩多少|剩几节|几节课|剩下|还有多少课时/.test(text)) return undefined;
+  if (!/还剩|余额|剩余课时|剩多少|还剩多少|剩几节|几节课|剩下|还有(?:多少|几)(?:节|课时)/.test(text)) return undefined;
   if (/出勤|成单|续费|退费|课消|班级|排名|哪个班|其他机构|删除|修改/.test(text)) return undefined;
-  const m = /([\u4e00-\u9fa5·]{2,4}?)(?:现在|目前|当前)?(?=还剩|的余额|的剩余|剩多少|剩几节|还剩几节|余额)/.exec(text);
+  const m = /([\u4e00-\u9fa5·]{2,4}?)(?:现在|目前|当前)?(?:的课时)?(?=还有(?:多少|几)(?:节|课时)|还剩|的余额|的剩余|剩多少|剩几节|余额)/.exec(text);
   let name = m ? m[1] : undefined;
   if (name && /^(?:学员|学生|老师|教练|班级|现在|当前|目前|还剩|余额|剩余|课时|多少|几节|剩下|还有|月|日|号|那|这|请|帮)/.test(name)) name = undefined;
   return balanceToolPlan(text, name, previous);
