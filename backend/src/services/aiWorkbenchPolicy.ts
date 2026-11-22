@@ -272,7 +272,7 @@ export function lowAttendanceRenewalIntent(q: string, previous: any[]): AiIntent
 
 /** 点名学员余额追问（复验必修 C1，mock 与真实共用）：现在/还剩/余额 + 2-4 字姓名 → search_students。 */
 export function studentBalanceIntent(q: string): AiIntent | undefined {
-  const text = q.trim();
+  const text = q.trim().replace(/不查老师|不要查?老师|不看老师|不管老师|不问老师/g, '');
   if (!/还剩|余额|剩余课时|剩多少|还剩多少|剩几节|几节课/.test(text)) return undefined;
   if (/出勤|成单|续费|退费|课消|班级|排名|哪个班|其他机构|删除|修改/.test(text)) return undefined;
   const m = /([\u4e00-\u9fa5·]{2,4})(?:现在|目前|当前)?(?:还剩|的?余额|的?剩余(?:课时)?|剩多少|还剩多少|剩几节|还剩几节)/.exec(text);
@@ -284,8 +284,9 @@ export function studentBalanceIntent(q: string): AiIntent | undefined {
 
 /** 学员出勤排名（复验必修 G1）：学员/学生 + 出勤率 + 最高最低 → student_attendance 排名，不走老师排名。 */
 export function studentRankingIntent(q: string): AiIntent | undefined {
-  if (!/学员|学生|同学/.test(q) || /老师|教师|教练|其他机构|删除|修改/.test(q)) return undefined;
-  if (!/出勤|到课/.test(q) || !/最低|最高|最好|最差|最后|倒数|第一|垫底|排名|排行/.test(q)) return undefined;
+  const text = q.replace(/不查老师|不要查?老师|不看老师|不管老师|不问老师|不包括老师|除了老师/g, '');
+  if (!/学员|学生|同学/.test(text) || /老师|教师|教练|其他机构|删除|修改/.test(text)) return undefined;
+  if (!/出勤|到课/.test(text) || !/最低|最高|最好|最差|最后|倒数|第一|垫底|排名|排行/.test(text)) return undefined;
   const ranking = /最低|最差|最后|倒数|垫底/.test(q) ? 'lowest_rate' : 'highest_rate';
   return { parsedOk: true, purpose: 'facts', subject: 'student', tools: [{ name: 'student_attendance', params: { ranking } }] };
 }
@@ -299,7 +300,7 @@ export function entitySwapFollowupIntent(question: string, previous: any[]): AiI
   const prev = previous.find(c => c && !c.error && Array.isArray(c.rows) && c.rows.length);
   const toolDef = prev ? AI_TOOLS.find(t => t.name === prev.tool) : undefined;
   if (!prev || !toolDef) return undefined;
-  const entityFields = ['班级', '姓名', '老师', '名称'] as const;
+  const entityFields = ['班级', '姓名', '老师', '名称', 'name'] as const;
   let entity: string | null = null;
   let entityField: (typeof entityFields)[number] | null = null;
   for (const row of prev.rows.slice(0, 50)) {
@@ -333,6 +334,13 @@ export function entitySwapFollowupIntent(question: string, previous: any[]): AiI
     params.teacherName = entity;
   } else if (entityField === '名称' && /班$/.test(entity) && toolDef.paramsSchema.className) {
     params.className = entity;
+  } else if (entityField === 'name' && /班$/.test(entity)) {
+    if (!toolDef.paramsSchema.classId && !toolDef.paramsSchema.className) return undefined;
+    if (toolDef.paramsSchema.classId) {
+      const hit = prev.rows.find((r: any) => r.name === entity && typeof r.id === 'string');
+      if (hit) params.classId = hit.id;
+    }
+    if (toolDef.paramsSchema.className) params.className = entity;
   } else {
     return undefined;
   }

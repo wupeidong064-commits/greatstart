@@ -700,6 +700,21 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
         if (previousBusiness.length) {
           const inherited = inheritPreviousIntent(content, { parsedOk: true, tools: [] }, previousBusiness, todaySH);
           if (inherited.tools?.length) return { ...inherited, tools: calendarTools(inherited, calendar) };
+          // 复验修正：改期/合计追问撞快照工具时，复用上一轮同款可回溯工具按新期间查询。
+          const prevDated = previousBusiness.find(c => {
+            const def = AI_TOOLS.find(d => d.name === c.tool);
+            return c && !c.error && def && def.paramsSchema.startDate && Array.isArray(c.rows);
+          });
+          if (prevDated) {
+            const def = AI_TOOLS.find(d => d.name === prevDated.tool)!;
+            const params: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(prevDated.filters || {})) {
+              if (Object.prototype.hasOwnProperty.call(def.paramsSchema, k) && v != null) params[k] = v;
+            }
+            params.startDate = calendar.observation.start;
+            params.endDate = calendar.observation.end;
+            return { parsedOk: true, tools: [{ name: prevDated.tool, params }] };
+          }
         }
         return {parsedOk:true,reply:'该资料只能查询当前快照，无法还原 '+calendar.observation.start+' 至 '+calendar.observation.end+' 的历史状态。请指定需要按业务日期统计的指标。'};
       }
