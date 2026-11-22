@@ -38,7 +38,7 @@ export function rankFollowupBinding(
 ): AiIntent | undefined {
   const text = q.trim();
   if (text.length > 40) return undefined;
-  if (/学员|学生|同学|班级|各班|哪个班|哪班|课程|哪门|校区|渠道|来源|线索|家长|体验|其他机构|删除|修改|密码|密钥/.test(text)) return undefined;
+  if (/学员|学生|同学|班级|各班|哪个班|哪班|课程|学科|科目|哪门|校区|渠道|来源|线索|家长|体验|其他机构|删除|修改|密码|密钥/.test(text)) return undefined;
   if (/(?:和|与|跟|相比|比较|环比|同比)/.test(text)) return undefined;
   const min = MIN_RX.test(text);
   const max = MAX_RX.test(text);
@@ -63,4 +63,21 @@ export function rankFollowupBinding(
   params.startDate = period.start;
   params.endDate = period.end;
   return { parsedOk: true, purpose: 'facts', subject: 'teacher', tools: [{ name: 'teacher_performance_ranking', params }] };
+}
+
+/** 两期合计的两段绑定（复验 J2）：按问句点名的粒度过滤会话内讨论过的窗口。
+ * windows 按最近优先；两周→仅 10 天内窗口，两月→仅 20 天以上窗口，两期/两段→不限。
+ * 命中不足两段时不能唯一确定，返回 null 让用户从候选中挑。 */
+export function bindSumWindows(
+  q: string,
+  windows: Array<{ start: string; end: string }>
+): { bound: Array<{ start: string; end: string }> | null; candidates: Array<{ start: string; end: string }> } {
+  const span = (w: { start: string; end: string }) =>
+    Math.round((Date.parse(w.end) - Date.parse(w.start)) / 86400000) + 1;
+  const week = /(?:两|二|双)个?(?:周|星期)/.test(q);
+  const month = /(?:两|二|双)个?月/.test(q);
+  let cands = windows;
+  if (week) cands = windows.filter(w => span(w) <= 10);
+  else if (month) cands = windows.filter(w => span(w) >= 20);
+  return { bound: cands.length >= 2 ? [cands[0], cands[1]] : null, candidates: windows };
 }

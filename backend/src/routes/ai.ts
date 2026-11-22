@@ -28,7 +28,7 @@ import {
   naturalAttendanceIntent,
   orderMetricIntent,
 } from '../services/aiWorkbenchPolicy';
-import { rankFollowupBinding } from '../services/aiQueryBinding';
+import { rankFollowupBinding, bindSumWindows } from '../services/aiQueryBinding';
 import { blockedChatEntryIntent } from '../services/aiEntryService';
 import {
   saveUpload,
@@ -486,7 +486,13 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     // Business data is queried only after relevance and the authorized tool plan.
     const lastAssistant = [...allRows].reverse().find(row => row.role === 'assistant');
     const previousRow = lastAssistant?.status === 'complete' ? lastAssistant : undefined;
-    const previousCards = Array.isArray(previousRow?.evidenceJson) ? previousRow.evidenceJson as any[] : [];
+    let previousCards = Array.isArray(previousRow?.evidenceJson) ? previousRow.evidenceJson as any[] : [];
+    if (!previousCards.length) {
+      // 最近一条纯文字回答（如拒答/澄清）不抹掉更早的可承接证据卡（复验 J1：拒答后追问「那现在还剩多少」）。
+      const prevWithCards = [...allRows].reverse().find(r => r.role === 'assistant' && r.status === 'complete'
+        && Array.isArray(r.evidenceJson) && r.evidenceJson.length);
+      previousCards = (prevWithCards?.evidenceJson as any[] | undefined) ?? [];
+    }
     const previousBusiness = previousCards.filter(card => card && card.tool !== 'report_file' && card.tool !== 'operating_report' && Array.isArray(card.rows));
     const previousAnswer = (previousRow?.usageJson as any)?.operatingAnswer;
     const priorPending = (lastAssistant?.usageJson as any)?.pendingClarification;
@@ -900,33 +906,29 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     const asksCrossPeriodSum = /(?:两|二|双)(?:段|期|周|个月|个期间)[^。？?]{0,8}(?:合计|一共|总共|总和|加起来|合起来|比例)|两期合计|两周合计/.test(content)
       && !/(?:\d{4}年|\d{1,2}月\d{1,2}|\d{4}-\d{1,2}|上月|上个月|本月|这周|上周|最近|半年|去年|今年|今天|昨天)/.test(content);
     if (asksCrossPeriodSum && !intent.reply && !intent.reuseSnapshot) {
-      const base = plannedTools.find(t => ['signup_renewal','cost_and_income'].includes(t.name));
-      if (base) {
-        // 合计的两段期间取会话内同款工具讨论过的窗口（最近两段不同窗口），不依赖本轮默认绑定，
-        // 避免真实模型意图抖动导致只答一周；无法确定两段时如实要求补充。
-        const prevCards = allRows.filter(r => r.role === 'assistant').reverse()
-          .flatMap(r => Array.isArray(r.evidenceJson) ? (r.evidenceJson as any[]) : [])
-          .filter(c => c && c.tool === base.name && !c.error && c.timeRange?.start && c.timeRange?.end);
-        const windows: Array<{ start: string; end: string }> = [];
-        for (const c of prevCards) {
-          if (!windows.some(w => w.start === c.timeRange.start && w.end === c.timeRange.end))
-            windows.push({ start: c.timeRange.start, end: c.timeRange.end });
-        }
-        if (windows.length >= 2) {
-          const [recent, earlier] = windows;
-          base.params.startDate = recent.start;
-          base.params.endDate = recent.end;
-          plannedTools.push({ name: base.name, params: { ...base.params, startDate: earlier.start, endDate: earlier.end } });
-        } else if (windows.length === 1 && calendar.comparison
-          && (calendar.comparison.start !== windows[0].start || calendar.comparison.end !== windows[0].end)) {
-          base.params.startDate = windows[0].start;
-          base.params.endDate = windows[0].end;
-          plannedTools.push({ name: base.name, params: { ...base.params, startDate: calendar.comparison.start, endDate: calendar.comparison.end } });
-        } else if (!windows.length && calendar.comparison) {
-          plannedTools.push({ name: base.name, params: { ...base.params, startDate: calendar.comparison.start, endDate: calendar.comparison.end } });
-        } else if (!windows.length) {
-          intent = { parsedOk: true, reply: '请先分别查两段期间，或直接给出两段日期，再问合计；当前会话还没有可合计的两段期间。' };
-        }
+      // 合计绑定用户指的两段（复验 J2）：按问句粒度（两周≤10天/两月≥20天/两期不限）过滤
+      // 会话内成单/现金流工具讨论过的窗口（最近优先，去重）；不能唯一确定时列出候选请用户选。
+      const moneyCards = allRows.filter(r => r.role === 'assistant').reverse()
+        .flatMap(r => Array.isArray(r.evidenceJson) ? (r.evidenceJson as any[]) : [])
+        .filter(c => c && ['signup_renewal','cost_and_income'].includes(c.tool) && !c.error && c.timeRange?.start && c.timeRange?.end);
+      const windows: Array<{ start: string; end: string }> = [];
+      for (const c of moneyCards) {
+        if (!windows.some(w => w.start === c.timeRange.start && w.end === c.timeRange.end))
+          windows.push({ start: c.timeRange.start, end: c.timeRange.end });
+      }
+      const { bound, candidates } = bindSumWindows(content, windows);
+      if (bound) {
+        const base = plannedTools.find(t => ['signup_renewal','cost_and_income'].includes(t.name))
+          ?? { name: moneyCards[0].tool, params: {} as Record<string, unknown> };
+        base.params.startDate = bound[0].start;
+        base.params.endDate = bound[0].end;
+        plannedTools.splice(0, plannedTools.length,
+          { name: base.name, params: { ...base.params } },
+          { name: base.name, params: { ...base.params, startDate: bound[1].start, endDate: bound[1].end } });
+      } else {
+        intent = { parsedOk: true, reply: '要合计哪两个期间的成交金额？本对话里查过：'
+          + candidates.map(w => w.start + ' 至 ' + w.end).join('、')
+          + '。请指明要合计的两段期间，或用「两周／两月」明确粒度。' };
       }
     }
     let evidences: Evidence[] = [];

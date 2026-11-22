@@ -214,7 +214,7 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
   else if (/退费|退款|退了|退多少|已退|净成单|现金|收入/.test(q)) name = 'cost_and_income';
   else if (/成单|新签|续费/.test(q)) name = 'signup_renewal';
   else if ((/谁.{0,10}(?:第一|最高|最低|最差|最好|最后|倒数)|哪个(?:老师|教练|教师).{0,10}(?:第一|最高|最低|最差|最好|排名|排行)|(?:第一|最高|最低|最差|最好|较好|最后)(?:的)?(?:老师|教练)?[^。]{0,4}是谁|(?:老师|教练|教师)[^。]{0,8}(?:排名|排行)/.test(q))
-    && /出勤|课消|成单|核销/.test(q) && !/学员|学生|班级|各班|课程|哪门/.test(q)) {
+    && /出勤|课消|成单|核销/.test(q) && !/学员|学生|班级|各班|课程|学科|科目|哪门/.test(q)) {
     name = 'teacher_performance_ranking';
     if (/课消|核销/.test(q)) params.metric = 'consumption';
     else if (/成单|成交/.test(q)) params.metric = 'sales';
@@ -334,12 +334,12 @@ function balanceNameIn(text: string) {
   return undefined;
 }
 
-/** 课程/哪门 + 排名词 + 成单：如实说明暂无课程成单口径（换对象重选路径，复验阻断 3）。 */
+/** 课程/学科/哪门 + 排名词 + 成单：如实说明暂无课程/学科成单口径（换对象重选路径）。 */
 export function courseRankingIntent(q: string): AiIntent | undefined {
-  if (!/课程|哪门/.test(q)) return undefined;
+  if (!/课程|学科|科目|哪门/.test(q)) return undefined;
   if (!/最高|最低|第一|最好|最差|排名|排行/.test(q)) return undefined;
   if (!/成单|成交|销售额/.test(q)) return undefined;
-  return { parsedOk: true, reply: '系统暂无按课程统计成单额的现成口径。老师排名只用于教学人员或明确放开后的全员排名，不适用于课程维度；可以先查某班级或某课程的学员成单明细，或按老师、销售对比成单额。' };
+  return { parsedOk: true, reply: '系统暂无按课程或学科统计成单额的现成口径。老师排名只用于教学人员或明确放开后的全员排名，不适用于课程、学科维度；可以先查某班级或某课程的学员成单明细，或按老师、销售对比成单额。' };
 }
 
 /** 学员出勤排名（复验必修 G1）：学员/学生 + 出勤率 + 最高最低 → student_attendance 排名，不走老师排名。 */

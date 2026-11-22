@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { criticalMetricClarification, entitySwapFollowupIntent, explanationIntent, generalAttendanceAdvice, inheritPreviousIntent, localBusinessIntent, studentBalanceIntent } from '../src/services/aiWorkbenchPolicy';
-import { rankFollowupBinding } from '../src/services/aiQueryBinding';
+import { bindSumWindows, rankFollowupBinding } from '../src/services/aiQueryBinding';
 import { resolveBusinessCalendar } from '../src/services/aiBusinessCalendar';
 import { calendarTools } from '../src/services/aiOperatingPlan';
 import { renderTeacherComparison, teacherComparisonIntent, teacherDeclines } from '../src/services/aiTeacherComparison';
@@ -140,5 +140,41 @@ describe('understand the request before querying', () => {
     const prevCard = { tool: 'search_students', rows: [{ name: '叶予禾', remainingLessons: 7 }], filters: { keyword: '叶予禾' }, error: null } as unknown as Evidence;
     expect(entitySwapFollowupIntent('2026年12月31日，叶予禾还剩几节课？', [prevCard])).toBeUndefined();
     expect(entitySwapFollowupIntent('叶予禾呢？', [prevCard])).toBeDefined();
+  });
+  it('binds the two named periods for sums, else asks the user to pick (复验 J2)', () => {
+    // 会话内最近优先的三段：10 月整月 + 两个周。
+    const windows = [
+      { start: '2026-10-01', end: '2026-10-31' },
+      { start: '2026-11-09', end: '2026-11-15' },
+      { start: '2026-11-02', end: '2026-11-08' },
+    ];
+    // 问句点名“两周”：只允许周粒度窗口，10 月整月被排除，绑定的正是讨论过的两周。
+    const named = bindSumWindows('前面两周的成交金额合计多少？', windows);
+    expect(named.bound).toEqual([
+      { start: '2026-11-09', end: '2026-11-15' },
+      { start: '2026-11-02', end: '2026-11-08' },
+    ]);
+    // 未点名粒度（两期）：仍取最近两段。
+    const generic = bindSumWindows('前面两期的合计多少', windows);
+    expect(generic.bound).toEqual([
+      { start: '2026-10-01', end: '2026-10-31' },
+      { start: '2026-11-09', end: '2026-11-15' },
+    ]);
+    // 点名两周但会话里只有一个周窗口：不能唯一确定，返回 null 并给出全部候选。
+    const onlyMonth = bindSumWindows('前面两周合计多少', [{ start: '2026-10-01', end: '2026-10-31' }]);
+    expect(onlyMonth.bound).toBeNull();
+    expect(onlyMonth.candidates).toEqual([{ start: '2026-10-01', end: '2026-10-31' }]);
+    // 两月粒度：会话里只有一个月窗口，不能唯一确定两月，澄清并列出候选。
+    const monthUnit = bindSumWindows('前面两个月合计多少', windows);
+    expect(monthUnit.bound).toBeNull();
+    expect(monthUnit.candidates).toHaveLength(3);
+  });
+  it('re-paths when the user names a subject/course-like object in any common phrasing (复验 J3)', () => {
+    const prev = [{ tool: 'teacher_performance_ranking', rows: [{ 老师: '周老师', 个人成单额: 16935 }], filters: { metric: 'sales', scope: 'teachers', direction: 'max' },
+      timeRange: { start: '2026-10-01', end: '2026-10-31' }, error: null } as unknown as Evidence];
+    expect(rankFollowupBinding('我换个问题，十月份哪个学科成交额最高', prev, '2026-11-22')).toBeUndefined();
+    expect(rankFollowupBinding('哪个科目的成单额最高', prev, '2026-11-22')).toBeUndefined();
+    expect(rankFollowupBinding('把顾问也算上，谁第一', prev, '2026-11-22')).toBeDefined();
+    expect(localBusinessIntent('我换个问题，十月份哪个学科成交额最高？', '2026-11-22').reply).toContain('学科');
   });
 });
