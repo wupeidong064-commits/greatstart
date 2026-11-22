@@ -143,9 +143,11 @@ export type PeriodSelection =
 /** 解析对候选期间的选择：「第1和第3个」「1和3」「一、三」。无效（越界/同一项/只给一个）→ invalid。 */
 export function parsePeriodSelection(q: string, count: number): PeriodSelection {
   const norm = q.normalize('NFKC').trim()
-    .replace(/^(?:那就|那么|那|我就|我想|我要|我|请|就)*(?:选(?:择)?|用|取|算|按)?\s*/, '')
-    .replace(/(?:这两(?:个|项|段|周)|吧|啊|呀|好了|就好|即可|就行|来算|合计|[。.!！?？\s])*$/, '')
-    .replace(/第\s*/g, '').replace(/(?:个|项|段|周)/g, '').trim();
+    .replace(/^(?:(?:不对|不是|不用|不|好的|确认)[,，]\s*)?/, '')
+    .replace(/^(?:(?:那就|那么|还是|直接|麻烦|那|我就|我想|我要|我|请|就)\s*)*(?:改选|改用|改成|选(?:择)?|用|取|算|按)?\s*/, '')
+    .replace(/(?:这两(?:个|项|段|周)|吧|啊|呀|好了|就好|即可|就行|来算|算|合计|[。.!！?？\s])*$/, '')
+    .replace(/最后一(?:个|项|段|周|期)?/g, String(count))
+    .replace(/第\s*/g, '').replace(/(?:期间|个|项|段|周|期)/g, '').trim();
   if (!/^[\d一二两三四五六七八九十和与跟以及、,，\s]+$/.test(norm)) return undefined;
   const parts = norm.split(/(?:以及|[和与跟及、,，\s])+/).filter(Boolean);
   if (parts.length !== 2) return { kind: 'invalid' };

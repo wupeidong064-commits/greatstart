@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { crossPeriodQuery, renderPeriodSum } from '../src/services/aiCrossPeriodQuery';
+import { previousClassStandings, renderClassStandings } from '../src/services/aiClassStandings';
 import type { Evidence } from '../src/services/aiTools';
 
 const windows = [
@@ -32,6 +33,12 @@ describe('cross-period dialogue', () => {
     expect(alt?.completed?.windows.map(w=>w.start)).toEqual([windows[0].start, windows[2].start]);
     expect(alt?.completed?.metric).toBe('attendance');
   });
+  it.each(['改选第二个和第三个。','不，还是按第二和第三个期间算吧。','直接用第二个和最后一个就好'])(
+    'lets the user replace a suggested pair using %s', async q => {
+      const proposal = await crossPeriodQuery('最早查过的两周合计成交额，先确认再算。',ctx);
+      const replacement = await crossPeriodQuery(q, {...ctx, pending: proposal!.pending});
+      expect(replacement?.completed?.windows.map(w => w.start)).toEqual(windows.slice(1).map(w => w.start));
+    });
   it('preserves the question on an invalid choice and does not reuse it for a different topic', async () => {
     const r = await crossPeriodQuery('两周合计多少？先让我选。', ctx);
     const pending = (await crossPeriodQuery('就选第一和第四个吧', { ...ctx, pending:r!.pending }))?.pending;
@@ -63,5 +70,23 @@ describe('cross-period dialogue', () => {
     expect(renderPeriodSum(state,evidence)).toContain('合计 ¥0.3');
     expect(renderPeriodSum(state,[evidence[1], evidence[0]])).toContain('无法合计');
     expect(renderPeriodSum(state,[{...evidence[0],filters:{classId:'other'}},evidence[1]])).toContain('无法合计');
+  });
+});
+
+describe('class standings after a drill-down', () => {
+  const card = { ...cards[0], tool:'class_attendance', rows:[
+    {name:'甲班', 实到:100, 应到:101}, {name:'乙班', 实到:99, 应到:100},
+    {name:'丙班', 实到:200, 应到:202}, {name:'丁班', 实到:0, 应到:0},
+  ] } as unknown as Evidence;
+  it('keeps the discussed period for a group confirmation, and leaves an explicitly changed date or teacher to its own query', () => {
+    expect(previousClassStandings('还是那些并列第一的班吗？',[card])).toEqual(card.timeRange);
+    expect(previousClassStandings('上个月哪些班并列第一？',[card])).toBeUndefined();
+    expect(previousClassStandings('那张老师的班排第一吗？',[card])).toBeUndefined();
+  });
+  it('excludes zero denominators and distinguishes ties using exact ratios', () => {
+    const result = renderClassStandings(card);
+    expect(result).toContain('2 个班');
+    expect(result).toContain('甲班'); expect(result).toContain('丙班');
+    expect(result).not.toContain('乙班'); expect(result).not.toContain('丁班');
   });
 });

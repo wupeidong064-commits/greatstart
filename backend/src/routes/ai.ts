@@ -29,6 +29,7 @@ import {
   orderMetricIntent,
 } from '../services/aiWorkbenchPolicy';
 import { rankFollowupBinding } from '../services/aiQueryBinding';
+import { previousClassStandings, renderClassStandings } from '../services/aiClassStandings';
 import { crossPeriodQuery, renderPeriodSum } from '../services/aiCrossPeriodQuery';
 import { blockedChatEntryIntent } from '../services/aiEntryService';
 import {
@@ -599,8 +600,12 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
               ORDER BY length(name) DESC,id LIMIT 21`,
         })
       : undefined;
+    const standings = scopeDecision === 'business' && !priorityIntent && !cross && !uploadIds.length
+      ? previousClassStandings(content, previousBusiness) : undefined;
+    const standingsIntent: AiIntent | undefined = standings ? { parsedOk: true, purpose: 'facts',
+      tools: [{ name: 'class_attendance', params: { startDate: standings.start, endDate: standings.end } }] } : undefined;
     if (cross?.pending) pendingClarification = cross.pending;
-    if (scopeDecision === 'business') intent = priorityIntent || cross?.intent || newStudentAttendanceIntent(content, todaySH)
+    if (scopeDecision === 'business') intent = priorityIntent || cross?.intent || standingsIntent || newStudentAttendanceIntent(content, todaySH)
       || teacherIntent || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
       || ((): AiIntent | undefined => {
           // 修复链式短路（复验 S07/C3 根因）：inheritPreviousIntent 未命中时返回的空对象会被
@@ -682,7 +687,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     }
     const localReply = Boolean(deniedEntity) || !usageCalls.some(c => c.purpose === 'intent') && Boolean(intent.reply);
     const directExplanation = intent.purpose === 'explanation' && Boolean(intent.reply) && explanationOnly;
-    const topic = scopeDecision === 'business' && !cross && !localReply && !directExplanation
+    const topic = scopeDecision === 'business' && !cross && !standings && !localReply && !directExplanation
       ? adviceTopic(intent,content,previousAnswer?.topic) : undefined;
     const adviceContinuation = topic && previousAnswer?.topic === topic
       && /^(?:那|然后|接着|再|继续|请|能否|可以|说得|讲得|展开|具体|详细|一点|一些|些|说说|怎么落地|如何执行|[，。！？?\s])+$/.test(content);
@@ -756,7 +761,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       if (exceedsCalendarToolLimit(tools)) return {parsedOk:true,reply:'请将比较缩小到两组业务指标，再核对每组的本期与基期。'};
       return {...plan,tools};
     };
-    if (!cross) intent = bindPlan(localReply ? intent : alignMeasures(intent,content));
+    if (!cross && !standings) intent = bindPlan(localReply ? intent : alignMeasures(intent,content));
     // Validate before any business query. One bounded repair is metered as a separate call.
     if (intent.parsedOk && !intent.reply && intent.tools?.length) {
       const checked = validateToolPlan(intent.tools);
@@ -846,7 +851,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     }
 
     timings.intentMs = Date.now() - startedAt;
-    if (scopeDecision === 'business' && intent.parsedOk && !cross) {
+    if (scopeDecision === 'business' && intent.parsedOk && !cross && !standings) {
       if (!intent.reuseSnapshot && !intent.tools?.length) intent = inheritPreviousIntent(content, intent, previousBusiness, todaySH);
       intent = normalizeBusinessFilters(content, intent);
       if (mappedUploadComparison && !intent.reply) {
@@ -1038,7 +1043,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
             (Boolean(calendar.comparison) || /偏低|偏高|是否达标|表现如何/.test(content)),
           includeRows: !tableRequested && (/哪些|哪几|哪个|哪位|谁|排名|排行|各班|明细|名单|列出|详情|来源|对照|同名|姓名相同/.test(content) || evidences.some(e=>e.tool==='student_attendance'))
         });
-        if (facts && !tableRequested && !cross?.completed) sections.push(facts);
+        if (facts && !tableRequested && !cross?.completed && !standings) sections.push(facts);
+        if (standings) sections.push(renderClassStandings(evidences[0]));
         if (tableRequested) {
           const totals = visibleSnapshot.facts.filter(f=>f.kind === 'metric' && !f.entityName);
           const groups = new Map<string,typeof totals>();
