@@ -911,12 +911,15 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       : undefined;
     const sumPhrase = /(?:两|二|双)(?:段|期|周|个月|个期间)[^。？?]{0,8}(?:合计|一共|总共|总和|加起来|合起来|比例)|两期合计|两周合计/.test(content);
     const hasDateToken = /(?:\d{4}年|\d{1,2}月\d{1,2}|\d{4}-\d{1,2}|上月|上个月|本月|这周|上周|去年|今年|今天|昨天)/.test(content);
-    const metricSwitchFup = Boolean(storedCross) && content.length <= 26 && !hasDateToken
+    const userChoiceRx = /(?:先问|让我选|我要选|先让我|让我先|先选)/.test(content) && /(?:两|二|双)(?:段|期|周|个月|个期间)/.test(content);
+    const metricSwitchFup = Boolean(storedCross) && content.length <= 26 && !hasDateToken && !sumPhrase
+      && !/(?:最早|最后|最先)(?:查|问|的)/.test(content)
+      && !userChoiceRx
       && /(?:实到|人次|出勤|成交|成单|净成单|金额|钱|到课)/.test(content)
       && /(?:呢|多少|合计|一共|换成|改成|切)/.test(content)
       && !/学员|学生|班级|老师|教师|教练|学科|课程|科目|哪门|余额|课时/.test(content);
     const periodSel = periodPending ? parsePeriodSelection(content, periodPending.candidates.length) : undefined;
-    const sumWanted = sumPhrase || metricSwitchFup || (periodPending && periodSel !== undefined);
+    const sumWanted = sumPhrase || metricSwitchFup || userChoiceRx || (periodPending && periodSel !== undefined);
     if (sumWanted && !intent.reuseSnapshot) {
       const toolFor = (m: 'money' | 'net' | 'attendance') =>
         m === 'attendance' ? 'class_attendance' : m === 'net' ? 'cost_and_income' : 'signup_renewal';
