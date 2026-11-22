@@ -900,17 +900,30 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     if (asksCrossPeriodSum && !intent.reply && !intent.reuseSnapshot) {
       const base = plannedTools.find(t => ['signup_renewal','cost_and_income'].includes(t.name));
       if (base) {
-        // 另一期优先取解析出的比较期；否则取全会话历史中同款工具最近一个不同窗口的卡片。
-        let second: { start: string; end: string } | null | undefined = calendar.comparison;
-        if (!second) {
-          const prevCards = allRows.filter(r => r.role === 'assistant').reverse()
-            .flatMap(r => Array.isArray(r.evidenceJson) ? (r.evidenceJson as any[]) : [])
-            .filter(c => c && c.tool === base.name && !c.error && c.timeRange?.start && c.timeRange?.end);
-          const other = prevCards.find(c => c.timeRange.start !== String(base.params.startDate ?? '') || c.timeRange.end !== String(base.params.endDate ?? ''));
-          second = other?.timeRange ?? null;
+        // 合计的两段期间取会话内同款工具讨论过的窗口（最近两段不同窗口），不依赖本轮默认绑定，
+        // 避免真实模型意图抖动导致只答一周；无法确定两段时如实要求补充。
+        const prevCards = allRows.filter(r => r.role === 'assistant').reverse()
+          .flatMap(r => Array.isArray(r.evidenceJson) ? (r.evidenceJson as any[]) : [])
+          .filter(c => c && c.tool === base.name && !c.error && c.timeRange?.start && c.timeRange?.end);
+        const windows: Array<{ start: string; end: string }> = [];
+        for (const c of prevCards) {
+          if (!windows.some(w => w.start === c.timeRange.start && w.end === c.timeRange.end))
+            windows.push({ start: c.timeRange.start, end: c.timeRange.end });
         }
-        if (second && (second.start !== String(base.params.startDate ?? '') || second.end !== String(base.params.endDate ?? ''))) {
-          plannedTools.push({ name: base.name, params: { ...base.params, startDate: second.start, endDate: second.end } });
+        if (windows.length >= 2) {
+          const [recent, earlier] = windows;
+          base.params.startDate = recent.start;
+          base.params.endDate = recent.end;
+          plannedTools.push({ name: base.name, params: { ...base.params, startDate: earlier.start, endDate: earlier.end } });
+        } else if (windows.length === 1 && calendar.comparison
+          && (calendar.comparison.start !== windows[0].start || calendar.comparison.end !== windows[0].end)) {
+          base.params.startDate = windows[0].start;
+          base.params.endDate = windows[0].end;
+          plannedTools.push({ name: base.name, params: { ...base.params, startDate: calendar.comparison.start, endDate: calendar.comparison.end } });
+        } else if (!windows.length && calendar.comparison) {
+          plannedTools.push({ name: base.name, params: { ...base.params, startDate: calendar.comparison.start, endDate: calendar.comparison.end } });
+        } else if (!windows.length) {
+          intent = { parsedOk: true, reply: '请先分别查两段期间，或直接给出两段日期，再问合计；当前会话还没有可合计的两段期间。' };
         }
       }
     }

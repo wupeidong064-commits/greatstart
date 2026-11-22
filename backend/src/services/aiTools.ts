@@ -240,13 +240,14 @@ const SEARCH_STUDENTS_TOOL: ToolFn = async (ctx, params) => {
     orderBy: { createdAt: 'desc' },
     select: { id: true, name: true, status: true, phone: true, remainingLessons: true },
   });
-  // 时点余额（N3）：当前剩余 + 该日之后的扣课/退费 − 该日之后的入账。
-  // 日志有效日取 businessDate，缺失时按创建日（Asia/Shanghai）计；无法核实就如实标注。
+  // 时点余额（N3/接续复验）：当前剩余 + 该日之后的扣课/退费/作废冲回 − 该日之后的入账。
+  // 冲回类流水（refund/void）按发生日计。回算为负或含未识别流水类型时如实说明无法核实。
   let balances: Map<string, number> | null = null;
   const unknown: string[] = [];
   if (asOf) {
     const today = businessToday();
     if (asOf > today) {
+      balances = new Map();
       for (const s of students) unknown.push(s.name + '（指定日期在当前业务日期之后，无法核实）');
     } else if (students.length) {
       const logs = await prisma.lessonLog.findMany({
@@ -260,9 +261,18 @@ const SEARCH_STUDENTS_TOOL: ToolFn = async (ctx, params) => {
       for (const s of students) {
         if (s.remainingLessons == null) { unknown.push(s.name + '（当前课时账不可用，无法回放该日余额）'); continue; }
         const after = logs.filter((l) => l.studentId === s.id && eff(l) > asOf);
+        if (after.some((l) => !['add', 'deduct', 'refund', 'void'].includes(l.type))) {
+          unknown.push(s.name + '（课时账含未识别流水类型，无法核实该日余额）'); continue;
+        }
         const adds = after.filter((l) => l.type === 'add').reduce((a, l) => a + l.lessons, 0);
-        const neg = after.filter((l) => l.type === 'deduct' || l.type === 'refund').reduce((a, l) => a + l.lessons, 0);
-        balances.set(s.id, s.remainingLessons - adds + neg);
+        const neg = after
+          .filter((l) => l.type === 'deduct' || l.type === 'refund' || l.type === 'void')
+          .reduce((a, l) => a + l.lessons, 0);
+        const balance = s.remainingLessons - adds + neg;
+        if (!Number.isFinite(balance) || balance < 0) {
+          unknown.push(s.name + '（课时账回算为负，无法核实该日余额）'); continue;
+        }
+        balances.set(s.id, balance);
       }
     }
   }
@@ -275,7 +285,7 @@ const SEARCH_STUDENTS_TOOL: ToolFn = async (ctx, params) => {
       title: asOf ? `学员余额（截至 ${asOf}）` : keyword ? `学员检索「${keyword}」` : '在册学员列表',
       unit: '人',
       caliber: asOf
-        ? '历史余额按课时账回放：当前剩余课时，加上该日期之后的扣课与退费，减去该日期之后的入账；日志业务日期缺失时按创建日（Asia/Shanghai）计。电话默认遮蔽。'
+        ? '历史余额按完整课时账回放：当前剩余课时，加上该日期之后的扣课、退费与作废冲回，减去该日期之后的入账；冲回类流水按发生日计。回算为负或含未识别流水时如实说明无法核实。电话默认遮蔽。'
         : '在册（status=active）；电话默认遮蔽（前3后2）',
       timeRange: null,
       filters: { keyword, classId, ...(asOf ? { balanceAsOfDate: asOf } : {}) },

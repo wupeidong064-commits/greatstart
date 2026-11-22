@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { criticalMetricClarification, explanationIntent, generalAttendanceAdvice, inheritPreviousIntent, studentBalanceIntent } from '../src/services/aiWorkbenchPolicy';
+import { criticalMetricClarification, explanationIntent, generalAttendanceAdvice, inheritPreviousIntent, localBusinessIntent, studentBalanceIntent } from '../src/services/aiWorkbenchPolicy';
 import { rankFollowupBinding } from '../src/services/aiQueryBinding';
 import { resolveBusinessCalendar } from '../src/services/aiBusinessCalendar';
 import { calendarTools } from '../src/services/aiOperatingPlan';
@@ -119,5 +119,22 @@ describe('understand the request before querying', () => {
     expect(studentBalanceIntent('那现在还剩几节？', [])).toBeUndefined();
     // 月份区间余额不绑定时点；由 bindPlan 拒绝区间统计（时点数值语义）。
     expect(studentBalanceIntent('2026年10月，林沐辰还剩几节课？')?.tools?.[0].params).toEqual({ keyword: '林沐辰' });
+  });
+  it('keeps ranking direction on period-only follow-up, re-paths on object switch, refuses future dates (接续复验轮)', () => {
+    const card = { tool: 'teacher_performance_ranking', rows: [{ 老师: '周老师', 个人成单额: 16935 }],
+      filters: { metric: 'sales', scope: 'teachers', direction: 'min' },
+      timeRange: { start: '2026-10-01', end: '2026-10-31' }, error: null } as unknown as Evidence;
+    // 只改月份沿用最低方向与岗位范围（11 月教学岗最低=唐老师）。
+    const periodOnly = inheritPreviousIntent('改成 11 月呢', {}, [card], '2026-11-22')!;
+    expect(periodOnly.tools?.[0].params).toMatchObject({ metric: 'sales', scope: 'teachers', direction: 'min', startDate: '2026-11-01', endDate: '2026-11-30' });
+    // 换查询对象（课程）不承接老师排名；范围放开承接不受影响。
+    expect(rankFollowupBinding('哪门课程成单额最高', [card], '2026-11-22')).toBeUndefined();
+    expect(rankFollowupBinding('把顾问也算上，谁第一', [card], '2026-11-22')).toBeDefined();
+    // 未来日期余额如实拒答，不把当前值标在未来日期下。
+    const fut = studentBalanceIntent('2026年12月31日，林沐辰还剩几节课？')!;
+    expect(fut.reply).toContain('无法核实');
+    expect(fut.tools).toBeUndefined();
+    // mock 同款问法也如实说明无课程排名口径。
+    expect(localBusinessIntent('哪门课程成单额最高', '2026-11-22').reply).toContain('课程');
   });
 });

@@ -208,11 +208,13 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
   } else if (/退费明细|退费状态/.test(q)) {
     name = 'business_records';
     params.domain = 'refunds';
+  } else if (/课程|哪门/.test(q) && /最高|最低|第一|最好|最差|排名|排行/.test(q) && /成单|成交|销售额/.test(q)) {
+    return { parsedOk: true, reply: '系统暂无按课程统计成单额的现成口径。老师排名只覆盖教学人员，不适用于课程维度；可以先查某班级或某课程的学员成单明细，或按老师、销售对比成单额。' };
   } else if (/快上完课|该续费|该提醒|续费名单|快要上完/.test(q)) name = 'renewal_candidates';
   else if (/退费|退款|退了|退多少|已退|净成单|现金|收入/.test(q)) name = 'cost_and_income';
   else if (/成单|新签|续费/.test(q)) name = 'signup_renewal';
   else if ((/谁.{0,10}(?:第一|最高|最低|最差|最好|最后|倒数)|哪个(?:老师|教练|教师).{0,10}(?:第一|最高|最低|最差|最好|排名|排行)|(?:第一|最高|最低|最差|最好|较好|最后)(?:的)?(?:老师|教练)?[^。]{0,4}是谁|(?:老师|教练|教师)[^。]{0,8}(?:排名|排行)/.test(q))
-    && /出勤|课消|成单|核销/.test(q) && !/学员|学生|班级|各班/.test(q)) {
+    && /出勤|课消|成单|核销/.test(q) && !/学员|学生|班级|各班|课程|哪门/.test(q)) {
     name = 'teacher_performance_ranking';
     if (/课消|核销/.test(q)) params.metric = 'consumption';
     else if (/成单|成交/.test(q)) params.metric = 'sales';
@@ -302,6 +304,8 @@ function balanceToolPlan(text: string, name: string | undefined, previous: any[]
   const calendar = resolveBusinessCalendar({ question: text, today });
   if (calendar.clarification) return { parsedOk: true, reply: calendar.clarification };
   const singleDate = calendar.explicit && calendar.observation.start === calendar.observation.end ? calendar.observation.start : undefined;
+  if (singleDate && singleDate > businessToday())
+    return { parsedOk: true, reply: '指定日期在当前业务日期之后，余额无法核实。请给出今天或更早的日期，或直接问当前余额。' };
   let keyword = name;
   if (!keyword && (singleDate || calendar.explicit)) keyword = balanceNameIn(text);
   if (!keyword) {
@@ -438,7 +442,7 @@ export function inheritPreviousIntent(
     for (const [key,value] of Object.entries(card.filters || {})) {
       if (Object.prototype.hasOwnProperty.call(definition.paramsSchema,key) && value != null) params[key]=value;
     }
-    if (dateOnly) delete params.direction; // 纯改期追问重置排名方向，方向词只描述当前轮
+    // 纯改期追问只替换日期，其余条件（含排名方向）承接上一轮；明确改方向才改写。
     const domain = BUSINESS_DOMAINS[params.domain as BusinessDomain];
     const dated = !!definition.paramsSchema.startDate && (card.tool !== 'business_records' || (domain?.date && params.view!=='current'));
     if (dateOnly && !dated)

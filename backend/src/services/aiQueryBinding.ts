@@ -38,7 +38,7 @@ export function rankFollowupBinding(
 ): AiIntent | undefined {
   const text = q.trim();
   if (text.length > 40) return undefined;
-  if (/学员|学生|同学|班级|各班|哪个班|其他机构|删除|修改|密码|密钥/.test(text)) return undefined;
+  if (/学员|学生|同学|班级|各班|哪个班|哪班|课程|哪门|校区|渠道|来源|线索|家长|体验|其他机构|删除|修改|密码|密钥/.test(text)) return undefined;
   if (/(?:和|与|跟|相比|比较|环比|同比)/.test(text)) return undefined;
   const min = MIN_RX.test(text);
   const max = MAX_RX.test(text);
