@@ -65,19 +65,96 @@ export function rankFollowupBinding(
   return { parsedOk: true, purpose: 'facts', subject: 'teacher', tools: [{ name: 'teacher_performance_ranking', params }] };
 }
 
-/** 两期合计的两段绑定（复验 J2）：按问句点名的粒度过滤会话内讨论过的窗口。
- * windows 按最近优先；两周→仅 10 天内窗口，两月→仅 20 天以上窗口，两期/两段→不限。
- * 命中不足两段时不能唯一确定，返回 null 让用户从候选中挑。 */
-export function bindSumWindows(
-  q: string,
-  windows: Array<{ start: string; end: string }>
-): { bound: Array<{ start: string; end: string }> | null; candidates: Array<{ start: string; end: string }> } {
-  const span = (w: { start: string; end: string }) =>
-    Math.round((Date.parse(w.end) - Date.parse(w.start)) / 86400000) + 1;
-  const week = /(?:两|二|双)个?(?:周|星期)/.test(q);
-  const month = /(?:两|二|双)个?月/.test(q);
-  let cands = windows;
-  if (week) cands = windows.filter(w => span(w) <= 10);
-  else if (month) cands = windows.filter(w => span(w) >= 20);
-  return { bound: cands.length >= 2 ? [cands[0], cands[1]] : null, candidates: windows };
+/** 合计问句点名的指标：成交/成单→money，净成单→net，出勤/实到/人次→attendance。 */
+export function sumMetricFor(q: string): 'money' | 'net' | 'attendance' {
+  if (/净成单/.test(q)) return 'net';
+  if (/出勤|实到|到课|人次/.test(q)) return 'attendance';
+  return 'money';
+}
+
+export interface SumWindow {
+  start: string;
+  end: string;
+  /** 会话内的查询次序（1 起），用于「最早查过/最后查过」。 */
+  seq: number;
+}
+
+/** 合计问句的期间粒度过滤：两周→5-10 天窗口，两月→≥20 天窗口，两期/两段→不限。 */
+function unitEligible(q: string, w: SumWindow): boolean {
+  const days = Math.round((Date.parse(w.end) - Date.parse(w.start)) / 86400000) + 1;
+  if (/(?:两|二|双)个?(?:周|星期)/.test(q)) return days >= 5 && days <= 10;
+  if (/(?:两|二|双)个?月/.test(q)) return days >= 20;
+  return true;
+}
+
+export type SumBinding =
+  | { action: 'bind'; first: SumWindow; second: SumWindow; candidates: SumWindow[]; mode: string }
+  | { action: 'clarify'; candidates: SumWindow[]; mode: string };
+
+/** 按问句绑定要合计的两段（K1/K2）：
+ * 「最早查/先查」按会话查询次序取前两段，「最后查/最近查」按次序取后两段；
+ * 「日期最早/最晚」按日历起日排序；粒度（周/月）先过滤，整月与单日不占周候选位。
+ * 无指代且非两段时→候选请用户选（K2），不足两段→列出候选并说明。 */
+export function bindSumWindows(q: string, windows: SumWindow[]): SumBinding {
+  const cands = windows.filter(w => unitEligible(q, w));
+  const bySeq = [...cands].sort((a, b) => a.seq - b.seq);
+  const byStart = [...cands].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
+  const calendarWord = /(?:日期|时间)(?:最早|最晚|最近)/.test(q);
+  if (!calendarWord && /(?:最早|最先)(?:查|问|的)?/.test(q) && cands.length >= 2) {
+    return { action: 'bind', first: bySeq[0], second: bySeq[1], candidates: bySeq, mode: 'order-first' };
+  }
+  if (!calendarWord && /最后(?:查|问)|最近(?:查|问)|刚才那两/.test(q) && cands.length >= 2) {
+    return { action: 'bind', first: bySeq[bySeq.length - 2], second: bySeq[bySeq.length - 1], candidates: bySeq, mode: 'order-last' };
+  }
+  if (/(?:日期|时间)最早/.test(q) && cands.length >= 2) {
+    return { action: 'bind', first: byStart[0], second: byStart[1], candidates: bySeq, mode: 'calendar-first' };
+  }
+  if (/(?:日期|时间)(?:最晚|最近)/.test(q) && cands.length >= 2) {
+    return { action: 'bind', first: byStart[byStart.length - 2], second: byStart[byStart.length - 1], candidates: bySeq, mode: 'calendar-last' };
+  }
+  if (/先问|让我选|我要选|先让我|让我先|先选/.test(q)) {
+    return { action: 'clarify', candidates: bySeq, mode: 'user-choice' };
+  }
+  if (cands.length === 2) {
+    return { action: 'bind', first: bySeq[0], second: bySeq[1], candidates: bySeq, mode: 'unique' };
+  }
+  return { action: 'clarify', candidates: bySeq, mode: cands.length > 2 ? 'ambiguous' : 'insufficient' };
+}
+
+// ===== 待选期间的回复解析（K2：选第 1 和第 3 个） =====
+
+const CN_NUM: Record<string, number> = { 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+
+function cnNum(s: string): number | undefined {
+  if (/^[0-9]+$/.test(s)) return Number(s);
+  if (s.length === 1) return CN_NUM[s];
+  if (s === '十一') return 11;
+  if (s === '十二') return 12;
+  return undefined;
+}
+
+export type PeriodSelection =
+  | { kind: 'pair'; first: number; second: number }
+  | { kind: 'invalid' }
+  | undefined;
+
+/** 解析对候选期间的选择：「第1和第3个」「1和3」「一、三」。无效（越界/同一项/只给一个）→ invalid。 */
+export function parsePeriodSelection(q: string, count: number): PeriodSelection {
+  const norm = q.trim().replace(/第/g, ' ').replace(/个/g, ' ');
+  const parts = norm.split(/[和与跟、,，\s]+/).filter(Boolean);
+  if (parts.length !== 2) {
+    const one = parts.length === 1 && cnNum(parts[0]) !== undefined;
+    return one ? { kind: 'invalid' } : undefined;
+  }
+  const a = cnNum(parts[0]);
+  const b = cnNum(parts[1]);
+  if (a === undefined || b === undefined || a === b || a < 1 || b < 1 || a > count || b > count) {
+    return { kind: 'invalid' };
+  }
+  return { kind: 'pair', first: Math.min(a, b), second: Math.max(a, b) };
+}
+
+/** 候选期间的展示文案（会话查询次序编号）。 */
+export function formatPeriodCandidates(cands: SumWindow[]): string {
+  return cands.map((w, i) => `第${i + 1}个 ${w.start} 至 ${w.end}`).join('；');
 }

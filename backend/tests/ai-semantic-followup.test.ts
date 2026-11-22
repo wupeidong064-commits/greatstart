@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { criticalMetricClarification, entitySwapFollowupIntent, explanationIntent, generalAttendanceAdvice, inheritPreviousIntent, localBusinessIntent, studentBalanceIntent } from '../src/services/aiWorkbenchPolicy';
-import { bindSumWindows, rankFollowupBinding } from '../src/services/aiQueryBinding';
+import { bindSumWindows, parsePeriodSelection, rankFollowupBinding, sumMetricFor } from '../src/services/aiQueryBinding';
 import { resolveBusinessCalendar } from '../src/services/aiBusinessCalendar';
 import { calendarTools } from '../src/services/aiOperatingPlan';
 import { renderTeacherComparison, teacherComparisonIntent, teacherDeclines } from '../src/services/aiTeacherComparison';
@@ -141,33 +141,58 @@ describe('understand the request before querying', () => {
     expect(entitySwapFollowupIntent('2026年12月31日，叶予禾还剩几节课？', [prevCard])).toBeUndefined();
     expect(entitySwapFollowupIntent('叶予禾呢？', [prevCard])).toBeDefined();
   });
-  it('binds the two named periods for sums, else asks the user to pick (复验 J2)', () => {
-    // 会话内最近优先的三段：10 月整月 + 两个周。
+  it('binds the two named periods for sums, else asks the user to pick (复验 J2/K1/K2)', () => {
+    // 会话查询次序：先 11-02~08，再 11-09~15，再 10 月整月。
     const windows = [
-      { start: '2026-10-01', end: '2026-10-31' },
-      { start: '2026-11-09', end: '2026-11-15' },
-      { start: '2026-11-02', end: '2026-11-08' },
+      { start: '2026-11-02', end: '2026-11-08', seq: 1 },
+      { start: '2026-11-09', end: '2026-11-15', seq: 2 },
+      { start: '2026-10-01', end: '2026-10-31', seq: 3 },
     ];
-    // 问句点名“两周”：只允许周粒度窗口，10 月整月被排除，绑定的正是讨论过的两周。
+    // 问句点名“两周”：整月不占周候选位，恰好两段周窗口→直接绑定。
     const named = bindSumWindows('前面两周的成交金额合计多少？', windows);
-    expect(named.bound).toEqual([
-      { start: '2026-11-09', end: '2026-11-15' },
-      { start: '2026-11-02', end: '2026-11-08' },
-    ]);
-    // 未点名粒度（两期）：仍取最近两段。
+    expect(named.action).toBe('bind');
+    if (named.action === 'bind') {
+      expect([named.first.start, named.second.start]).toEqual(['2026-11-02', '2026-11-09']);
+      expect(named.mode).toBe('unique');
+    }
+    // 未点名粒度且候选多于两段：不猜，列候选请用户选（K2）。
     const generic = bindSumWindows('前面两期的合计多少', windows);
-    expect(generic.bound).toEqual([
-      { start: '2026-10-01', end: '2026-10-31' },
-      { start: '2026-11-09', end: '2026-11-15' },
-    ]);
-    // 点名两周但会话里只有一个周窗口：不能唯一确定，返回 null 并给出全部候选。
-    const onlyMonth = bindSumWindows('前面两周合计多少', [{ start: '2026-10-01', end: '2026-10-31' }]);
-    expect(onlyMonth.bound).toBeNull();
-    expect(onlyMonth.candidates).toEqual([{ start: '2026-10-01', end: '2026-10-31' }]);
-    // 两月粒度：会话里只有一个月窗口，不能唯一确定两月，澄清并列出候选。
-    const monthUnit = bindSumWindows('前面两个月合计多少', windows);
-    expect(monthUnit.bound).toBeNull();
-    expect(monthUnit.candidates).toHaveLength(3);
+    expect(generic.action).toBe('clarify');
+    expect(generic.candidates).toHaveLength(3);
+    // 「最早查的两周」按查询次序取前两段；「最后查的两周」取后两段。
+    const firstQ = bindSumWindows('最早查的两周合计多少', windows);
+    expect(firstQ.action).toBe('bind');
+    if (firstQ.action === 'bind') expect([firstQ.first.start, firstQ.second.start]).toEqual(['2026-11-02', '2026-11-09']);
+    const lastQ = bindSumWindows('最后查的两周合计多少', windows);
+    expect(lastQ.action).toBe('bind');
+    // 会话里只有两个周窗口（整月被粒度过滤），「最后查的两周」= 这两个周。
+    if (lastQ.action === 'bind') expect([lastQ.first.start, lastQ.second.start]).toEqual(['2026-11-02', '2026-11-09']);
+  });
+  it('separates query order from calendar order for positional period references (K1 倒序)', () => {
+    // 倒序查询：先 16-22，再 9-15，再 2-8。
+    const reversed = [
+      { start: '2026-11-16', end: '2026-11-22', seq: 1 },
+      { start: '2026-11-09', end: '2026-11-15', seq: 2 },
+      { start: '2026-11-02', end: '2026-11-08', seq: 3 },
+    ];
+    const orderFirst = bindSumWindows('最早查过的两周成交额合计多少', reversed);
+    expect(orderFirst.action).toBe('bind');
+    if (orderFirst.action === 'bind') expect([orderFirst.first.start, orderFirst.second.start]).toEqual(['2026-11-16', '2026-11-09']);
+    const calFirst = bindSumWindows('日期最早的两周成交额合计多少', reversed);
+    expect(calFirst.action).toBe('bind');
+    if (calFirst.action === 'bind') expect([calFirst.first.start, calFirst.second.start]).toEqual(['2026-11-02', '2026-11-09']);
+  });
+  it('parses user period selections and metric for sums (K2/K3)', () => {
+    expect(parsePeriodSelection('第1和第3个', 3)).toEqual({ kind: 'pair', first: 1, second: 3 });
+    expect(parsePeriodSelection('1和3', 3)).toEqual({ kind: 'pair', first: 1, second: 3 });
+    expect(parsePeriodSelection('一、三', 3)).toEqual({ kind: 'pair', first: 1, second: 3 });
+    expect(parsePeriodSelection('第2和第4个', 3)).toEqual({ kind: 'invalid' });
+    expect(parsePeriodSelection('第2和第2个', 3)).toEqual({ kind: 'invalid' });
+    expect(parsePeriodSelection('第1个', 3)).toEqual({ kind: 'invalid' });
+    expect(parsePeriodSelection('那现在还剩多少？', 3)).toBeUndefined();
+    expect(sumMetricFor('前两周合计成交多少')).toBe('money');
+    expect(sumMetricFor('那实到人次呢')).toBe('attendance');
+    expect(sumMetricFor('净成单合计呢')).toBe('net');
   });
   it('re-paths when the user names a subject/course-like object in any common phrasing (复验 J3)', () => {
     const prev = [{ tool: 'teacher_performance_ranking', rows: [{ 老师: '周老师', 个人成单额: 16935 }], filters: { metric: 'sales', scope: 'teachers', direction: 'max' },

@@ -51,6 +51,8 @@ export interface AiIntent {
   fileTool?: string;
   fileFormats?: Array<'xlsx' | 'docx'>;
   reuseSnapshot?: boolean;
+  /** 本轮为跨期/跨指标合计（K 轮）：渲染期按两卡小计求和。 */
+  crossSum?: boolean;
 }
 
 export const INTENT_MARKER = '【意图解析】';
