@@ -1125,7 +1125,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
         if (crossSumGate) {
           const moneyCards = evidences.filter(c => !c.error && c.timeRange?.start && c.timeRange?.end
             && ['signup_renewal','cost_and_income','class_attendance'].includes(c.tool)
-            && (typeof c.totals?.['金额合计'] === 'number' || typeof c.totals?.['实到'] === 'number'));
+            && (typeof c.totals?.['金额合计'] === 'number' || typeof c.totals?.['实到'] === 'number' || typeof c.totals?.['净成单额'] === 'number'));
           const seen = new Set<string>();
           const uniq = moneyCards.filter(c => { const k = c.timeRange!.start + '..' + c.timeRange!.end; if (seen.has(k)) return false; seen.add(k); return true; });
           if (uniq.length === 2 && uniq[0].tool === uniq[1].tool) {
@@ -1133,6 +1133,11 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
             const overlaps = a.timeRange!.start <= b2.timeRange!.end && b2.timeRange!.start <= a.timeRange!.end;
             if (overlaps) {
               sections.push('两个期间有重叠（' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' 与 ' + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + '），直接相加会重复计算。请确认要合计的具体期间，或按订单去重的口径。');
+            } else if (a.tool === 'cost_and_income') {
+              const na = a.totals['净成单额'] as number, nb = b2.totals['净成单额'] as number;
+              const total = na + nb;
+              sections.push('两期合计：' + a.timeRange!.start + ' 至 ' + a.timeRange!.end + ' 净成单 ¥' + na.toLocaleString('zh-CN') + '，'
+                + b2.timeRange!.start + ' 至 ' + b2.timeRange!.end + ' 净成单 ¥' + nb.toLocaleString('zh-CN') + '；合计净成单 ¥' + total.toLocaleString('zh-CN') + '。');
             } else if (a.tool === 'class_attendance') {
               const due1 = a.totals['应到'] as number, due2 = b2.totals['应到'] as number;
               const act1 = a.totals['实到'] as number, act2 = b2.totals['实到'] as number;
