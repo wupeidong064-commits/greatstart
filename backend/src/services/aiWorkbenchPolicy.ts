@@ -208,8 +208,8 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
   } else if (/退费明细|退费状态/.test(q)) {
     name = 'business_records';
     params.domain = 'refunds';
-  } else if (/课程|哪门/.test(q) && /最高|最低|第一|最好|最差|排名|排行/.test(q) && /成单|成交|销售额/.test(q)) {
-    return { parsedOk: true, reply: '系统暂无按课程统计成单额的现成口径。老师排名只覆盖教学人员，不适用于课程维度；可以先查某班级或某课程的学员成单明细，或按老师、销售对比成单额。' };
+  } else if (courseRankingIntent(q)) {
+    return courseRankingIntent(q)!;
   } else if (/快上完课|该续费|该提醒|续费名单|快要上完/.test(q)) name = 'renewal_candidates';
   else if (/退费|退款|退了|退多少|已退|净成单|现金|收入/.test(q)) name = 'cost_and_income';
   else if (/成单|新签|续费/.test(q)) name = 'signup_renewal';
@@ -334,6 +334,14 @@ function balanceNameIn(text: string) {
   return undefined;
 }
 
+/** 课程/哪门 + 排名词 + 成单：如实说明暂无课程成单口径（换对象重选路径，复验阻断 3）。 */
+export function courseRankingIntent(q: string): AiIntent | undefined {
+  if (!/课程|哪门/.test(q)) return undefined;
+  if (!/最高|最低|第一|最好|最差|排名|排行/.test(q)) return undefined;
+  if (!/成单|成交|销售额/.test(q)) return undefined;
+  return { parsedOk: true, reply: '系统暂无按课程统计成单额的现成口径。老师排名只用于教学人员或明确放开后的全员排名，不适用于课程维度；可以先查某班级或某课程的学员成单明细，或按老师、销售对比成单额。' };
+}
+
 /** 学员出勤排名（复验必修 G1）：学员/学生 + 出勤率 + 最高最低 → student_attendance 排名，不走老师排名。 */
 export function studentRankingIntent(q: string): AiIntent | undefined {
   const text = q.replace(/不查老师|不要查?老师|不看老师|不管老师|不问老师|不包括老师|除了老师/g, '');
@@ -348,6 +356,8 @@ export function entitySwapFollowupIntent(question: string, previous: any[]): AiI
   const text = question.trim();
   if (text.length > 26) return undefined;
   if (!/[呢？?]|数字|怎么样|应到|实到|出勤/.test(text)) return undefined;
+  // 带明确日期的问题是新查询而非承接（复验：改查 12 月 31 日余额不该沿用上一轮快照卡）。
+  if (resolveBusinessCalendar({ question: text, today: businessToday() }).explicit) return undefined;
   if (/成单|退费|课消金额|余额|课时数|利润|收入|排名|新签|续费名单|转化|体验课|现金流|满班|对比|合计|比例|为什么|原因|哪些老师|哪位老师/.test(text)) return undefined;
   const prev = previous.find(c => c && !c.error && Array.isArray(c.rows) && c.rows.length);
   const toolDef = prev ? AI_TOOLS.find(t => t.name === prev.tool) : undefined;

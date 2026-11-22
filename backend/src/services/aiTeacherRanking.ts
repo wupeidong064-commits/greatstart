@@ -11,7 +11,7 @@ const metricLabels = { attendance: '出勤率', consumption: '实际课消金额
 type Metric = keyof typeof metricLabels;
 
 export function teacherRankingIntent(q: string): AiIntent | undefined {
-  if (/班级|哪个班|各班|每班|班的|学员|学生|同学/.test(q)) return undefined; // 班级/学员问法走对应工具，不误触老师排名
+  if (/班级|哪个班|各班|每班|班的|学员|学生|同学|课程|哪门/.test(q)) return undefined; // 班级/学员/课程问法走对应路径，不误触老师排名
   const minDirection = /最低|垫底|倒数|排在最后|排最后|谁最后|末位|最差|表现最差/.test(q);
   if (!/老师|教师|教练|出勤率|课消|成单额/.test(q) || !/最好|最佳|最强|谁第一|哪位.{0,12}第一|最高|最多|领先|最出色|最低|垫底|倒数|排在最后|排最后|谁最后|末位|最差|表现最差/.test(q)
     || /怎么评|如何评|薪资|工资|续费率|续费金额|续费笔数|续费单数|新签金额|体验课|授课场次|授课最多|上课最多/.test(q)) return undefined;

@@ -23,6 +23,7 @@ import {
   studentRankingIntent,
   studentBalanceIntent,
   lowAttendanceRenewalIntent,
+  courseRankingIntent,
   workbenchHelpIntent,
   naturalAttendanceIntent,
   orderMetricIntent,
@@ -590,7 +591,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || duoStudentAttendanceIntent(content)
       || studentRankingIntent(content)
       || lowAttendanceRenewalIntent(content, previousBusiness)
-      || studentBalanceIntent(content, previousBusiness) || intent;
+      || studentBalanceIntent(content, previousBusiness)
+      || courseRankingIntent(content) || intent;
     if (scopeDecision !== 'business')
       intent = {
         parsedOk: true,

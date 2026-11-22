@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { criticalMetricClarification, explanationIntent, generalAttendanceAdvice, inheritPreviousIntent, localBusinessIntent, studentBalanceIntent } from '../src/services/aiWorkbenchPolicy';
+import { criticalMetricClarification, entitySwapFollowupIntent, explanationIntent, generalAttendanceAdvice, inheritPreviousIntent, localBusinessIntent, studentBalanceIntent } from '../src/services/aiWorkbenchPolicy';
 import { rankFollowupBinding } from '../src/services/aiQueryBinding';
 import { resolveBusinessCalendar } from '../src/services/aiBusinessCalendar';
 import { calendarTools } from '../src/services/aiOperatingPlan';
@@ -136,5 +136,9 @@ describe('understand the request before querying', () => {
     expect(fut.tools).toBeUndefined();
     // mock 同款问法也如实说明无课程排名口径。
     expect(localBusinessIntent('哪门课程成单额最高', '2026-11-22').reply).toContain('课程');
+    // 带明确日期的问题不落实体承接（上一轮卡里有同名实体也不沿用快照）。
+    const prevCard = { tool: 'search_students', rows: [{ name: '叶予禾', remainingLessons: 7 }], filters: { keyword: '叶予禾' }, error: null } as unknown as Evidence;
+    expect(entitySwapFollowupIntent('2026年12月31日，叶予禾还剩几节课？', [prevCard])).toBeUndefined();
+    expect(entitySwapFollowupIntent('叶予禾呢？', [prevCard])).toBeDefined();
   });
 });
