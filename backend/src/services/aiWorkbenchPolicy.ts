@@ -289,7 +289,7 @@ export function lowAttendanceRenewalIntent(q: string, previous: any[]): AiIntent
  * 明确单日按课时账回放该日余额；无日期或「现在」按当前快照；省略型追问复用上一轮余额卡对象。 */
 export function studentBalanceIntent(q: string, previous: any[] = []): AiIntent | undefined {
   const text = q.trim().replace(/不查老师|不要查?老师|不看老师|不管老师|不问老师/g, '');
-  if (!/还剩|余额|剩余课时|剩多少|还剩多少|剩几节|几节课/.test(text)) return undefined;
+  if (!/还剩|余额|剩余课时|剩多少|还剩多少|剩几节|几节课|剩下|还有多少课时/.test(text)) return undefined;
   if (/出勤|成单|续费|退费|课消|班级|排名|哪个班|其他机构|删除|修改/.test(text)) return undefined;
   const m = /([\u4e00-\u9fa5·]{2,4}?)(?:现在|目前|当前)?(?=还剩|的余额|的剩余|剩多少|剩几节|还剩几节|余额)/.exec(text);
   let name = m ? m[1] : undefined;
@@ -303,6 +303,7 @@ function balanceToolPlan(text: string, name: string | undefined, previous: any[]
   if (calendar.clarification) return { parsedOk: true, reply: calendar.clarification };
   const singleDate = calendar.explicit && calendar.observation.start === calendar.observation.end ? calendar.observation.start : undefined;
   let keyword = name;
+  if (!keyword && (singleDate || calendar.explicit)) keyword = balanceNameIn(text);
   if (!keyword) {
     const prev = previous.find(c => c && c.tool === 'search_students' && !c.error && Array.isArray(c.rows));
     const prevKeyword = prev && prev.filters ? prev.filters.keyword : undefined;
@@ -312,6 +313,21 @@ function balanceToolPlan(text: string, name: string | undefined, previous: any[]
   const params: Record<string, unknown> = { keyword };
   if (singleDate) params.balanceAsOfDate = singleDate;
   return { parsedOk: true, tools: [{ name: 'search_students', params }] };
+}
+
+/** 时点余额的姓名兜底（N3）：仅在问题带明确日期且首轮捕获失败时使用。
+ * CJK 连续段按填充词（查/一/下/在/的/请/帮/看/问/于）切开，取首个非称谓/量词的 2-4 字段。 */
+function balanceNameIn(text: string) {
+  const parts = text.split(/[查在的请帮看问于一下]/);
+  const bad = /^(?:学员|学生|老师|教练|班级|现在|当前|目前|还剩|余额|剩余|课时|多少|几节|剩下|还有|月|日|号|昨|今|明|那|^这|请|帮|查|谁|哪|他|她|它)/;
+  for (const p of parts) {
+    for (const c of p.matchAll(/[\u4e00-\u9fa5·]{2,4}/g)) {
+      const cand = c[0];
+      if (!bad.test(cand)) return cand;
+      break; // 每段只试首个 2-4 字段，避免长填充段切出的伪名
+    }
+  }
+  return undefined;
 }
 
 /** 学员出勤排名（复验必修 G1）：学员/学生 + 出勤率 + 最高最低 → student_attendance 排名，不走老师排名。 */
