@@ -905,9 +905,10 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     // 且本轮未自带显式期间时，才引入另一期间；显式单期间只查单期。
     const asksCrossPeriodSum = /(?:两|二|双)(?:段|期|周|个月|个期间)[^。？?]{0,8}(?:合计|一共|总共|总和|加起来|合起来|比例)|两期合计|两周合计/.test(content)
       && !/(?:\d{4}年|\d{1,2}月\d{1,2}|\d{4}-\d{1,2}|上月|上个月|本月|这周|上周|最近|半年|去年|今年|今天|昨天)/.test(content);
-    if (asksCrossPeriodSum && !intent.reply && !intent.reuseSnapshot) {
+    if (asksCrossPeriodSum && !intent.reuseSnapshot) {
       // 合计绑定用户指的两段（复验 J2）：按问句粒度（两周≤10天/两月≥20天/两期不限）过滤
-      // 会话内成单/现金流工具讨论过的窗口（最近优先，去重）；不能唯一确定时列出候选请用户选。
+      // 会话内成单/现金流工具讨论过的窗口（最近优先，去重）。能唯一绑定时确定性作答，
+      // 覆盖真实模型意图的泛化澄清；不能唯一确定时列出候选请用户选期间。
       const moneyCards = allRows.filter(r => r.role === 'assistant').reverse()
         .flatMap(r => Array.isArray(r.evidenceJson) ? (r.evidenceJson as any[]) : [])
         .filter(c => c && ['signup_renewal','cost_and_income'].includes(c.tool) && !c.error && c.timeRange?.start && c.timeRange?.end);
@@ -918,6 +919,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       }
       const { bound, candidates } = bindSumWindows(content, windows);
       if (bound) {
+        intent = { ...intent, reply: undefined, parsedOk: true };
         const base = plannedTools.find(t => ['signup_renewal','cost_and_income'].includes(t.name))
           ?? { name: moneyCards[0].tool, params: {} as Record<string, unknown> };
         base.params.startDate = bound[0].start;
@@ -925,9 +927,9 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
         plannedTools.splice(0, plannedTools.length,
           { name: base.name, params: { ...base.params } },
           { name: base.name, params: { ...base.params, startDate: bound[1].start, endDate: bound[1].end } });
-      } else {
+      } else if (!intent.reply || windows.length > 0) {
         intent = { parsedOk: true, reply: '要合计哪两个期间的成交金额？本对话里查过：'
-          + candidates.map(w => w.start + ' 至 ' + w.end).join('、')
+          + candidates.map(w => w.start + ' / ' + w.end).join('；')
           + '。请指明要合计的两段期间，或用「两周／两月」明确粒度。' };
       }
     }
