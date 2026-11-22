@@ -34,10 +34,30 @@ const same = (a: BusinessPeriod, b: BusinessPeriod) => a.start === b.start && a.
 const label = (w: BusinessPeriod) => w.start + ' 至 ' + w.end;
 const keyFor = (tool: string) => (Object.keys(toolsByMetric) as SumMetric[]).find(k => toolsByMetric[k] === tool);
 
+/** A comparison card may contain an automatically generated baseline. Only dates actually
+ * requested in that turn can subsequently be selected by position. Read old conversations too. */
+export function historicalSumCards(rows: Array<{role:string;status:string;content:string;evidenceJson:unknown;usageJson:unknown}>): HistoryCard[] {
+  let question = '';
+  return rows.flatMap(row => {
+    if (row.role === 'user') { question = row.content; return []; }
+    if (row.role !== 'assistant' || row.status !== 'complete' || !Array.isArray(row.evidenceJson)) return [];
+    const cards: HistoryCard[] = row.evidenceJson.filter(c => c?.timeRange && !c.error);
+    const saved = (row.usageJson as {operatingAnswer?:{crossSum?:Completed;calendar?:{asOfDate:string;observation?:BusinessPeriod;comparison?:BusinessPeriod}}} | null)?.operatingAnswer;
+    const cal = saved?.calendar;
+    if (saved?.crossSum || !cal?.comparison || !cal.observation) return cards;
+    let requested = [cal.observation];
+    try {
+      const explicit = mentionedPeriods(question, cal.asOfDate);
+      if (explicit.length) requested = explicit;
+    } catch { /* Keep the recorded observation if the earlier wording was ambiguous. */ }
+    return cards.filter(c => requested.some(w => same(w, c.timeRange!)));
+  });
+}
+
 function windowsOf(cards: HistoryCard[]): SumWindow[] {
   const windows: SumWindow[] = [];
   for (const { timeRange, tool, error } of cards) {
-    if (!error && keyFor(tool) && timeRange && !windows.some(w => same(w, timeRange)))
+    if (!error && (keyFor(tool) || tool === 'weekly_comparison') && timeRange && !windows.some(w => same(w, timeRange)))
       windows.push({ ...timeRange, seq: windows.length + 1 });
   }
   return windows;

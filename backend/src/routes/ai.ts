@@ -30,7 +30,7 @@ import {
 } from '../services/aiWorkbenchPolicy';
 import { rankFollowupBinding } from '../services/aiQueryBinding';
 import { previousClassStandings, renderClassStandings } from '../services/aiClassStandings';
-import { crossPeriodQuery, renderPeriodSum } from '../services/aiCrossPeriodQuery';
+import { crossPeriodQuery, historicalSumCards, renderPeriodSum } from '../services/aiCrossPeriodQuery';
 import { blockedChatEntryIntent } from '../services/aiEntryService';
 import {
   saveUpload,
@@ -591,8 +591,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       ? await crossPeriodQuery(content, {
           today: todaySH, recent: previousBusiness, completed: previousAnswer?.crossSum,
           pending: previousRow && priorPending?.kind === 'period' ? priorPending : undefined,
-          history: () => allRows.filter(r => r.role === 'assistant' && r.status === 'complete')
-            .flatMap(r => Array.isArray(r.evidenceJson) ? r.evidenceJson as any[] : []),
+          history: () => historicalSumCards(allRows),
           findClasses: () => prisma.$queryRaw<Array<{id:string; name:string}>>`
             SELECT id,name FROM classes WHERE "organizationId"=${organizationId}
               AND "campusId"=${currentUser.campusId} AND status<>'deleted'

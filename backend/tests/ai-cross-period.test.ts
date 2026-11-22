@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { crossPeriodQuery, renderPeriodSum } from '../src/services/aiCrossPeriodQuery';
+import { crossPeriodQuery, historicalSumCards, renderPeriodSum } from '../src/services/aiCrossPeriodQuery';
 import { previousClassStandings, renderClassStandings } from '../src/services/aiClassStandings';
+import { orderMetricIntent } from '../src/services/aiWorkbenchPolicy';
 import type { Evidence } from '../src/services/aiTools';
 
 const windows = [
@@ -15,6 +16,28 @@ const scope = { id: 'class-a', name: '数学应用研习班' };
 const ctx = { today: '2026-11-22', recent: [cards[2]], history: () => cards, findClasses: async () => [] };
 
 describe('cross-period dialogue', () => {
+  it('routes a single dated sales total without a comparison and preserves entity-specific questions', () => {
+    for (const q of ['2026-11-02到2026-11-08这一周成单多少？','11月2日至8日成交多少笔、多少钱？']) {
+      expect(orderMetricIntent(q,ctx.today)?.tools).toEqual([{ name:'signup_renewal',
+        params:{startDate:windows[0].start,endDate:windows[0].end} }]);
+    }
+    expect(orderMetricIntent('周老师11月2日至8日个人成单多少？',ctx.today)).toBeUndefined();
+  });
+  it('recovers the three requested periods from older comparison answers without including implicit baselines', async () => {
+    const before = {start:'2026-10-26',end:'2026-11-01'};
+    const rows = windows.flatMap((period,i) => {
+      const comparison = i ? windows[i-1] : before;
+      return [
+        {role:'user',status:'complete',content:period.start+'到'+period.end+'这一周成单多少？',usageJson:null,evidenceJson:null},
+        {role:'assistant',status:'complete',content:'',usageJson:{operatingAnswer:{calendar:{asOfDate:ctx.today,observation:period,comparison}}},
+          evidenceJson:[{...cards[i],tool:'weekly_comparison'},...(i ? [] : [cards[0],{...cards[0],timeRange:before}])]},
+      ];
+    });
+    const history = () => historicalSumCards(rows);
+    const q = await crossPeriodQuery('日期最晚的两周合计成交额，先确认再算。',{...ctx,history});
+    expect(q?.pending?.candidates.map(w=>w.start)).toEqual(windows.map(w=>w.start));
+    expect(q?.pending?.proposal?.map(w=>w.start)).toEqual(windows.slice(1).map(w=>w.start));
+  });
   it('chooses an explicit pair before history and preserves the requested attendance scope on both tools', async () => {
     const result = await crossPeriodQuery('只合计数学应用研习班2026年11月2日至8日和11月16日至22日的实到人次。',
       { ...ctx, findClasses: async () => [scope] });

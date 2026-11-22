@@ -1,6 +1,6 @@
 import type { AiIntent } from './aiIntent';
 import { BUSINESS_DOMAINS, BusinessDomain } from './aiDataDictionary';
-import { resolveBusinessCalendar, isCalendarOnlyFollowup } from './aiBusinessCalendar';
+import { resolveBusinessCalendar, isCalendarOnlyFollowup, withoutPeriodMentions } from './aiBusinessCalendar';
 import { businessToday } from './aiOperatingPlan';
 import { rankScopeFor } from './aiQueryBinding';
 import { AI_TOOLS } from './aiTools';
@@ -470,6 +470,17 @@ export function inheritPreviousIntent(
 
 /** Scope-wide order totals have one stable route; named people/classes still use entity resolution. */
 export function orderMetricIntent(q:string,today:string): AiIntent | undefined {
+  if (/成单|成交/.test(q) && /多少|几笔|几单/.test(q)) {
+    try {
+      const body = withoutPeriodMentions(q, today);
+      const rest = body.replace(/这一周|这一期|这个月|这一天|本机构|本校区|请问|请|帮我|查一下|查查|查询|统计|成单|成交|总金额|总额|金额|一共|总共|共有|多少|几笔|几单|钱|元|笔|单|的|是|有|呢|了|[？?，,、。\s]/g, '');
+      if (!rest) {
+        const cal = resolveBusinessCalendar({ question:q, today });
+        if (cal.clarification) return { parsedOk:true, reply:cal.clarification };
+        return { parsedOk:true, tools:[{name:'signup_renewal',params:{startDate:cal.observation.start,endDate:cal.observation.end}}] };
+      }
+    } catch { /* Standard calendar binding provides the detailed clarification. */ }
+  }
   if (/净成单额/.test(q) && !/老师|教练|班级|学员|利润|区别|定义|口径|什么意思/.test(q)
     && !/老师|教练|班级|学员/.test(q)) {
     const calendar=resolveBusinessCalendar({question:q,today});

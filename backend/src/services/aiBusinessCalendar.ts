@@ -210,6 +210,13 @@ export function mentionedPeriods(question: string, today: string): BusinessPerio
   return extract(clean(question), today).map(mention => mention.period);
 }
 
+/** Remove only validated date mentions; leave all named entities and business qualifiers intact. */
+export function withoutPeriodMentions(question: string, today: string): string {
+  const text = clean(question);
+  return extract(text, today).reverse().reduce((rest, mention) =>
+    rest.slice(0, mention.start) + rest.slice(mention.end), text);
+}
+
 function comparisonFor(p: BusinessPeriod, yearly: boolean): BusinessPeriod {
   const y = Number(p.start.slice(0, 4)),
     m = Number(p.start.slice(5, 7));
