@@ -293,7 +293,7 @@ export function studentBalanceIntent(q: string, previous: any[] = []): AiIntent 
   if (/出勤|成单|续费|退费|课消|班级|排名|哪个班|其他机构|删除|修改/.test(text)) return undefined;
   const m = /([\u4e00-\u9fa5·]{2,4}?)(?:现在|目前|当前)?(?=还剩|的余额|的剩余|剩多少|剩几节|还剩几节|余额)/.exec(text);
   let name = m ? m[1] : undefined;
-  if (name && /^(?:学员|学生|老师|教练|班级|现在|当前|目前|还剩|余额|剩余|那|这|请|帮)/.test(name)) name = undefined;
+  if (name && /^(?:学员|学生|老师|教练|班级|现在|当前|目前|还剩|余额|剩余|课时|多少|几节|剩下|还有|月|日|号|那|这|请|帮)/.test(name)) name = undefined;
   return balanceToolPlan(text, name, previous);
 }
 
