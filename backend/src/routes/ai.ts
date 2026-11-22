@@ -575,13 +575,17 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || explanationIntent(content, previousRow?.content) || generalAttendanceAdvice(content)
       || criticalMetricClarification(content) || newStudentAttendanceIntent(content, todaySH)
       || teacherIntent || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
-      || (!previousBusiness.length && previousAnswer?.adviceText && isPurePresentationRequest(content)
-        ? {parsedOk:true,reuseSnapshot:true,tools:[],fileRequested:isFileRequest(content),fileFormats:requestedFormats(content)}
-        : inheritPreviousIntent(content, {}, previousBusiness, todaySH))
+      || ((): AiIntent | undefined => {
+          // 修复链式短路（复验 S07/C3 根因）：inheritPreviousIntent 未命中时返回的空对象会被
+          // “||”当真值，导致排在链尾的实体承接/组合条件意图永远不被评估。此处仅在
+          // 继承结果确有 reply/tools/复用语义时才视为命中，否则放行给后续意图。
+          const inherited = inheritPreviousIntent(content, {}, previousBusiness, todaySH);
+          return inherited && (inherited.reply || inherited.tools?.length || inherited.reuseSnapshot || inherited.fileRequested) ? inherited : undefined;
+        })()
       || entitySwapFollowupIntent(content, previousBusiness)
       || duoStudentAttendanceIntent(content)
       || studentRankingIntent(content)
-      || lowAttendanceRenewalIntent(content, previousBusiness);
+      || lowAttendanceRenewalIntent(content, previousBusiness) || intent;
     if (scopeDecision !== 'business')
       intent = {
         parsedOk: true,

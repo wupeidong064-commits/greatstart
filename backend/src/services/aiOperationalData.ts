@@ -15,9 +15,9 @@ export function operationalRange(ctx: ToolContext, params: Record<string, unknow
   return { start, end, from: new Date(start + 'T00:00:00+08:00'), to: new Date(new Date(end + 'T00:00:00+08:00').getTime() + DAY) };
 }
 
-function evidence(ctx: ToolContext, tool: string, title: string, range: { start: string; end: string }, columns: string[], rows: Array<Record<string, unknown>>, totals: Record<string, number | string | null>, caliber: string, missing: string[] = []): Evidence {
+function evidence(ctx: ToolContext, tool: string, title: string, range: { start: string; end: string }, columns: string[], rows: Array<Record<string, unknown>>, totals: Record<string, number | string | null>, caliber: string, missing: string[] = [], filters: Record<string, unknown> = {}): Evidence {
   return { evidenceId: randomUUID(), tool, title, unit: '', timeRange: { start: range.start, end: range.end },
-    generatedAt: new Date().toISOString(), filters: { campusId: ctx.campusId },
+    generatedAt: new Date().toISOString(), filters: { campusId: ctx.campusId, ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v != null)) },
     columns: columns.map(key => ({ key, label: key })), rows, totals, caliber, missing, error: null,
     modelText: JSON.stringify({ 期间: { start: range.start, end: range.end }, 汇总: totals, 明细预览: rows.slice(0, 8), 口径: caliber, 提示: missing }).slice(0, 3000) };
 }
@@ -77,9 +77,12 @@ export async function attendanceFollowup(ctx: ToolContext, params: Record<string
   const totals: Evidence['totals'] = { 记录数: rows.length, 阈值: threshold };
   if (!byClass) totals.去重学员人数 = new Set(rows.map(row => row.studentId)).size;
   for (const [rate, count] of rates) totals[`出勤率 ${rate}% 的记录数`] = count;
+  const cardFilters: Record<string, unknown> = { threshold, thresholdMode: params.thresholdMode, classId: classFilterId, className: classFilterName, maxRemaining };
+  if (maxRemaining != null) totals['剩余课时≤阈值人数'] = rows.length;
   return evidence(ctx, byClass ? 'low_attendance_classes' : 'low_attendance_students', byClass ? '低出勤班级' : '低出勤学员', range,
-    byClass ? ['班级', '负责老师', '学员数', '临时串课人次', '已完成场次', '应到', '实到', '出勤率', '低出勤学员数'] : ['姓名', '班级', '负责老师', '应到', '实到', '缺席', '出勤率','含临时串课'], rows,
-    totals, `出勤率按整数显示值分组；已完成课程按课程日期统计；正式名单按有效入班时段；已保存串课只计对应场次应到；出勤含到课和迟到；出勤率${inclusive ? '不高于' : '低于'}${threshold}%；零课次不列入；低出勤学员仅含当前在读且已入班者，未入班、已确定不续费、流失及归档者不列入；班级历史出勤不因当前离班而重写；同一学员按班分别列示；学员数为当前有效正式报名去重人数，临时串课人次单列`);
+    byClass ? ['班级', '负责老师', '学员数', '临时串课人次', '已完成场次', '应到', '实到', '出勤率', '低出勤学员数'] : ['姓名', '班级', '负责老师', '应到', '实到', '缺席', '出勤率','含临时串课','剩余课时'], rows,
+    totals, `出勤率按整数显示值分组；已完成课程按课程日期统计；正式名单按有效入班时段；已保存串课只计对应场次应到；出勤含到课和迟到；出勤率${inclusive ? '不高于' : '低于'}${threshold}%；零课次不列入；低出勤学员仅含当前在读且已入班者，未入班、已确定不续费、流失及归档者不列入；班级历史出勤不因当前离班而重写；同一学员按班分别列示；学员数为当前有效正式报名去重人数，临时串课人次单列${maxRemaining != null ? '；已按剩余课时≤' + maxRemaining + ' 节与低出勤条件求交集' : ''}`,
+    maxRemaining != null ? ['已按上一轮名单范围与剩余课时阈值求交集后列示'] : [], cardFilters);
 }
 
 /** 尚无独立校区字段时，按关联班级或无班记录的负责员工校区归属，不扩大至机构全部。 */
