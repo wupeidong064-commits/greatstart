@@ -21,6 +21,7 @@ import {
   entitySwapFollowupIntent,
   duoStudentAttendanceIntent,
   studentRankingIntent,
+  studentBalanceIntent,
   lowAttendanceRenewalIntent,
   workbenchHelpIntent,
   naturalAttendanceIntent,
@@ -585,7 +586,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || entitySwapFollowupIntent(content, previousBusiness)
       || duoStudentAttendanceIntent(content)
       || studentRankingIntent(content)
-      || lowAttendanceRenewalIntent(content, previousBusiness) || intent;
+      || lowAttendanceRenewalIntent(content, previousBusiness)
+      || studentBalanceIntent(content) || intent;
     if (scopeDecision !== 'business')
       intent = {
         parsedOk: true,

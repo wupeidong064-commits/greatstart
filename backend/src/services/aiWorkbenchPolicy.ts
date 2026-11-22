@@ -186,7 +186,15 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
         ? { fileRequested: true, fileTool: 'business_records', fileFormats: requestedFormats(q) }
         : {}),
     };
-  if (/低出勤/.test(q)) {
+  if (/出勤率?\s*(?:低于|不高于|不超过|不到|不满|未满)\s*\d+/.test(q) && /学员|学生/.test(q) && !/老师|教练|班级/.test(q)) {
+    name = 'low_attendance_students';
+    delete params.startDate;
+    delete params.endDate;
+  } else if (/出勤率?\s*(?:低于|不高于|不超过|不到|不满|未满)\s*\d+/.test(q) && /班级|各班|班/.test(q)) {
+    name = 'low_attendance_classes';
+    delete params.startDate;
+    delete params.endDate;
+  } else if (/低出勤/.test(q)) {
     name = /班级/.test(q) ? 'low_attendance_classes' : 'low_attendance_students';
     delete params.startDate;
     delete params.endDate;
@@ -199,7 +207,9 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
   } else if (/快上完课|该续费|该提醒|续费名单|快要上完/.test(q)) name = 'renewal_candidates';
   else if (/退费|退款|退了|退多少|已退|净成单|现金|收入/.test(q)) name = 'cost_and_income';
   else if (/成单|新签|续费/.test(q)) name = 'signup_renewal';
-  else if (/环比|比较|对比/.test(q)) name = 'weekly_comparison';
+  else if (/谁.{0,10}(?:第一|最高|最低|最差|最好|最后|倒数)|哪个(?:老师|教练).{0,8}(?:第一|最高|最低|最差|最好)/.test(q)
+    && /出勤|课消|成单|核销/.test(q) && !/学员|学生|班级|各班/.test(q)) name = 'teacher_performance_ranking';
+  else if (/环比|同比|对比/.test(q) && !/(?:比较|更|较)好|更好|较好|哪家强|谁更高/.test(q)) name = 'weekly_comparison';
   else if (/实际课消|课消.*金额|课消多少钱/.test(q)) name = 'actual_consumption';
   else if (/出勤|到课/.test(q)) name = 'class_attendance';
   else if (/扣课|课消/.test(q)) name = 'net_deduction';
@@ -258,6 +268,18 @@ export function lowAttendanceRenewalIntent(q: string, previous: any[]): AiIntent
   }
   params.maxRemaining = maxRemaining;
   return { parsedOk: true, tools: [{ name: 'low_attendance_students', params }] };
+}
+
+/** 点名学员余额追问（复验必修 C1，mock 与真实共用）：现在/还剩/余额 + 2-4 字姓名 → search_students。 */
+export function studentBalanceIntent(q: string): AiIntent | undefined {
+  const text = q.trim();
+  if (!/还剩|余额|剩余课时|剩多少|还剩多少|剩几节|几节课/.test(text)) return undefined;
+  if (/出勤|成单|续费|退费|课消|班级|排名|哪个班|其他机构|删除|修改/.test(text)) return undefined;
+  const m = /([\u4e00-\u9fa5·]{2,4})(?:现在|目前|当前)?(?:还剩|的?余额|的?剩余(?:课时)?|剩多少|还剩多少|剩几节|还剩几节)/.exec(text);
+  if (!m) return undefined;
+  const name = m[1];
+  if (/^(?:学员|学生|老师|教练|班级|现在|当前|目前|还剩|余额|剩余)/.test(name)) return undefined;
+  return { parsedOk: true, tools: [{ name: 'search_students', params: { keyword: name } }] };
 }
 
 /** 学员出勤排名（复验必修 G1）：学员/学生 + 出勤率 + 最高最低 → student_attendance 排名，不走老师排名。 */
