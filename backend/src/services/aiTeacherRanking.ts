@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import type { AiIntent } from './aiIntent';
 import type { Evidence, ToolContext } from './aiTools';
+import { rankScopeFor } from './aiQueryBinding';
 import { entityDisplayNames } from './aiOperatingFacts';
 import { readTeachingPerformance } from './personnelStatisticsService';
 import prisma from '../config/database';
@@ -16,9 +17,10 @@ export function teacherRankingIntent(q: string): AiIntent | undefined {
     || /怎么评|如何评|薪资|工资|续费率|续费金额|续费笔数|续费单数|新签金额|体验课|授课场次|授课最多|上课最多/.test(q)) return undefined;
   const metric: Metric = /成单|成交|销售额|销售业绩/.test(q) ? 'sales' : /课消|核销/.test(q) ? 'consumption'
     : /个人新招|新招人数|新签人数/.test(q) ? 'signup' : 'attendance';
-  // 岗位范围（复验必修 R2）：问句限定“授课老师/任教/带班/老师中”时不含销售岗；放开全员才并入。
-  const teachersOnly = /授课老师|任教老师|带班老师|老师中|老师里|教师中|教练中|只在老师|仅老师|老师们中/.test(q);
-  return { parsedOk: true, purpose: 'facts', subject: 'teacher', tools: [{ name: toolName, params: { metric, ...(minDirection ? { direction: 'min' } : {}), ...(teachersOnly ? { scope: 'teachers' } : {}) } }] };
+  // 岗位范围（复验必修 R2/N1）：点名老师／教师／教练即按教学人员统计；
+  // 只有问句明确放开（全员／把顾问也算上等）才并入销售岗。
+  const scope = rankScopeFor(q);
+  return { parsedOk: true, purpose: 'facts', subject: 'teacher', tools: [{ name: toolName, params: { metric, ...(minDirection ? { direction: 'min' } : {}), ...(scope === 'teachers' ? { scope } : {}) } }] };
 }
 
 type TeachingRow = Pick<Awaited<ReturnType<typeof readTeachingPerformance>>[number],

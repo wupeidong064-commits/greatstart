@@ -27,6 +27,7 @@ import {
   naturalAttendanceIntent,
   orderMetricIntent,
 } from '../services/aiWorkbenchPolicy';
+import { rankFollowupBinding } from '../services/aiQueryBinding';
 import { blockedChatEntryIntent } from '../services/aiEntryService';
 import {
   saveUpload,
@@ -569,7 +570,9 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     let intent: AiIntent = {};
     let queryPlanAudit: Record<string, unknown> | undefined;
     const teacherIntent = !/校区|机构|删除|修改数据|SQL|密码|密钥|绕过/.test(content)
-      ? teacherRankingIntent(content) || teacherComparisonIntent(content, previousBusiness) : undefined;
+      ? rankFollowupBinding(content, previousBusiness, todaySH)
+        || teacherRankingIntent(content) || teacherComparisonIntent(content, previousBusiness)
+      : undefined;
     if (scopeDecision === 'business') intent = (deniedScope ? {parsedOk:true,reply:deniedScope} : undefined) || blockedChatEntryIntent(content, hasLegacyDraft)
       || (mappedUploadComparison ? {parsedOk:true,tools:[]} : undefined)
       || securityProbeIntent(content) || workbenchHelpIntent(content, uploadIds.length > 0)
@@ -587,7 +590,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || duoStudentAttendanceIntent(content)
       || studentRankingIntent(content)
       || lowAttendanceRenewalIntent(content, previousBusiness)
-      || studentBalanceIntent(content) || intent;
+      || studentBalanceIntent(content, previousBusiness) || intent;
     if (scopeDecision !== 'business')
       intent = {
         parsedOk: true,
@@ -643,7 +646,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     const explanationOnly = scopeDecision === 'business' && isExplanationRequest(content);
     if (!deniedEntity && explanationOnly && !intent.reply && intent.tools?.length)
       intent = { parsedOk: true, purpose: 'explanation', reply: '你想解释的是哪一句或哪个指标？把原话贴出来，我可以顺着这段内容解释。' };
-    if (!deniedEntity && intent.subject === 'teacher' && intent.purpose !== 'advice' && !intent.reply) {
+    if (!deniedEntity && intent.subject === 'teacher' && intent.purpose !== 'advice' && !intent.reply
+      && !intent.tools?.some(t => t.name === 'teacher_performance_ranking')) {
       const ranking = teacherRankingIntent(content);
       const focused = ranking || teacherComparisonIntent(content, previousBusiness);
       if (focused) {
@@ -695,11 +699,17 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       if (calendar.clarification) return {parsedOk:true,reply:calendar.clarification};
       if (plan.reuseSnapshot) return plan;
       if (calendar.explicit && calendar.observation.end < todaySH && plan.tools?.length
-        && plan.tools.every(t=>AI_TOOLS.some(d=>d.name===t.name) && !supportsHistoricalPeriod(t))) {
+        && plan.tools.every(t=>AI_TOOLS.some(d=>d.name===t.name) && !supportsHistoricalPeriod(t))
+        // 余额类计划自带时点（balanceAsOfDate）时由工具自行处理，不进快照拒绝分支
+        && !plan.tools.some(t => typeof t.params.balanceAsOfDate === 'string')) {
         // 盲测修复（S06R4）：改期追问撞上快照类工具时，优先复用上一轮可回溯期间的同款查询，而不是直接拒绝。
         if (previousBusiness.length) {
           const inherited = inheritPreviousIntent(content, { parsedOk: true, tools: [] }, previousBusiness, todaySH);
           if (inherited.tools?.length) return { ...inherited, tools: calendarTools(inherited, calendar) };
+          // 余额是时点数值而非区间统计：不能被上一轮可回溯工具劫持（N3 根因），如实说明后停止。
+          if (plan.tools.some(t => t.name === 'search_students' || t.name === 'renewal_candidates')) {
+            return {parsedOk:true,reply:'余额是当前或指定日期的时点数值，不能按月份区间统计。请给出具体日期（如 2026-10-31），或去掉日期直接问当前余额。'};
+          }
           // 复验修正：改期/合计追问撞快照工具时，复用上一轮同款可回溯工具按新期间查询。
           const prevDated = previousBusiness.find(c => {
             const def = AI_TOOLS.find(d => d.name === c.tool);

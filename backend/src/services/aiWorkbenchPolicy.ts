@@ -1,6 +1,8 @@
 import type { AiIntent } from './aiIntent';
 import { BUSINESS_DOMAINS, BusinessDomain } from './aiDataDictionary';
 import { resolveBusinessCalendar, isCalendarOnlyFollowup } from './aiBusinessCalendar';
+import { businessToday } from './aiOperatingPlan';
+import { rankScopeFor } from './aiQueryBinding';
 import { AI_TOOLS } from './aiTools';
 
 export const SCOPE_REPLY =
@@ -214,6 +216,9 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
     name = 'teacher_performance_ranking';
     if (/课消|核销/.test(q)) params.metric = 'consumption';
     else if (/成单|成交/.test(q)) params.metric = 'sales';
+    if (/最低|最差|表现最差|垫底|倒数|排在最后|排最后|谁最后|最后一名|末位/.test(q)) params.direction = 'min';
+    const scope = rankScopeFor(q);
+    if (scope === 'teachers') params.scope = 'teachers';
   }
   else if (/环比|同比|对比/.test(q) && !/(?:比较|更|较)好|更好|较好|哪家强|谁更高/.test(q)) name = 'weekly_comparison';
   else if (/实际课消|课消.*金额|课消多少钱/.test(q)) name = 'actual_consumption';
@@ -280,16 +285,33 @@ export function lowAttendanceRenewalIntent(q: string, previous: any[]): AiIntent
   return { parsedOk: true, tools: [{ name: 'low_attendance_students', params }] };
 }
 
-/** 点名学员余额追问（复验必修 C1，mock 与真实共用）：现在/还剩/余额 + 2-4 字姓名 → search_students。 */
-export function studentBalanceIntent(q: string): AiIntent | undefined {
+/** 点名学员余额（复验必修 C1/N3，mock 与真实共用）：余额问法 + 2-4 字姓名 → search_students。
+ * 明确单日按课时账回放该日余额；无日期或「现在」按当前快照；省略型追问复用上一轮余额卡对象。 */
+export function studentBalanceIntent(q: string, previous: any[] = []): AiIntent | undefined {
   const text = q.trim().replace(/不查老师|不要查?老师|不看老师|不管老师|不问老师/g, '');
   if (!/还剩|余额|剩余课时|剩多少|还剩多少|剩几节|几节课/.test(text)) return undefined;
   if (/出勤|成单|续费|退费|课消|班级|排名|哪个班|其他机构|删除|修改/.test(text)) return undefined;
   const m = /([\u4e00-\u9fa5·]{2,4}?)(?:现在|目前|当前)?(?=还剩|的余额|的剩余|剩多少|剩几节|还剩几节|余额)/.exec(text);
-  if (!m) return undefined;
-  const name = m[1];
-  if (/^(?:学员|学生|老师|教练|班级|现在|当前|目前|还剩|余额|剩余)/.test(name)) return undefined;
-  return { parsedOk: true, tools: [{ name: 'search_students', params: { keyword: name } }] };
+  let name = m ? m[1] : undefined;
+  if (name && /^(?:学员|学生|老师|教练|班级|现在|当前|目前|还剩|余额|剩余|那|这|请|帮)/.test(name)) name = undefined;
+  return balanceToolPlan(text, name, previous);
+}
+
+function balanceToolPlan(text: string, name: string | undefined, previous: any[]): AiIntent | undefined {
+  const today = businessToday();
+  const calendar = resolveBusinessCalendar({ question: text, today });
+  if (calendar.clarification) return { parsedOk: true, reply: calendar.clarification };
+  const singleDate = calendar.explicit && calendar.observation.start === calendar.observation.end ? calendar.observation.start : undefined;
+  let keyword = name;
+  if (!keyword) {
+    const prev = previous.find(c => c && c.tool === 'search_students' && !c.error && Array.isArray(c.rows));
+    const prevKeyword = prev && prev.filters ? prev.filters.keyword : undefined;
+    keyword = typeof prevKeyword === 'string' && prevKeyword ? prevKeyword : undefined;
+    if (!keyword) return undefined;
+  }
+  const params: Record<string, unknown> = { keyword };
+  if (singleDate) params.balanceAsOfDate = singleDate;
+  return { parsedOk: true, tools: [{ name: 'search_students', params }] };
 }
 
 /** 学员出勤排名（复验必修 G1）：学员/学生 + 出勤率 + 最高最低 → student_attendance 排名，不走老师排名。 */
