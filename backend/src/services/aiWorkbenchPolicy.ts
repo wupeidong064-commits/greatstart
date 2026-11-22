@@ -179,6 +179,8 @@ export function localBusinessIntent(q: string, today: string): AiIntent {
             ...(specificDomain === 'enrollments' && /当前|现在|在读/.test(q)
               ? { view: 'current' }
               : {}),
+            ...(specificDomain === 'students' && /流失/.test(q) ? { status: '流失' } : {}),
+            ...(specificDomain === 'students' && /归档/.test(q) ? { status: '已归档' } : {}),
           },
         },
       ],
