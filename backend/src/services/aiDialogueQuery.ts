@@ -209,11 +209,9 @@ function decoded(text: string): Command | { clarify: true } | undefined {
   // Date literals and prior output-only fields are never trusted; derive them from the user's text.
   for (const k of ['periods', 'startDate', 'endDate', 'dateRange', 'period', 'dates']) delete x[k];
   for (const k of Object.keys(x)) if (x[k] === null) delete x[k];
-  if (
-    typeof x.time === 'string' &&
-    /^\d{4}-\d{2}-\d{2}(?:[~,， 至]+\d{4}-\d{2}-\d{2})?$/.test(x.time)
-  )
-    x.time = 'auto';
+  // A provider sometimes formats a selected date as a string or range, with arbitrary
+  // separators. All calendar literals are resolved again from the user and stored history.
+  if (typeof x.time === 'string' && /\d{4}[-年/]\d{1,2}/.test(x.time)) x.time = 'auto';
   if (x.time && typeof x.time === 'object' && !Array.isArray(x.time))
     x.time = choices.includes(x.time.mode) ? x.time.mode : 'auto';
   // Only teacher comparisons choose one numeric metric. Attendance always carries all
