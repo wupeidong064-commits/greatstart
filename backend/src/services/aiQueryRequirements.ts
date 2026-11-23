@@ -16,7 +16,7 @@ export function scopeClarification(q: string, ownName: string, requested?: strin
     '当前账号仅可查询' + ownName + '。指定范围超出当前校区权限，此次没有查询或复用经营数据。';
   if (/跨(?:校区|机构)|其他(?:独立)?(?:校区|机构)|别的(?:校区|机构)|所有校区|全机构各校区/.test(q))
     return deny;
-  const local = /^(?:当前|我们|咱们|本|这个|本机构当前)?校区$/;
+  const local = /^(?:(?:当前|我们|咱们|本|这个|本机构当前|整个|全)校区|校区|全校|全机构|整个(?:学校|机构))$/;
   const named = requested && q.includes(requested) ? requested : undefined;
   const ownAbbreviation = named && /^[\p{Script=Han}]{2,12}$/u.test(named) && ownName.startsWith(named) && !/(机构|校区|分校|学校)$/.test(named);
   if (named && !local.test(named) && !ownAbbreviation && named !== ownName && named + '校区' !== ownName) return deny;

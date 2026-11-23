@@ -689,6 +689,12 @@ export async function bindDialogue(
   const denied = scopeClarification(question, campusName, c.campus);
   if (denied) return { reply: denied };
   if (!ctx.campusId) return;
+  if (
+    classSource(c.source) &&
+    /整个(?:校区|学校|机构)|全校(?:区)?|全机构/.test(question) &&
+    !/跨|其他|别的|分别|比较各/.test(question)
+  )
+    c.group = '*';
   const last = hist[hist.length - 1];
   const continuation =
     /同一|同样|刚才|这(?:些|批|几天|段|周|半年)|照旧|沿用|改[为成看]|换[成到看]|还是|排在末|换个指标|那[一位班]|把.*改为/.test(

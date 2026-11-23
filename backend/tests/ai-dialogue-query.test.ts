@@ -132,6 +132,9 @@ describe('validated analytical dimensions', () => {
     expect(blockedChatEntryIntent('统计试听课到场，再帮我新增体验记录')).toHaveProperty('reply');
   });
   it('keeps campus scope checks ahead of queries', async () => {
+    expect(
+      await bind({ source: 'orders', campus: '整个校区' }, '整个校区的成交金额')
+    ).toMatchObject({ query: { source: 'orders' } });
     expect(await bind({ source: 'orders', campus: '其他机构' }, '查其他机构的成交')).toMatchObject({
       reply: expect.stringContaining('权限'),
     });
