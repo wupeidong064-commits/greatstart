@@ -29,6 +29,24 @@ export function teacherComparisonIntent(question: string, previous: Evidence[]):
   return { parsedOk: true, purpose: 'comparison', subject: 'teacher', tools: [{ name: toolName, params }] };
 }
 
+// Explain an existing decline ranking using its own denominators, without estimating causes.
+export function explainDeclineCounts(question:string,previous:Evidence[],role:string,campusId:string|null):AiIntent|undefined {
+  if (!campusId || !['admin','manager'].includes(role) || !/下降|下滑|跌/.test(question) ||
+      !/最多|最大|最明显|最严重/.test(question) || !/实到|应到/.test(question) ||
+      /\d|本月|上月|本周|上周|换成|改看|去年|同比|重新/.test(question)) return;
+  const c=previous.find(e=>e.tool===toolName&&!e.error&&e.timeRange&&e.filters.campusId===campusId);
+  if(!c?.timeRange || typeof c.filters.previousStart!=='string' || typeof c.filters.previousEnd!=='string') return;
+  const rows=c.rows.filter(r=>typeof r.出勤率变化==='number' && r.出勤率变化<0 &&
+    [r.上期应到,r.本期应到,r.上期实到,r.本期实到].every(v=>typeof v==='number'&&Number.isFinite(v)));
+  if(!rows.length)return;
+  const worst=Math.min(...rows.map(r=>Number(r.出勤率变化)));
+  const delta=(v:number)=>v===0?'持平':(v>0?'增加':'减少')+Math.abs(v)+' 人次';
+  const details=rows.filter(r=>r.出勤率变化===worst).map(r=>
+    r.老师+'出勤率下降 '+Math.abs(worst)+' 个百分点。应到 '+r.上期应到+' → '+r.本期应到+'，'+delta(Number(r.本期应到)-Number(r.上期应到))+
+    '；实到 '+r.上期实到+' → '+r.本期实到+'，'+delta(Number(r.本期实到)-Number(r.上期实到))+'。');
+  return {parsedOk:true,purpose:'facts',reply:c.filters.previousStart+' 至 '+c.filters.previousEnd+' 对比 '+c.timeRange.start+' 至 '+c.timeRange.end+'：'+details.join(' ')};
+}
+
 const difference = (current: number | null, prior: number | null) =>
   current === null || prior === null ? null : Number((current - prior).toFixed(2));
 

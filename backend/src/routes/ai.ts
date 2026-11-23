@@ -1,3 +1,4 @@
+import {explainDeclineCounts} from '../services/aiTeacherComparison';
 import {selectAttendanceClass} from '../services/aiDialogueMeasures';
 import { dialogueHistory, dialogueMessages, bindDialogue, renderDialogue, scopeOnlyEdit } from '../services/aiDialogueQuery';
 import { verifiedReportFileBuffer } from '../services/reportFileService';
@@ -590,6 +591,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     const priorityIntent = scopeDecision === 'business' ? (deniedScope ? {parsedOk:true,reply:deniedScope} : undefined) || blockedChatEntryIntent(content, hasLegacyDraft)
       || (mappedUploadComparison ? {parsedOk:true,tools:[]} : undefined)
       || securityProbeIntent(content) || workbenchHelpIntent(content, uploadIds.length > 0)
+      || explainDeclineCounts(content,previousBusiness,req.user!.role,currentUser.campusId)
       || explanationIntent(content, previousRow?.content) || generalAttendanceAdvice(content)
       || criticalMetricClarification(content) : undefined;
     // Resolve the requested operation and dimensions together. Facts and arithmetic stay in scoped tools.
