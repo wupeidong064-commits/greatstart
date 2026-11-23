@@ -1,3 +1,4 @@
+import { evidenceView, presentMeasures, type EvidenceView } from './aiDialogueMeasures';
 import prisma from '../config/database';
 import { BusinessPeriod, mentionedPeriods, resolveBusinessCalendar } from './aiBusinessCalendar';
 import type { ChatMessage } from './aiService';
@@ -17,6 +18,8 @@ const sources = [
   'renewals',
   'balance',
   'refunds',
+  'experience',
+  'overview',
 ] as const;
 type Source = (typeof sources)[number];
 const operations = [
@@ -40,6 +43,7 @@ type Cohort = { threshold?: number; inclusive?: boolean; maxRemaining?: number }
 type Group = { id: string; name: string };
 export interface DialogueQuery extends Cohort {
   source: Source;
+  view?: EvidenceView;
   op: Op;
   periods: BusinessPeriod[];
   group?: Group;
@@ -351,6 +355,12 @@ function periodsFor(
   const dateText = question.replace(/(今年|去年|明年)(?!\s*[零一二两三四五六七八九十\d]+月)/g, '');
   const explicit = mentionedPeriods(dateText.replace(/这半年/g, '最近半年'), today);
   if (
+    c.op === 'sum' &&
+    explicit.length === 1 &&
+    !hist.some((q) => q.source === c.source && q.periods.length)
+  )
+    return explicit;
+  if (
     c.op === 'priority' &&
     previous?.periods.length &&
     explicit.every((p) => p.start === today && p.end === today)
@@ -415,6 +425,8 @@ const compatible: Record<Source, Op[]> = {
   renewals: ['read', 'list', 'priority'],
   balance: ['read', 'list'],
   refunds: ['read', 'list'],
+  experience: ['read'],
+  overview: ['read'],
 };
 // A numeric predicate narrows an existing cohort; it is independent of the model's choice of row order.
 function balanceCap(text: string) {
@@ -500,6 +512,11 @@ function contextualCommand(
   )
     return { source: last.source, op: 'sum', time: 'recentPair', inherit: true };
   if (c?.source === 'teachers') {
+    if (
+      /订单|签下|签单|签约|成交|成单|销售额/.test(question) &&
+      !/课消|出勤|签到|新招|新签人数|签单数|订单数/.test(question)
+    )
+      c.metric = 'sales';
     if (c.time === 'recentPair' || c.time === 'outerPair') c.time = 'auto';
     if (
       c.op === 'difference' &&
@@ -507,7 +524,7 @@ function contextualCommand(
     )
       c.op = 'spread';
     if (
-      !/出勤|到课|签到|课消|核销|成交|成单|销售|新招|新签/.test(question) &&
+      !/出勤|到课|签到|课消|核销|成交|成单|销售|新招|新签|订单|签下|签单|签约/.test(question) &&
       (!last || last.source === 'teachers' || c.inherit !== true)
     )
       c.metric = last?.source === 'teachers' ? last.metric : 'attendance';
@@ -531,7 +548,21 @@ export async function bindDialogue(
   campusName: string
 ): Promise<Resolution | undefined> {
   const lastFrame = hist[hist.length - 1];
-  let c = contextualCommand(decoded(raw), question, lastFrame);
+  const proposal = decoded(raw);
+  const explicitScope = proposal && 'source' in proposal ? proposal : undefined;
+  const view =
+    explicitScope?.group && explicitScope.group !== '*'
+      ? undefined
+      : evidenceView(question, lastFrame);
+  let c = view
+    ? ({
+        source: view.source,
+        campus: explicitScope?.campus,
+        op: 'read',
+        inherit: lastFrame?.source === view.source,
+      } as Command)
+    : contextualCommand(proposal, question, lastFrame);
+  if (!view && c && 'source' in c && (c.source === 'overview' || c.source === 'experience')) return;
   // Requests about eligibility keep the cohort's filters when naming individuals.
   const membership =
     lastFrame?.source === 'renewals' && /条件|符合|续费|催续|不续|同一份|名单/.test(question);
@@ -600,7 +631,7 @@ export async function bindDialogue(
     !/出勤|到课|缺勤|签到|没来|没到/.test(question)
   )
     return;
-  if (/简报|晨会|建议|推算|能确定|能证实|先讲方法|一句话补上/.test(question)) return;
+  if (!view && /简报|晨会|建议|推算|能确定|能证实|先讲方法|一句话补上/.test(question)) return;
   // Let the full tool planner handle richer measures and analytical questions it already supports.
   if (
     'source' in c &&
@@ -659,6 +690,19 @@ export async function bindDialogue(
     return { reply: e instanceof Error ? e.message : '请确认统计期间。' };
   }
   query.periods = explicitDates;
+  if (view) {
+    if (explicitDates.length !== 1) return { reply: '请指定一个统计期间。' };
+    const p = explicitDates[0];
+    return {
+      query: { ...query, view },
+      tools: [
+        {
+          name: view.source === 'experience' ? 'experience_overview' : 'weekly_report_data',
+          params: { startDate: p.start, endDate: p.end },
+        },
+      ],
+    };
+  }
   if (c.source === 'orders' && ['difference', 'growth'].includes(op) && query.periods.length !== 2)
     return { reply: '请指定比较的基期与本期。' };
   if (query.periods.length > 2) return { reply: '请指定要合并或比较的两个期间。' };
@@ -793,6 +837,9 @@ export async function bindDialogue(
   }
   let name: string;
   switch (c.source) {
+    case 'overview':
+    case 'experience':
+      return;
     case 'students':
       name = 'business_records';
       Object.assign(params, { domain: 'students', status: query.status });
@@ -951,6 +998,7 @@ export function renderDialogue(q: DialogueQuery, cards: Evidence[]): string {
     (q.group ? q.group.name + '，' : '');
   try {
     const card = cards[0];
+    if (q.view) return presentMeasures(q.view, card);
     if (q.source === 'refunds')
       return (
         prefix +

@@ -69,6 +69,12 @@ export function isExplanationRequest(q: string) {
 export function explanationIntent(q: string, lastAnswer?: string): AiIntent | undefined {
   if (/授课老师|授课教师|代课老师/.test(q) && /负责老师|负责[人这]|班主任|主责/.test(q) && /能.*当|是否.*等同|同一回事|区别/.test(q))
     return {parsedOk:true,purpose:'explanation',reply:'请查看班级资料中的负责老师。当堂授课人记录谁实际上了这节课，班级主责记录谁负责跟进；遇到代课，两人可能不同。'};
+  if (/利润/.test(q) && /当成?|等同|就是|等于/.test(q) && /净额|净成单/.test(q+(lastAnswer||'')))
+    return {parsedOk:true,purpose:'explanation',reply:'不能。净成单额只扣除了已确认退费，利润还需要核对已履约收入和工资、房租等完整成本。'};
+  if (/推算|算出|推[断出]/.test(q) && /工资|薪酬/.test(q) && /这|据此|仅凭/.test(q))
+    return {parsedOk:true,purpose:'explanation',reply:'仅凭这些经营数字无法推算老师工资。还需要个人有效授课、业绩归属和本机构约定的薪酬规则。'};
+  if (/能确定|能证明|证实|需要核实|还得.*核实/.test(q) && /缺勤|出勤|实到/.test(lastAnswer||'') && /原因|教学|核实/.test(q))
+    return {parsedOk:true,purpose:'explanation',reply:'出勤记录能证实实到和应到的人次差异。教学质量、请假、调课或漏签都需要核对课次记录并回访，单凭出勤变化无法判定原因。'};
   if (!isExplanationRequest(q)) return undefined;
   const refersBack = /这|那|上面|刚才|前面/.test(q);
   const source = refersBack && !/净成单|课消|确认收入|利润/.test(q) ? q + (lastAnswer || '') : q;

@@ -110,6 +110,21 @@ describe('validated analytical dimensions', () => {
       tools: [{ name: 'renewal_candidates', params: { maxRemaining: 0 } }],
     });
   });
+  it('keeps cash and confirmed sales separately grounded even when their amounts happen to agree', async () => {
+    const r = await bind({ source: 'orders' }, '2026年5月1日到18日，实收和成单分别是多少？');
+    if (!r || !('query' in r)) throw Error('missing query');
+    expect(r.tools[0].name).toBe('weekly_report_data');
+    expect(renderDialogue(r.query, [card({ 实收: 90, 总成单额: 120 })])).toMatch(
+      /成交 120 元，实收 90 元/
+    );
+  });
+  it('treats a single cross-year range as one sum', async () => {
+    const r = await bind(
+      { source: 'orders', op: 'sum', time: 'recentPair' },
+      '2025年12月29日至2026年1月4日合计多少？'
+    );
+    expect(r).toMatchObject({ query: { periods: [{ start: '2025-12-29', end: '2026-01-04' }] } });
+  });
   it('keeps campus scope checks ahead of queries', async () => {
     expect(await bind({ source: 'orders', campus: '其他机构' }, '查其他机构的成交')).toMatchObject({
       reply: expect.stringContaining('权限'),
