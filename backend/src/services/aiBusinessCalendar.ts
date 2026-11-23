@@ -50,6 +50,7 @@ function clean(s: string) {
   return s
     .normalize('NFKC')
     .replace(/\s+/g, '')
+    .replace(/([日号][、，,和与及]+)(\d{1,2})(?=到|至)/g, '$1$2日')
     .replace(/[〇零一二两三四五六七八九十]+(?=个?月|天|日|号|年)/g, (raw) => {
       const n = raw.replace(/〇/g, '零').replace(/两/g, '二');
       if (!n.includes('十')) return [...n].map((v) => digits.indexOf(v)).join('');
@@ -156,7 +157,8 @@ function extract(q: string, today: string): Mention[] {
       )
     )
       throw new Error(AMBIGUOUS);
-    let left = join ? prev.period : undefined;
+    const sharedMonth = prev && /^[、，,和与及]+$/.test(gap) && /^\d+[日号]$/.test(text);
+    let left = join || sharedMonth ? prev.period : undefined;
     if (/^半个?年$/.test(text) && /[上下这本]$/.test(gap))
       throw new Error(AMBIGUOUS);
     const monthOnlyYear = text.match(/^(\d+)月/);
@@ -197,7 +199,7 @@ function extract(q: string, today: string): Mention[] {
     .reverse()
     .reduce((s, v) => s.slice(0, v.start) + '#' + s.slice(v.end), q);
   if (
-    /(?:\d{2,4}年|\d{1,4}[-/.]\d+|#(?:以前|之前|以后|之后|[-/.]\d|初|底|末|份?上旬|份?下旬|[一二三四五六日天])|(?:近|过去|最近|未来)\d+个?月|(?:上|下|本|这)季度|季度|上半年|下半年|月初|月末|月底|年初|年底|年末|近期|最近几天|前段时间|前一阵|前阵子|(?:今年|去年|明年)|周[一二三四五六日天]|星期[一二三四五六日天])/.test(
+    /(?:\d{2,4}年|\d{1,4}[-/.]\d+|#(?:以前|之前|以后|之后|[-/.]\d|初|底|末|份?上旬|份?下旬|[一二三四五六日天](?!共|起))|(?:近|过去|最近|未来)\d+个?月|(?:上|下|本|这)季度|季度|上半年|下半年|月初|月末|月底|年初|年底|年末|近期|最近几天|前段时间|前一阵|前阵子|(?:今年|去年|明年)|周[一二三四五六日天]|星期[一二三四五六日天])/.test(
       residual
     )
   )

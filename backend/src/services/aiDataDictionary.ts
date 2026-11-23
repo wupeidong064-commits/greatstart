@@ -582,8 +582,16 @@ export async function businessRecords(
         none: currentEnrollmentWhere(ctx),
       },
     });
-  if (params.status && (def.fields as readonly string[]).includes('status'))
-    where.status = String(params.status);
+  if (params.status && (def.fields as readonly string[]).includes('status')) {
+    const status = String(params.status).trim();
+    if (key === 'students') {
+      const aliases: Record<string,string> = {在读:'active',活跃:'active',流失:'lost',已流失:'lost',归档:'archived',已归档:'archived',退费:'refunded',已退费:'refunded',毕业:'graduated',停用:'inactive'};
+      const canonical = Object.prototype.hasOwnProperty.call(aliases,status) ? aliases[status] : status;
+      if (!['active','lost','archived','refunded','graduated','inactive'].includes(canonical))
+        throw new Error('未识别该学员状态，请选择业务端支持的状态');
+      where.status = canonical;
+    } else where.status = status;
+  }
   if (params.keyword) {
     const field =
       key === 'leads'
@@ -591,8 +599,11 @@ export async function businessRecords(
         : (def.fields as readonly string[]).includes('name')
           ? 'name'
           : null;
-    if (!field) throw new Error('该业务域不支持按名称筛选');
-    where[field] = { contains: String(params.keyword) };
+    if (key === 'refunds') where.studentName = String(params.keyword);
+    else {
+      if (!field) throw new Error('该业务域不支持按名称筛选');
+      where[field] = { contains: String(params.keyword) };
+    }
   }
   if (params.classId) {
     const belongs = await prisma.class.findFirst({
@@ -613,7 +624,8 @@ export async function businessRecords(
       ...currentEnrollmentWhere(ctx),
       student: { ...studentScope, status: 'active' },
     };
-  if (def.date && params.view !== 'current')
+  const namedRefundHistory = key === 'refunds' && params.view === 'history' && typeof params.keyword === 'string' && !!params.keyword;
+  if (def.date && params.view !== 'current' && !namedRefundHistory)
     where[def.date] = ['day', 'businessDate'].includes(def.date)
       ? { gte: start, lte: end }
       : {
@@ -698,7 +710,7 @@ export async function businessRecords(
     tool: 'business_records',
     title: def.label,
     unit: key === 'credit_account' ? '微积分/积分' : '条/人/节/元',
-    timeRange: def.date && params.view !== 'current' ? { start, end } : null,
+    timeRange: def.date && params.view !== 'current' && !namedRefundHistory ? { start, end } : null,
     generatedAt: new Date().toISOString(),
     filters: { domain: key, ...params, campusId: ctx.campusId },
     columns: [...def.fields.map((f) => ({ key: f, label: FIELD_LABELS[f] || f })), ...extraFields],

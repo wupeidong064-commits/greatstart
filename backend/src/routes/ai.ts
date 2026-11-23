@@ -1,3 +1,4 @@
+import { dialogueHistory, dialogueMessages, bindDialogue, renderDialogue, scopeOnlyEdit } from '../services/aiDialogueQuery';
 import { verifiedReportFileBuffer } from '../services/reportFileService';
 import { reportRequest, previewReportImport, confirmReportImport, createOperatingReport, reportCards, reportAnswer } from '../services/operatingReportService';
 import { usageSummary } from '../services/aiUsageAudit';
@@ -545,14 +546,17 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       today: todaySH,
       attachments: attachmentContext,
     });
+    const historyQueries = dialogueHistory(allRows);
+    const queryMessages = dialogueMessages(content, historyQueries, allRows.filter(r=>r.role==='user').slice(-5,-1).map(r=>r.content));
+    const queryBudget = queryMessages.reduce((n,m)=>n+m.content.length,0);
     const intentInputEst = intentMessages.reduce((sum, m) => sum + m.content.length, 0);
     const summaryInputEst = window.needsSummary ? CTX_BUDGET.total : 0;
-    const plannedOutputTokens = INTENT_MAX_TOKENS * 2 + SUMMARY_MAX_TOKENS;
+    const plannedOutputTokens = INTENT_MAX_TOKENS * 2 + SUMMARY_MAX_TOKENS + 360;
     let prepared: Awaited<ReturnType<typeof prepareChatTask>>;
     try {
       prepared = await prepareChatTask(
         currentUser,
-        intentInputEst * 2 + 2000 + summaryInputEst,
+        intentInputEst * 2 + queryBudget + 2000 + summaryInputEst,
         {
           conversationId: run.conversationId,
           plannedOutputTokens,
@@ -587,7 +591,34 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || securityProbeIntent(content) || workbenchHelpIntent(content, uploadIds.length > 0)
       || explanationIntent(content, previousRow?.content) || generalAttendanceAdvice(content)
       || criticalMetricClarification(content) : undefined;
-    const cross = scopeDecision === 'business' && !priorityIntent && !uploadIds.length
+    // Resolve the requested operation and dimensions together. Facts and arithmetic stay in scoped tools.
+    let dialogue: Awaited<ReturnType<typeof bindDialogue>>;
+    const eligible = scopeDecision==='business' && !priorityIntent && !priorPending && !pickedClass.length &&
+      !uploadIds.length && !isFileRequest(content) && !isPurePresentationRequest(content) &&
+      !/先.{0,6}(?:确认|选)|等我确认|确认再|草稿|跨机构|别家|其他独立机构|外校/.test(content) &&
+      !clientDisconnected && activeAiModel()!=='mock-recorded-v1';
+    if (eligible) {
+      const context={organizationId,campusId:currentUser.campusId,today:todaySH,userId:owner.userId,personnelActor:req.user};
+      let raw=scopeOnlyEdit(content,historyQueries);
+      if(!raw) {
+        startCall('query_dimensions');
+        try {
+          const parsed=await collectModel(queryMessages,{signal:upstreamAbort.signal,maxTokens:360});
+          markCall('query_dimensions',parsed.usage,'ok');
+          raw=parsed.text;
+        } catch {
+          markCall('query_dimensions',null,'failed');
+          dialogue={reply:'本次未能完成语义解析，尚未核算业务数据，请重试。'};
+        }
+      }
+      if(raw) {
+        try { dialogue=await bindDialogue(raw,content,historyQueries,context,campus.name); }
+        catch { dialogue={reply:'本次查询条件未能完整核实，无法确认结果。请稍后重试。'}; }
+      }
+    }
+    const dialogueIntent:AiIntent|undefined = dialogue ? ('reply' in dialogue
+      ? {parsedOk:true,reply:dialogue.reply} : {parsedOk:true,purpose:'facts',tools:dialogue.tools}) : undefined;
+    const cross = scopeDecision === 'business' && !dialogue && !priorityIntent && !uploadIds.length
       ? await crossPeriodQuery(content, {
           today: todaySH, recent: previousBusiness, completed: previousAnswer?.crossSum,
           pending: previousRow && priorPending?.kind === 'period' ? priorPending : undefined,
@@ -599,12 +630,12 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
               ORDER BY length(name) DESC,id LIMIT 21`,
         })
       : undefined;
-    const standings = scopeDecision === 'business' && !priorityIntent && !cross && !uploadIds.length
+    const standings = scopeDecision === 'business' && !dialogue && !priorityIntent && !cross && !uploadIds.length
       ? previousClassStandings(content, previousBusiness) : undefined;
     const standingsIntent: AiIntent | undefined = standings ? { parsedOk: true, purpose: 'facts',
       tools: [{ name: 'class_attendance', params: { startDate: standings.start, endDate: standings.end } }] } : undefined;
     if (cross?.pending) pendingClarification = cross.pending;
-    if (scopeDecision === 'business') intent = priorityIntent || cross?.intent || standingsIntent || newStudentAttendanceIntent(content, todaySH)
+    if (scopeDecision === 'business') intent = priorityIntent || dialogueIntent || cross?.intent || standingsIntent || newStudentAttendanceIntent(content, todaySH)
       || teacherIntent || orderMetricIntent(content, todaySH) || naturalAttendanceIntent(content, todaySH)
       || ((): AiIntent | undefined => {
           // 修复链式短路（复验 S07/C3 根因）：inheritPreviousIntent 未命中时返回的空对象会被
@@ -686,7 +717,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     }
     const localReply = Boolean(deniedEntity) || !usageCalls.some(c => c.purpose === 'intent') && Boolean(intent.reply);
     const directExplanation = intent.purpose === 'explanation' && Boolean(intent.reply) && explanationOnly;
-    const topic = scopeDecision === 'business' && !cross && !standings && !localReply && !directExplanation
+    const topic = scopeDecision === 'business' && !dialogue && !cross && !standings && !localReply && !directExplanation
       ? adviceTopic(intent,content,previousAnswer?.topic) : undefined;
     const adviceContinuation = topic && previousAnswer?.topic === topic
       && /^(?:那|然后|接着|再|继续|请|能否|可以|说得|讲得|展开|具体|详细|一点|一些|些|说说|怎么落地|如何执行|[，。！？?\s])+$/.test(content);
@@ -716,9 +747,10 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       intent.reply = definition ? definition[1] : intent.subject === 'other' ? SCOPE_REPLY
         : '请说明要了解的业务对象、指标或期间，以便从本校区资料核对。';
     }
-    if (adviceContinuation && previousBusiness.length) intent = {...intent,reuseSnapshot:true};
+    if (!dialogue && adviceContinuation && previousBusiness.length) intent = {...intent,reuseSnapshot:true};
     const calendarFor = (plan: AiIntent) => adviceContinuation && previousCalendar ? previousCalendar as ReturnType<typeof resolveBusinessCalendar> : resolveBusinessCalendar({question:content,today:todaySH,intent:plan,previous:previousCalendar});
     let calendar = calendarFor(intent);
+    if(dialogue && 'query' in dialogue && dialogue.query.periods.length) calendar={asOfDate:todaySH,observation:dialogue.query.periods[dialogue.query.periods.length-1],explicit:true};
     // The parser extracts only phrases grounded in this request; actual dates are server-owned.
     const bindPlan = (plan: AiIntent): AiIntent => {
       plan = bindUserThreshold(plan,content,!usageCalls.some(c=>c.purpose === 'intent') && previousBusiness.length>0);
@@ -760,7 +792,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       if (exceedsCalendarToolLimit(tools)) return {parsedOk:true,reply:'请将比较缩小到两组业务指标，再核对每组的本期与基期。'};
       return {...plan,tools};
     };
-    if (!cross && !standings) intent = bindPlan(localReply ? intent : alignMeasures(intent,content));
+    if (!dialogue && !cross && !standings) intent = bindPlan(localReply ? intent : alignMeasures(intent,content));
     // Validate before any business query. One bounded repair is metered as a separate call.
     if (intent.parsedOk && !intent.reply && intent.tools?.length) {
       const checked = validateToolPlan(intent.tools);
@@ -850,7 +882,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     }
 
     timings.intentMs = Date.now() - startedAt;
-    if (scopeDecision === 'business' && intent.parsedOk && !cross && !standings) {
+    if (scopeDecision === 'business' && intent.parsedOk && !dialogue && !cross && !standings) {
       if (!intent.reuseSnapshot && !intent.tools?.length) intent = inheritPreviousIntent(content, intent, previousBusiness, todaySH);
       intent = normalizeBusinessFilters(content, intent);
       if (mappedUploadComparison && !intent.reply) {
@@ -1028,6 +1060,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     if (!clientDisconnected) {
       const sections: string[] = [];
       if (intent.reply) sections.push(intent.reply);
+      else if (dialogue && 'query' in dialogue) sections.push(renderDialogue(dialogue.query,evidences));
       else {
         const tableRequested = requestsTable(content,intent) || intent.reuseSnapshot && isFileRequest(content);
         const teacherCards = evidences.filter(c => ['teacher_performance_comparison', 'teacher_performance_ranking'].includes(c.tool) && !c.error);
@@ -1197,7 +1230,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
           localOperations: { parseAndRenderModelCalls: 0 },
           pendingClarification,
           ...(queryPlanAudit ? { queryPlan: queryPlanAudit } : {}),
-          operatingAnswer: {version:operatingSnapshot.version,calendar,adviceText,topic:adviceText ? topic || previousAnswer?.topic : undefined,
+          operatingAnswer: {version:operatingSnapshot.version,calendar,
+            ...(dialogue && 'query' in dialogue && !intent.reply && evidences.length && evidences.every(e=>!e.error) ? {dialogue:dialogue.query} : {}),adviceText,topic:adviceText ? topic || previousAnswer?.topic : undefined,
             factIds:operatingSnapshot.facts.map(f=>f.id),purpose:intent.purpose,subject:intent.subject,actions:intent.actionIds,
             crossSum: cross?.completed && !intent.reply && evidences.length === 2 && evidences.every(c => !c.error)
               ? cross.completed : undefined},

@@ -18,7 +18,8 @@ export function scopeClarification(q: string, ownName: string, requested?: strin
     return deny;
   const local = /^(?:当前|我们|咱们|本|这个|本机构当前)?校区$/;
   const named = requested && q.includes(requested) ? requested : undefined;
-  if (named && !local.test(named) && named !== ownName && named + '校区' !== ownName) return deny;
+  const ownAbbreviation = named && /^[\p{Script=Han}]{2,12}$/u.test(named) && ownName.startsWith(named) && !/(机构|校区|分校|学校)$/.test(named);
+  if (named && !local.test(named) && !ownAbbreviation && named !== ownName && named + '校区' !== ownName) return deny;
   const remainder = ownName ? q.split(ownName).join('本校区') : q;
   const destinations = [
     ...remainder.matchAll(
@@ -30,7 +31,7 @@ export function scopeClarification(q: string, ownName: string, requested?: strin
 }
 
 const chineseDigit = '零一二三四五六七八九';
-function quantity(text: string): number {
+export function quantity(text: string): number {
   if (/^\d/.test(text)) return Number(text);
   const [whole, decimal] = text.replace(/两/g, '二').split('点');
   const [tens, ones] = whole.split('十');
@@ -44,7 +45,7 @@ function quantity(text: string): number {
 }
 // The business API takes percentage points. Only explicitly stated rates may
 // override defaults. Two separate percentages require two distinct constraints.
-function percentageIn(text: string) {
+export function percentageIn(text: string) {
   const num = '(?:\\d+(?:\\.\\d+)?|[零一二两三四五六七八九十百点]+)';
   const rx = new RegExp('(?:百分之(' + num + ')|(' + num + ')\\s*[%％]|(' + num + ')成)', 'g');
   return [...text.matchAll(rx)].map((m) => (m[3] ? quantity(m[3]) * 10 : quantity(m[1] || m[2])));

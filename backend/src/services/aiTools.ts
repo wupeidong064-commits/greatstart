@@ -315,16 +315,16 @@ const SEARCH_STUDENTS_TOOL: ToolFn = async (ctx, params) => {
 
 /** 续费期名单：在读、未标记不续费、剩余课时≤阈值（盲测场景 S12） */
 const RENEWAL_CANDIDATES_TOOL: ToolFn = async (ctx, params) => {
-  const maxRemaining = typeof params.maxRemaining === 'number' && params.maxRemaining > 0 && params.maxRemaining <= 20 ? Math.floor(params.maxRemaining) : 3;
-  const where: any = { organizationId: ctx.organizationId, status: 'active', OR: [{ renewalStatus: null }, { renewalStatus: { not: 'no_renewal' } }] };
+  const maxRemaining = typeof params.maxRemaining === 'number' && params.maxRemaining >= 0 && params.maxRemaining <= 50 ? Math.floor(params.maxRemaining) : 3;
+  const where: any = { organizationId: ctx.organizationId, status: 'active', remainingLessons: {lte:maxRemaining}, OR: [{ renewalStatus: null }, { renewalStatus: { not: 'no_renewal' } }] };
   if (ctx.campusId) where.campusId = ctx.campusId;
   const students = await prisma.student.findMany({
     where,
-    take: MAX_ROWS,
+    take: MAX_ROWS + 1,
     orderBy: [{ remainingLessons: 'asc' }, { name: 'asc' }],
     select: { id: true, name: true, status: true, phone: true, remainingLessons: true, renewalStatus: true },
   });
-  const picked = students.filter(s => s.remainingLessons != null && s.remainingLessons <= maxRemaining);
+  const picked = students.slice(0, MAX_ROWS);
   return envelope(
     ctx,
     {
@@ -334,7 +334,7 @@ const RENEWAL_CANDIDATES_TOOL: ToolFn = async (ctx, params) => {
       caliber: '在读且未标记不续费（renewalStatus≠no_renewal），剩余课时≤' + maxRemaining + '；剩余课时来自系统课时账。续费紧迫度请结合出勤判断，连续未到另查学员出勤。',
       timeRange: null,
       filters: { maxRemaining },
-      missing: students.length >= MAX_ROWS ? ['仅显示前 500 条，可能不全'] : [],
+      missing: students.length > MAX_ROWS ? ['仅显示前 500 条，可能不全'] : [],
       columns: [
         { key: 'name', label: '姓名' },
         { key: 'remainingLessons', label: '剩余课时' },
