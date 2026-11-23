@@ -226,6 +226,7 @@ function decoded(text: string): Command | { clarify: true } | undefined {
     )
   )
     delete x.metric;
+  if (x.time && typeof x.time === 'object' && choices.includes(x.time.mode)) x.time = x.time.mode;
   if (x.time === 'inherit' || x.time === 'same') {
     x.time = 'auto';
     x.inherit = true;
@@ -474,6 +475,13 @@ function contextualCommand(
     )
   )
     return { source: 'balance', op: 'read', inherit: true, names: last.names };
+  if (
+    last?.periods.length &&
+    /重叠|重复(?:算|计)/.test(question) &&
+    /区间|时间|期间|日期|两段/.test(question) &&
+    ['orders', 'attendance'].includes(last.source)
+  )
+    return { source: last.source, op: 'sum', time: 'recentPair', inherit: true };
   if (c?.source === 'teachers') {
     if (c.time === 'recentPair' || c.time === 'outerPair') c.time = 'auto';
     if (
@@ -514,7 +522,11 @@ export async function bindDialogue(
     /退[费款]|退款/.test(question) &&
     /已确认|已通过|已批|办妥|实际退|退过|已退|已完成/.test(question) &&
     !/未确认|待审|申请中|尚未|还没/.test(question);
-  if ((membership || confirmedRefund) && ctx.campusId) {
+  const mayReplacePerson =
+    lastFrame &&
+    ['refunds', 'balance', 'renewals'].includes(lastFrame.source) &&
+    question.length <= 60;
+  if ((membership || confirmedRefund || mayReplacePerson) && ctx.campusId) {
     const denied = scopeClarification(
       question,
       campusName,
@@ -524,7 +536,18 @@ export async function bindDialogue(
     const people = await prisma.$queryRaw<
       Array<{ name: string }>
     >`SELECT DISTINCT name FROM students WHERE "organizationId"=${ctx.organizationId} AND "campusId"=${ctx.campusId} AND length(name)>1 AND strpos(${question},name)>0 ORDER BY name LIMIT 5`;
-    if (people.length && confirmedRefund)
+    // When the only substantive change is an actual student name, keep the previous inquiry intact.
+    let remainder = question;
+    for (const person of people) remainder = remainder.split(person.name).join('');
+    const nameOnly =
+      people.length &&
+      !remainder.replace(
+        /先后|接着|继续|再|帮我|请|另[一外]|另外|改为|改成|换成|换个|改看|看看|看|查查|查一下|一下|刚才|刚刚|那位|这一项|这一笔|同一项|相同|同样|怎么[样说]|如何|那么|和|与|也|那|呢|的|[，、。！？?!,\s]/g,
+        ''
+      );
+    if (mayReplacePerson && nameOnly)
+      c = { source: lastFrame.source, op: 'read', inherit: true, names: people.map((p) => p.name) };
+    else if (people.length && confirmedRefund)
       c = {
         source: 'refunds',
         op: 'read',
@@ -541,6 +564,16 @@ export async function bindDialogue(
       };
   }
   if (!c) return;
+  if (/简报|晨会|建议|推算|能确定|能证实|先讲方法|一句话补上/.test(question)) return;
+  // Let the full tool planner handle richer measures and analytical questions it already supports.
+  if (
+    'source' in c &&
+    c.source === 'orders' &&
+    /实收|收款流水|净成单|课消|实退|利润|学科|课程类型|体验课|到场|转化率|出勤|签到/.test(question)
+  )
+    return;
+  if ('clarify' in c && !/^(?:那位|那他|他呢|她呢|她是|他是)|(?:看看|告诉我)那位/.test(question))
+    return;
   if ('clarify' in c) return { reply: '你想问哪位老师、哪个班或哪位学员？也请说明想比较的指标。' };
   const denied = scopeClarification(question, campusName, c.campus);
   if (denied) return { reply: denied };
@@ -963,7 +996,13 @@ export function renderDialogue(q: DialogueQuery, cards: Evidence[]): string {
       q.periods[0].start <= q.periods[1].end &&
       q.periods[1].start <= q.periods[0].end;
     if (cards.length === 2 && hasOverlap && (q.op === 'sum' || q.source === 'attendance'))
-      return '两段日期重叠，直接相加会重复统计。请先选定互不重叠的期间。';
+      return (
+        '两段日期重叠：' +
+        q.periods.map((p) => p.start).sort()[1] +
+        ' 至 ' +
+        q.periods.map((p) => p.end).sort()[0] +
+        '。直接相加会重复统计。'
+      );
     if (q.source === 'attendance') {
       if (q.op === 'maximum') return renderClassStandings(card);
       if (q.op === 'list') {

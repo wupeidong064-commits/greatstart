@@ -10,7 +10,8 @@ export const RANK_EXPAND_RX =
 
 /** 本轮点名教学岗位（老师／教师／教练）→ 默认只在教学人员中统计。 */
 export function rankScopeFor(q: string): 'teachers' | 'all' | undefined {
-  if (RANK_EXPAND_RX.test(q)) return 'all';
+  if (/(?:排除|不含|不算|不计|别算|不[要再]*[把将]?)(?:销售)?顾问|(?:销售)?顾问.{0,3}(?:排除|不算|不计|不参加)/.test(q)) return 'teachers';
+  if (/(?:纳入|包括|加上|包含|计入).{0,3}(?:销售|顾问)|(?:顾问|销售).{0,4}(?:也算|纳入|计入|加入|包含)/.test(q) || RANK_EXPAND_RX.test(q)) return 'all';
   if (/老师|教师|教练/.test(q)) return 'teachers';
   return undefined;
 }
