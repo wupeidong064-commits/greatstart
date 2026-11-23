@@ -104,7 +104,7 @@ describe('validated analytical dimensions', () => {
   });
   it('preserves an explicit zero cap', async () => {
     const r = await bind(
-      { source: 'renewals', op: 'list', maxRemaining: 0 },
+      { source: 'renewals', op: 'list', maxRemaining: 0, base: 'active', time: 'today' },
       '余额最多0节的待续费名单'
     );
     expect(r).toMatchObject({

@@ -245,6 +245,12 @@ function decoded(text: string): Command | { clarify: true } | undefined {
   }
   if (x.clarify === true) return { clarify: true };
   if (!sources.includes(x.source)) return;
+  // Validate comparison modifiers only for the operations that actually consume them.
+  // A provider may annotate a roster with an unrelated comparison base.
+  if (!['difference', 'growth'].includes(x.op)) delete x.base;
+  if (x.source !== 'teachers' || !['spread', 'difference'].includes(x.op)) delete x.against;
+  if (['students', 'renewals'].includes(x.source)) delete x.time;
+
   const keys = [
     'source',
     'op',
@@ -475,6 +481,13 @@ function contextualCommand(
     !/另外一个班|换个问题|换成|全校所有|按成交/.test(question);
   if (selectContacts)
     return { source: last.source, op: 'priority', inherit: true, campus: c?.campus };
+  if (
+    p !== undefined &&
+    /续费|续班/.test(question) &&
+    /哪些|有谁|名单|哪几位|哪几个/.test(question) &&
+    !/不续费|未续费|已经续|续费率|出勤|到课|订单|金额/.test(question)
+  )
+    return { source: 'renewals', op: 'list', maxRemaining: p, campus: c?.campus, group: c?.group };
   if (c?.source === 'lowStudents') {
     const rate = percentageIn(question)[0];
     c.threshold = rate ?? last?.threshold;
