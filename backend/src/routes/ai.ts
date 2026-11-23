@@ -598,13 +598,16 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       !uploadIds.length && !isFileRequest(content) && !isPurePresentationRequest(content) &&
       !/先.{0,6}(?:确认|选)|等我确认|确认再|草稿|跨机构|别家|其他独立机构|外校/.test(content) &&
       !clientDisconnected && activeAiModel()!=='mock-recorded-v1';
-    if (eligible) {
+    const continuingComparison=previousBusiness.some(card=>card.tool==='teacher_performance_comparison' && !card.error) &&
+      /(?:下滑|下降|退步).{0,6}(?:最多|最大|那位)|应到.{0,16}实到|实到.{0,16}应到/.test(content) &&
+      !/换成|改看|成交|新签|续费|余额|班级排名/.test(content);
+    if (eligible && !continuingComparison) {
       const context={organizationId,campusId:currentUser.campusId,today:todaySH,userId:owner.userId,personnelActor:req.user};
       let raw=scopeOnlyEdit(content,historyQueries);
       if(!raw) {
         startCall('query_dimensions');
         try {
-          const parsed=await collectModel(queryMessages,{signal:upstreamAbort.signal,maxTokens:360});
+          const parsed=await collectModel(queryMessages,{signal:upstreamAbort.signal,maxTokens:360,structuredQuery:true});
           markCall('query_dimensions',parsed.usage,'ok');
           raw=parsed.text;
         } catch {
@@ -1307,12 +1310,13 @@ function startSse(res: Response): void {
 /** 非流式收集一次模型输出（意图/摘要阶段用；usage 记入同一账单） */
 async function collectModel(
   messages: ChatMessage[],
-  opts?: { signal?: AbortSignal; maxTokens?: number }
+  opts?: { signal?: AbortSignal; maxTokens?: number; structuredQuery?: boolean }
 ): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number } | null }> {
   let text = '';
   let usage: { promptTokens: number; completionTokens: number } | null = null;
   for await (const d of streamGlmChat(messages, opts?.signal, {
     maxTokens: opts?.maxTokens,
+    structuredQuery: opts?.structuredQuery,
     onUsage: (u) => {
       usage = u;
     },

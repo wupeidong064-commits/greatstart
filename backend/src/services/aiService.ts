@@ -388,6 +388,7 @@ export async function* streamGlmChat(
   signal?: AbortSignal,
   opts?: {
     maxTokens?: number;
+    structuredQuery?: boolean;
     onUsage?: (u: {
       promptTokens: number;
       completionTokens: number;
@@ -603,7 +604,7 @@ export async function* streamGlmChat(
       model,
       messages,
       stream: true,
-      temperature: 0.6,
+      temperature: opts?.structuredQuery ? 0 : 0.6,
       ...(usingArk() ? {thinking:{type:'disabled'}} : {}),
       ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
       stream_options: { include_usage: true },
