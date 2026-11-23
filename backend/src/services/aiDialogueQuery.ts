@@ -210,6 +210,22 @@ function decoded(text: string): Command | { clarify: true } | undefined {
     /^\d{4}-\d{2}-\d{2}(?:[~,， 至]+\d{4}-\d{2}-\d{2})?$/.test(x.time)
   )
     x.time = 'auto';
+  if (
+    x.time &&
+    typeof x.time === 'object' &&
+    !Array.isArray(x.time) &&
+    Object.keys(x.time).every((k) => ['start', 'end', 'startDate', 'endDate'].includes(k))
+  ) {
+    x.time = 'auto';
+  }
+  // The attendance tool always returns numerator, denominator and rate as one measurement.
+  if (
+    x.source === 'attendance' &&
+    ['expected', 'actual', 'present', 'attendanceRate', 'expectedCount', 'actualCount'].includes(
+      x.metric
+    )
+  )
+    delete x.metric;
   if (x.time === 'inherit' || x.time === 'same') {
     x.time = 'auto';
     x.inherit = true;
@@ -494,11 +510,28 @@ export async function bindDialogue(
   // Requests about eligibility keep the cohort's filters when naming individuals.
   const membership =
     lastFrame?.source === 'renewals' && /条件|符合|续费|催续|不续|同一份|名单/.test(question);
-  if (membership && ctx.campusId) {
+  const confirmedRefund =
+    /退[费款]|退款/.test(question) &&
+    /已确认|已通过|已批|办妥|实际退|退过|已退|已完成/.test(question) &&
+    !/未确认|待审|申请中|尚未|还没/.test(question);
+  if ((membership || confirmedRefund) && ctx.campusId) {
+    const denied = scopeClarification(
+      question,
+      campusName,
+      c && 'campus' in c ? c.campus : undefined
+    );
+    if (denied) return { reply: denied };
     const people = await prisma.$queryRaw<
       Array<{ name: string }>
     >`SELECT DISTINCT name FROM students WHERE "organizationId"=${ctx.organizationId} AND "campusId"=${ctx.campusId} AND length(name)>1 AND strpos(${question},name)>0 ORDER BY name LIMIT 5`;
-    if (people.length)
+    if (people.length && confirmedRefund)
+      c = {
+        source: 'refunds',
+        op: 'read',
+        inherit: lastFrame?.source === 'refunds',
+        names: people.map((p) => p.name),
+      };
+    else if (people.length && membership)
       c = {
         source: 'renewals',
         op: 'read',

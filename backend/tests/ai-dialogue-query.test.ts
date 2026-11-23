@@ -42,7 +42,7 @@ describe('validated analytical dimensions', () => {
   });
   it('uses explicit business dates over a model generated date range', async () => {
     const result = await bind(
-      { source: 'orders', op: 'read', periods: [lastMay] },
+      { source: 'orders', op: 'read', periods: [lastMay], time: lastMay },
       '2026年5月1日到18日的成交'
     );
     expect(result).toMatchObject({ query: orders });
