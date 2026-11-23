@@ -1,3 +1,5 @@
+import type { AiIntent } from './aiIntent';
+import { percentageIn } from './aiQueryRequirements';
 import type { Evidence } from './aiTools';
 import type { DialogueQuery } from './aiDialogueQuery';
 
@@ -179,4 +181,36 @@ export function selectAttendanceClass(question: string, cards: Evidence[]): stri
     fmt((100 * number(row.实到)) / number(row.应到)) +
     '%。可先核对缺勤课次并回访。'
   );
+}
+
+export function lowClassSelectionIntent(
+  question: string,
+  priorQuestion: string
+): AiIntent | undefined {
+  if (
+    !/班/.test(question) ||
+    !/先看|优先|举一个|挑一个|选一个/.test(question) ||
+    /学生|学员|老师|退费|成交|收入|余课|和.+比|各学科/.test(question)
+  )
+    return;
+  const low = /低出勤|出勤.{0,4}(?:低|不足|最差)|到课.{0,4}(?:低|不足)/;
+  if (!low.test(question) && !(low.test(priorQuestion) && /班/.test(priorQuestion))) return;
+  const pct = percentageIn(question)[0];
+  return {
+    parsedOk: true,
+    purpose: 'facts',
+    tools: [
+      {
+        name: 'low_attendance_classes',
+        params: {
+          ...(pct === undefined
+            ? {}
+            : {
+                threshold: pct,
+                thresholdMode: /不高于|不超过|及以下|≤/.test(question) ? 'lte' : 'lt',
+              }),
+        },
+      },
+    ],
+  };
 }

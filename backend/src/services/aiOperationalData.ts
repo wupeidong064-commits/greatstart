@@ -36,6 +36,8 @@ export async function attendanceFollowup(ctx: ToolContext, params: Record<string
   const classes = await prisma.class.findMany({ where: { organizationId: ctx.organizationId, campusId: ctx.campusId, status: 'active',
     ...(classFilterId ? { id: classFilterId } : {}), ...(classFilterName ? { name: { contains: classFilterName } } : {}) },
     select: { id: true, name: true, teacher: { select: { id: true, organizationId: true, campusId: true, name: true } } } });
+  if ((classFilterId || classFilterName) && !classes.length)
+    throw new Error('指定班级在当前校区未匹配，无法确认出勤结果。');
   const ids = classes.map(c => c.id);
   const [sessions, enrollments, attendances, currentStudents] = await Promise.all([
     prisma.schedule.findMany({ where: { organizationId: ctx.organizationId, campusId:ctx.campusId, classId: { in: ids }, status: 'completed', startTime: { gte: range.from, lt: range.to } }, select: { id: true, classId: true, startTime: true, endTime: true } }),

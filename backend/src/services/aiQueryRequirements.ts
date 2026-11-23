@@ -11,6 +11,9 @@ export function requestsTable(q: string, intent: AiIntent) {
 
 // Match a named destination before executing even the fast report or previous-snapshot paths.
 // Only the signed-in campus name is read. A match never looks up the foreign campus.
+export function isCurrentCampusName(word: string, campus: string) {
+  return word === campus || (/^[\p{Script=Han}]{2,12}$/u.test(word) && campus.startsWith(word) && !/(机构|校区|分校|学校)$/.test(word));
+}
 export function scopeClarification(q: string, ownName: string, requested?: string) {
   const deny =
     '当前账号仅可查询' + ownName + '。指定范围超出当前校区权限，此次没有查询或复用经营数据。';

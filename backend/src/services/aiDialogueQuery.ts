@@ -475,6 +475,29 @@ function contextualCommand(
       group: c?.group && /班/.test(c.group) && question.includes(c.group) ? c.group : undefined,
       inherit: last?.source === 'students',
     };
+  const extrema = /最高|最多|第一|榜首/.test(question) && /最低|最少|最后|末位|垫底/.test(question);
+  if (
+    extrema &&
+    /差额|差值|差距|相差|差多少|多出|相减/.test(question) &&
+    (/老师|教练|教师/.test(question) || last?.source === 'teachers') &&
+    !/上月比|同比|环比|下滑|增长/.test(question)
+  ) {
+    const metric: Metric | undefined = /出勤|到课/.test(question)
+      ? 'attendance'
+      : /成单|成交|销售|订单/.test(question)
+        ? 'sales'
+        : /课消/.test(question)
+          ? 'consumption'
+          : last?.metric;
+    if (metric)
+      return {
+        source: 'teachers',
+        op: 'spread',
+        metric,
+        inherit: last?.source === 'teachers',
+        campus: c?.campus,
+      };
+  }
   const classOrder =
     /各(?:个)?班|班级|哪些班/.test(question) &&
     /出勤|到课/.test(question) &&

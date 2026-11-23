@@ -1,5 +1,5 @@
 import {explainDeclineCounts} from '../services/aiTeacherComparison';
-import {selectAttendanceClass} from '../services/aiDialogueMeasures';
+import {selectAttendanceClass,lowClassSelectionIntent} from '../services/aiDialogueMeasures';
 import { dialogueHistory, dialogueMessages, bindDialogue, renderDialogue, scopeOnlyEdit } from '../services/aiDialogueQuery';
 import { verifiedReportFileBuffer } from '../services/reportFileService';
 import { reportRequest, previewReportImport, confirmReportImport, createOperatingReport, reportCards, reportAnswer } from '../services/operatingReportService';
@@ -73,7 +73,7 @@ import { publicChatCards, publicVerificationNotice } from '../services/aiChatPre
 import { resolveBusinessCalendar } from '../services/aiBusinessCalendar';
 import { adviceTopic, renderOperatingAdvice } from '../services/aiOperatingAdvice';
 import { buildOperatingSnapshot, renderOperatingFacts } from '../services/aiOperatingFacts';
-import { alignMeasures, bindUserThreshold, comparisonFactIds, requestsTable, scopeClarification } from '../services/aiQueryRequirements';
+import { alignMeasures, bindUserThreshold, comparisonFactIds, requestsTable, scopeClarification, isCurrentCampusName } from '../services/aiQueryRequirements';
 import { renderTeacherComparison, teacherComparisonIntent } from '../services/aiTeacherComparison';
 import { renderTeacherRanking, teacherRankingIntent } from '../services/aiTeacherRanking';
 import { businessToday, calendarTools, exceedsCalendarToolLimit, supportsHistoricalPeriod } from '../services/aiOperatingPlan';
@@ -549,7 +549,8 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       attachments: attachmentContext,
     });
     const historyQueries = dialogueHistory(allRows);
-    const queryMessages = dialogueMessages(content, historyQueries, allRows.filter(r=>r.role==='user').slice(-5,-1).map(r=>r.content));
+    const priorQuestions=allRows.filter(r=>r.role==='user').slice(-5,-1).map(r=>r.content);
+    const queryMessages = dialogueMessages(content, historyQueries, priorQuestions);
     const queryBudget = queryMessages.reduce((n,m)=>n+m.content.length,0);
     const intentInputEst = intentMessages.reduce((sum, m) => sum + m.content.length, 0);
     const summaryInputEst = window.needsSummary ? CTX_BUDGET.total : 0;
@@ -593,7 +594,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       || securityProbeIntent(content) || workbenchHelpIntent(content, uploadIds.length > 0)
       || explainDeclineCounts(content,previousBusiness,req.user!.role,currentUser.campusId)
       || explanationIntent(content, previousRow?.content) || generalAttendanceAdvice(content)
-      || criticalMetricClarification(content) : undefined;
+      || criticalMetricClarification(content) || lowClassSelectionIntent(content,priorQuestions[priorQuestions.length-1]||'') : undefined;
     // Resolve the requested operation and dimensions together. Facts and arithmetic stay in scoped tools.
     let dialogue: Awaited<ReturnType<typeof bindDialogue>>;
     const eligible = scopeDecision==='business' && !priorityIntent && !priorPending && !pickedClass.length &&
@@ -799,6 +800,16 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
       return {...plan,tools};
     };
     if (!dialogue && !cross && !standings) intent = bindPlan(localReply ? intent : alignMeasures(intent,content));
+    // A campus qualifier can be mistyped as a class filter by a provider.
+    // Preserve genuine class names. Remove only a verified campus-only label.
+    if (intent.tools?.length && !intent.reply && currentUser.campusId) {
+      for (const tool of intent.tools) {
+        const label=tool.params?.className;
+        if(typeof label!=='string' || !content.includes(label) || !isCurrentCampusName(label,campus.name)) continue;
+        const match=await prisma.class.findFirst({where:{organizationId,campusId:currentUser.campusId,name:{contains:label},status:{not:'deleted'}},select:{id:true}});
+        if(!match && !content.includes(label+'班'))delete tool.params.className;
+      }
+    }
     // Validate before any business query. One bounded repair is metered as a separate call.
     if (intent.parsedOk && !intent.reply && intent.tools?.length) {
       const checked = validateToolPlan(intent.tools);
