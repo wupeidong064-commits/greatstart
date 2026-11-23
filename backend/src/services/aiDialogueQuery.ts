@@ -155,7 +155,7 @@ export function scopeOnlyEdit(question: string, history: DialogueQuery[]): strin
   if (
     (last?.source === 'attendance' || (/班/.test(question) && /出勤|到课/.test(question))) &&
     /并列.{0,4}(?:第一|最高)/.test(question) &&
-    !/(?:这个班|该班|也在|是否在|其中的)/.test(question)
+    !/(?:这个班|该班|也在|是否在|其中的|老师|学员|顾问)/.test(question)
   )
     return JSON.stringify({ source: 'attendance', op: 'maximum', group: '*', inherit: true });
   if (!last || !['attendance', 'lessons', 'lowStudents'].includes(last.source)) return;
@@ -214,14 +214,8 @@ function decoded(text: string): Command | { clarify: true } | undefined {
     /^\d{4}-\d{2}-\d{2}(?:[~,， 至]+\d{4}-\d{2}-\d{2})?$/.test(x.time)
   )
     x.time = 'auto';
-  if (
-    x.time &&
-    typeof x.time === 'object' &&
-    !Array.isArray(x.time) &&
-    Object.keys(x.time).every((k) => ['start', 'end', 'startDate', 'endDate'].includes(k))
-  ) {
-    x.time = 'auto';
-  }
+  if (x.time && typeof x.time === 'object' && !Array.isArray(x.time))
+    x.time = choices.includes(x.time.mode) ? x.time.mode : 'auto';
   // Only teacher comparisons choose one numeric metric. Attendance always carries all
   // three measures. The model's output label for a column cannot invalidate the dates.
   if (
@@ -230,7 +224,6 @@ function decoded(text: string): Command | { clarify: true } | undefined {
     !['sales', 'consumption', 'signup'].includes(x.metric)
   )
     delete x.metric;
-  if (x.time && typeof x.time === 'object' && choices.includes(x.time.mode)) x.time = x.time.mode;
   if (
     [
       'today',
@@ -443,6 +436,19 @@ function contextualCommand(
   last?: DialogueQuery
 ): ReturnType<typeof decoded> {
   const c = input && 'source' in input ? { ...input } : undefined;
+  const classOrder =
+    /各(?:个)?班|班级|哪些班/.test(question) &&
+    /出勤|到课/.test(question) &&
+    /排名|排行|排序/.test(question) &&
+    !/老师|教练|学员|学生|金额|课消|同比|下滑|降低|下降|最低|最差/.test(question);
+  if (classOrder)
+    return {
+      source: 'attendance',
+      op: /第一|最高/.test(question) ? 'maximum' : 'list',
+      group: '*',
+      campus: c?.campus,
+      inherit: c?.inherit,
+    };
   const p = balanceCap(question);
   const narrowing =
     last?.source === 'lowStudents' &&
