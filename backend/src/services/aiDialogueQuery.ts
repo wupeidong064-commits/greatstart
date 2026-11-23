@@ -448,6 +448,33 @@ function contextualCommand(
   last?: DialogueQuery
 ): ReturnType<typeof decoded> {
   const c = input && 'source' in input ? { ...input } : undefined;
+  // A lifecycle filter selects people. A refund transaction selects payments.
+  // Keep a roster as a roster when only the selected status changes.
+  const focus = question.split(/(?:别混|跟刚才|与刚才|和刚才|不要混|分开列上一)/)[0];
+  const statusHits = (Object.entries(statuses) as Array<[keyof typeof statuses, string]>).filter(
+    ([, label]) => focus.includes(label.replace('已', ''))
+  );
+  const peopleList =
+    /名单|档案|姓名|名字|都有谁|哪[几些]位|几个学[生员]|几名学[生员]|哪些学[生员]|学[生员].{0,8}(?:哪些|有谁|人数)/.test(
+      focus
+    ) ||
+    (last?.source === 'students' &&
+      /那一组|那一批|列给我|那组|换[成为]|改看|人数|哪几位/.test(focus));
+  if (
+    statusHits.length === 1 &&
+    peopleList &&
+    !/续费|余课|课时|余额|出勤|到课|签到|缺勤|课消|为什么|原因|金额|多少钱|几笔|多少笔|退款记录|退费记录|账单|收支|待审|申请中|不包含|排除/.test(
+      question
+    )
+  )
+    return {
+      source: 'students',
+      op: 'list',
+      status: statusHits[0][0],
+      campus: c?.campus,
+      group: c?.group && /班/.test(c.group) && question.includes(c.group) ? c.group : undefined,
+      inherit: last?.source === 'students',
+    };
   const classOrder =
     /各(?:个)?班|班级|哪些班/.test(question) &&
     /出勤|到课/.test(question) &&
