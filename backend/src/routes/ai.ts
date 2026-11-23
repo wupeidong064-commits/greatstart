@@ -1,3 +1,4 @@
+import {selectAttendanceClass} from '../services/aiDialogueMeasures';
 import { dialogueHistory, dialogueMessages, bindDialogue, renderDialogue, scopeOnlyEdit } from '../services/aiDialogueQuery';
 import { verifiedReportFileBuffer } from '../services/reportFileService';
 import { reportRequest, previewReportImport, confirmReportImport, createOperatingReport, reportCards, reportAnswer } from '../services/operatingReportService';
@@ -1059,7 +1060,9 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
     let fullText = '';
     if (!clientDisconnected) {
       const sections: string[] = [];
-      if (intent.reply) sections.push(intent.reply);
+      const classChoice=!intent.reply && !dialogue && !fileCards.length ? selectAttendanceClass(content,evidences):undefined;
+      if (classChoice) sections.push(classChoice);
+      else if (intent.reply) sections.push(intent.reply);
       else if (dialogue && 'query' in dialogue) sections.push(renderDialogue(dialogue.query,evidences));
       else {
         const tableRequested = requestsTable(content,intent) || intent.reuseSnapshot && isFileRequest(content);

@@ -222,12 +222,12 @@ function decoded(text: string): Command | { clarify: true } | undefined {
   ) {
     x.time = 'auto';
   }
-  // The attendance tool always returns numerator, denominator and rate as one measurement.
+  // Only teacher comparisons choose one numeric metric. Attendance always carries all
+  // three measures. The model's output label for a column cannot invalidate the dates.
   if (
     x.source === 'attendance' &&
-    ['expected', 'actual', 'present', 'attendanceRate', 'expectedCount', 'actualCount'].includes(
-      x.metric
-    )
+    typeof x.metric === 'string' &&
+    !['sales', 'consumption', 'signup'].includes(x.metric)
   )
     delete x.metric;
   if (x.time && typeof x.time === 'object' && choices.includes(x.time.mode)) x.time = x.time.mode;
@@ -464,6 +464,13 @@ function contextualCommand(
       maxRemaining: p,
     };
   }
+  const selectContacts =
+    last &&
+    (last.source === 'lowStudents' || last.source === 'renewals') &&
+    /先联系|优先(?:联系|跟进|通知)|先打|只打|优先选/.test(question) &&
+    !/另外一个班|换个问题|换成|全校所有|按成交/.test(question);
+  if (selectContacts)
+    return { source: last.source, op: 'priority', inherit: true, campus: c?.campus };
   if (c?.source === 'lowStudents') {
     const rate = percentageIn(question)[0];
     c.threshold = rate ?? last?.threshold;
@@ -638,7 +645,12 @@ export async function bindDialogue(
     !/出勤|到课|缺勤|签到|没来|没到/.test(question)
   )
     return;
-  if (!view && /简报|晨会|建议|推算|能确定|能证实|先讲方法|一句话补上/.test(question)) return;
+  if (
+    !view &&
+    !('source' in c && ['lowStudents', 'renewals'].includes(c.source) && c.op === 'priority') &&
+    /简报|晨会|建议|推算|能确定|能证实|先讲方法|一句话补上/.test(question)
+  )
+    return;
   // Let the full tool planner handle richer measures and analytical questions it already supports.
   if (
     'source' in c &&

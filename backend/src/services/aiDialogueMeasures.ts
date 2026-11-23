@@ -149,3 +149,34 @@ export function presentMeasures(v: EvidenceView, e: Evidence): string {
     ? period + action
     : period + lines.join('，') + '。' + (action ? '\n' + action : '');
 }
+
+export function selectAttendanceClass(question: string, cards: Evidence[]): string | undefined {
+  if (!/班/.test(question) || !/先看|优先|举一个|挑一个|选一个/.test(question)) return;
+  const card = cards.find((c) => c.tool === 'low_attendance_classes' && !c.error && c.timeRange);
+  if (!card?.timeRange) return;
+  const rows = card.rows.filter(
+    (r) =>
+      typeof r.班级 === 'string' &&
+      typeof r.实到 === 'number' &&
+      typeof r.应到 === 'number' &&
+      r.应到 > 0
+  );
+  const row = rows.sort(
+    (a, b) => number(a.实到) / number(a.应到) - number(b.实到) / number(b.应到)
+  )[0];
+  if (!row) return;
+  return (
+    card.timeRange.start +
+    ' 至 ' +
+    card.timeRange.end +
+    '，建议先看' +
+    row.班级 +
+    '。已核对的低出勤班中，该班出勤率最低，实到 ' +
+    row.实到 +
+    '／应到 ' +
+    row.应到 +
+    ' 人次，出勤率 ' +
+    fmt((100 * number(row.实到)) / number(row.应到)) +
+    '%。可先核对缺勤课次并回访。'
+  );
+}

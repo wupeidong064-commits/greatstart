@@ -14,7 +14,7 @@ export function requestsTable(q: string, intent: AiIntent) {
 export function scopeClarification(q: string, ownName: string, requested?: string) {
   const deny =
     '当前账号仅可查询' + ownName + '。指定范围超出当前校区权限，此次没有查询或复用经营数据。';
-  if (/跨(?:校区|机构)|其他(?:校区|机构)|别的(?:校区|机构)|所有校区|全机构各校区/.test(q))
+  if (/跨(?:校区|机构)|其他(?:独立)?(?:校区|机构)|别的(?:校区|机构)|所有校区|全机构各校区/.test(q))
     return deny;
   const local = /^(?:当前|我们|咱们|本|这个|本机构当前)?校区$/;
   const named = requested && q.includes(requested) ? requested : undefined;

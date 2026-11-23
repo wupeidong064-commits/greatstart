@@ -12,6 +12,8 @@ export function blockedChatEntryIntent(question: string, hasLegacyDraft = false)
   // Analysis, definitions and management advice remain available, including questions
   // referring to records that were registered in the business pages.
   const mixedWrite = /(?:然后|再|并|顺便)\s*(?:帮我|替我)?\s*(?:录入|登记|写入|创建|新增|修改|删除)/.test(q);
+  const asksRecordedCount=/(?:登记|签到|报名|到场)(?:过|了|的)?(?:几|多少)(?:人次|笔|单|位|人|场|次)/.test(q);
+  if (asksRecordedCount && !mixedWrite && !/(?:帮我|替我|给我|请|先|需要)\s*(?:录入|登记|创建|新增|签到)|新增|写入|提交|保存|删除/.test(q)) return undefined;
   if (/查询|查一下|查查|统计|分析|汇总|对比|比较|查看|列出|导出|生成报告|口径|定义|区别|多少|几笔|几单|哪些|是否|有没有/.test(q)
     && !mixedWrite) return undefined;
   if (hasLegacyDraft && /^(?:金额|课时|电话|联系方式|负责人|班级)\s*[：:]?\s*(?:\d|我)/.test(q)) return closed();

@@ -1,3 +1,4 @@
+import { blockedChatEntryIntent } from '../src/services/aiEntryService';
 import { describe, expect, it } from 'vitest';
 import { bindDialogue, dialogueHistory, renderDialogue } from '../src/services/aiDialogueQuery';
 import { mentionedPeriods } from '../src/services/aiBusinessCalendar';
@@ -124,6 +125,11 @@ describe('validated analytical dimensions', () => {
       '2025年12月29日至2026年1月4日合计多少？'
     );
     expect(r).toMatchObject({ query: { periods: [{ start: '2025-12-29', end: '2026-01-04' }] } });
+  });
+  it('distinguishes asking how many records exist from asking to enter records', () => {
+    expect(blockedChatEntryIntent('试听课登记几人次，到场和成单各几人次？')).toBeUndefined();
+    expect(blockedChatEntryIntent('帮我登记几位学生参加试听课')).toHaveProperty('reply');
+    expect(blockedChatEntryIntent('统计试听课到场，再帮我新增体验记录')).toHaveProperty('reply');
   });
   it('keeps campus scope checks ahead of queries', async () => {
     expect(await bind({ source: 'orders', campus: '其他机构' }, '查其他机构的成交')).toMatchObject({
