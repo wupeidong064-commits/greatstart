@@ -149,7 +149,7 @@ export function dialogueHistory(messages: PriorMessage[]): DialogueQuery[] {
 export function scopeOnlyEdit(question: string, history: DialogueQuery[]): string | undefined {
   const last = history[history.length - 1];
   if (
-    last?.source === 'attendance' &&
+    (last?.source === 'attendance' || (/班/.test(question) && /出勤|到课/.test(question))) &&
     /并列.{0,4}(?:第一|最高)/.test(question) &&
     !/(?:这个班|该班|也在|是否在|其中的)/.test(question)
   )
@@ -227,6 +227,23 @@ function decoded(text: string): Command | { clarify: true } | undefined {
   )
     delete x.metric;
   if (x.time && typeof x.time === 'object' && choices.includes(x.time.mode)) x.time = x.time.mode;
+  if (
+    [
+      'today',
+      'current',
+      'asOf',
+      'explicit',
+      'currentMonth',
+      'thisMonth',
+      'lastMonth',
+      'currentWeek',
+      'thisWeek',
+      'lastWeek',
+      'recent30Days',
+      'custom',
+    ].includes(x.time)
+  )
+    x.time = 'auto';
   if (x.time === 'inherit' || x.time === 'same') {
     x.time = 'auto';
     x.inherit = true;
@@ -491,9 +508,9 @@ function contextualCommand(
       c.op = 'spread';
     if (
       !/出勤|到课|签到|课消|核销|成交|成单|销售|新招|新签/.test(question) &&
-      last?.source === 'teachers'
+      (!last || last.source === 'teachers' || c.inherit !== true)
     )
-      c.metric = last.metric;
+      c.metric = last?.source === 'teachers' ? last.metric : 'attendance';
     if (!/顾问|销售岗|全员|所有人|全体员工/.test(question) && last?.source !== 'teachers')
       c.allStaff = false;
   }
@@ -526,7 +543,17 @@ export async function bindDialogue(
     lastFrame &&
     ['refunds', 'balance', 'renewals'].includes(lastFrame.source) &&
     question.length <= 60;
-  if ((membership || confirmedRefund || mayReplacePerson) && ctx.campusId) {
+  const balanceAsked =
+    /课时余额|余课|剩余课时|还剩|剩几节|还有几节/.test(question) &&
+    !/名单|哪些|适合|排名|先联系|金额|出勤|到课率/.test(question) &&
+    balanceCap(question) === undefined;
+  if (
+    (membership ||
+      confirmedRefund ||
+      mayReplacePerson ||
+      (balanceAsked && (!c || !('source' in c) || c.source !== 'balance' || !c.names?.length))) &&
+    ctx.campusId
+  ) {
     const denied = scopeClarification(
       question,
       campusName,
@@ -542,10 +569,12 @@ export async function bindDialogue(
     const nameOnly =
       people.length &&
       !remainder.replace(
-        /先后|接着|继续|再|帮我|请|另[一外]|另外|改为|改成|换成|换个|改看|看看|看|查查|查一下|一下|刚才|刚刚|那位|这一项|这一笔|同一项|相同|同样|怎么[样说]|如何|那么|和|与|也|那|呢|的|[，、。！？?!,\s]/g,
+        /先后|接着|继续|再|帮我|请|另[一外]|另外|改为|改成|换成|换个|改看|换|看看|看|查查|查一下|一下|刚才|刚刚|那位|这一项|这一笔|同一项|相同|同样|怎么[样说]|如何|那么|和|与|也|那|呢|的|[，、。！？?!,\s]/g,
         ''
       );
-    if (mayReplacePerson && nameOnly)
+    if (balanceAsked && people.length && !membership)
+      c = { source: 'balance', op: 'read', names: people.map((p) => p.name) };
+    else if (mayReplacePerson && nameOnly)
       c = { source: lastFrame.source, op: 'read', inherit: true, names: people.map((p) => p.name) };
     else if (people.length && confirmedRefund)
       c = {
@@ -564,6 +593,13 @@ export async function bindDialogue(
       };
   }
   if (!c) return;
+  if (
+    'source' in c &&
+    c.source === 'lowStudents' &&
+    lastFrame?.source !== 'lowStudents' &&
+    !/出勤|到课|缺勤|签到|没来|没到/.test(question)
+  )
+    return;
   if (/简报|晨会|建议|推算|能确定|能证实|先讲方法|一句话补上/.test(question)) return;
   // Let the full tool planner handle richer measures and analytical questions it already supports.
   if (
