@@ -448,15 +448,22 @@ function contextualCommand(
     last?.source === 'lowStudents' &&
     p !== undefined &&
     !/换个问题|全部在读|全校所有/.test(question);
-  if (narrowing)
+  if (narrowing) {
+    // Narrow the saved cohort. Only a scope actually named by this user can amend its class.
+    const group = c?.group && question.includes(c.group) ? c.group : undefined;
     return {
-      ...c,
       source: 'lowStudents',
-      op: 'list',
+      op: c?.op === 'priority' ? 'priority' : 'list',
       inherit: true,
+      campus: c?.campus,
+      group,
+      threshold: percentageIn(question)[0] ?? last.threshold,
+      inclusive: percentageIn(question).length
+        ? /不高于|不超过|及以下|≤/.test(question)
+        : last.inclusive,
       maxRemaining: p,
-      numberOfPeople: undefined,
     };
+  }
   if (c?.source === 'lowStudents') {
     const rate = percentageIn(question)[0];
     c.threshold = rate ?? last?.threshold;
