@@ -67,6 +67,8 @@ export function isExplanationRequest(q: string) {
 }
 
 export function explanationIntent(q: string, lastAnswer?: string): AiIntent | undefined {
+  if (/授课老师|授课教师|代课老师/.test(q) && /负责老师|负责[人这]|班主任|主责/.test(q) && /能.*当|是否.*等同|同一回事|区别/.test(q))
+    return {parsedOk:true,purpose:'explanation',reply:'请查看班级资料中的负责老师。当堂授课人记录谁实际上了这节课，班级主责记录谁负责跟进；遇到代课，两人可能不同。'};
   if (!isExplanationRequest(q)) return undefined;
   const refersBack = /这|那|上面|刚才|前面/.test(q);
   const source = refersBack && !/净成单|课消|确认收入|利润/.test(q) ? q + (lastAnswer || '') : q;

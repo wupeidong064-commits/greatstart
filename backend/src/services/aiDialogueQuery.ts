@@ -3,6 +3,7 @@ import { BusinessPeriod, mentionedPeriods, resolveBusinessCalendar } from './aiB
 import type { ChatMessage } from './aiService';
 import type { Evidence, PlannedToolCall, ToolContext } from './aiTools';
 import { renderTeacherRanking } from './aiTeacherRanking';
+import { rankScopeFor } from './aiQueryBinding';
 import { renderClassStandings } from './aiClassStandings';
 import { percentageIn, quantity, scopeClarification } from './aiQueryRequirements';
 
@@ -64,7 +65,9 @@ type Command = Partial<Cohort> & {
   names?: string[];
   numberOfPeople?: number;
 };
-type Resolution = { query: DialogueQuery; tools: PlannedToolCall[] } | { reply: string };
+type Resolution =
+  | { query: DialogueQuery; tools: PlannedToolCall[] }
+  | { reply: string; retain?: DialogueQuery };
 type PriorMessage = { role: string; status: string; usageJson: unknown; evidenceJson: unknown };
 function legacyFrame(row: PriorMessage): DialogueQuery | undefined {
   if (!Array.isArray(row.evidenceJson)) return;
@@ -145,6 +148,12 @@ export function dialogueHistory(messages: PriorMessage[]): DialogueQuery[] {
 /** A change of scope alone keeps the previous measures and every selected period, including after refresh. */
 export function scopeOnlyEdit(question: string, history: DialogueQuery[]): string | undefined {
   const last = history[history.length - 1];
+  if (
+    last?.source === 'attendance' &&
+    /并列.{0,4}(?:第一|最高)/.test(question) &&
+    !/(?:这个班|该班|也在|是否在|其中的)/.test(question)
+  )
+    return JSON.stringify({ source: 'attendance', op: 'maximum', group: '*', inherit: true });
   if (!last || !['attendance', 'lessons', 'lowStudents'].includes(last.source)) return;
   const broad = /全(?:校区|机构|校)|整(?:个|所)(?:学校|校区|机构)|所有班级/;
   if (!broad.test(question)) return;
@@ -306,7 +315,19 @@ function periodsFor(
   const paired = c.time === 'recentPair' || c.time === 'outerPair' || c.time === 'yearComparison';
   // Relative year selectors refer to a recorded window. Keep explicit calendar dates for the common parser.
   const dateText = question.replace(/(今年|去年|明年)(?!\s*[零一二两三四五六七八九十\d]+月)/g, '');
-  const explicit = mentionedPeriods(dateText, today);
+  const explicit = mentionedPeriods(dateText.replace(/这半年/g, '最近半年'), today);
+  if (
+    c.op === 'priority' &&
+    previous?.periods.length &&
+    explicit.every((p) => p.start === today && p.end === today)
+  )
+    return previous.periods;
+  if (
+    explicit.length === 1 &&
+    !['difference', 'growth', 'sum'].includes(c.op ?? 'read') &&
+    !['previousYear', 'yearComparison'].includes(c.time ?? 'auto')
+  )
+    return explicit;
   const active = explicit.length ? explicit : previous?.periods?.length ? previous.periods : [];
   const recent = unique([
     ...hist.filter((q) => q.source === c.source).flatMap((q) => q.periods),
@@ -415,7 +436,35 @@ function contextualCommand(
     !/第一|最高/.test(question)
   )
     c.op = 'list';
+  if (
+    last?.source === 'balance' &&
+    last.names?.length === 1 &&
+    /他|她|刚才那位/.test(question) &&
+    /几节|多少节|余额/.test(question) &&
+    !/换个人|另外/.test(question)
+  )
+    return { ...c, source: 'balance', op: 'read', inherit: true, names: last.names };
+  if (
+    c?.source === 'orders' &&
+    c.op === 'difference' &&
+    /增长|增幅|增长率|百分之几|百分数/.test(question) &&
+    !/不[要用算].{0,5}百分/.test(question)
+  )
+    c.op = 'growth';
+  if (
+    last?.source === 'balance' &&
+    /^(?:那|那么|换成|改看)?(?:现在|如今|当前|此刻|今天)(?:呢|的余额|还有几节)?[？?。！\s]*$/.test(
+      question
+    )
+  )
+    return { source: 'balance', op: 'read', inherit: true, names: last.names };
   if (c?.source === 'teachers') {
+    if (c.time === 'recentPair' || c.time === 'outerPair') c.time = 'auto';
+    if (
+      c.op === 'difference' &&
+      (c.names?.length || c.against || /最高|最低|第一|排末/.test(question))
+    )
+      c.op = 'spread';
     if (
       !/出勤|到课|签到|课消|核销|成交|成单|销售|新招|新签/.test(question) &&
       last?.source === 'teachers'
@@ -440,7 +489,24 @@ export async function bindDialogue(
   ctx: ToolContext,
   campusName: string
 ): Promise<Resolution | undefined> {
-  const c = contextualCommand(decoded(raw), question, hist[hist.length - 1]);
+  const lastFrame = hist[hist.length - 1];
+  let c = contextualCommand(decoded(raw), question, lastFrame);
+  // Requests about eligibility keep the cohort's filters when naming individuals.
+  const membership =
+    lastFrame?.source === 'renewals' && /条件|符合|续费|催续|不续|同一份|名单/.test(question);
+  if (membership && ctx.campusId) {
+    const people = await prisma.$queryRaw<
+      Array<{ name: string }>
+    >`SELECT DISTINCT name FROM students WHERE "organizationId"=${ctx.organizationId} AND "campusId"=${ctx.campusId} AND length(name)>1 AND strpos(${question},name)>0 ORDER BY name LIMIT 5`;
+    if (people.length)
+      c = {
+        source: 'renewals',
+        op: 'read',
+        inherit: true,
+        names: people.map((p) => p.name),
+        maxRemaining: balanceCap(question) ?? lastFrame.maxRemaining,
+      };
+  }
   if (!c) return;
   if ('clarify' in c) return { reply: '你想问哪位老师、哪个班或哪位学员？也请说明想比较的指标。' };
   const denied = scopeClarification(question, campusName, c.campus);
@@ -552,7 +618,8 @@ export async function bindDialogue(
     }
     if (dates.length > 1 || dates.some((p) => p.start !== p.end))
       return { reply: '余额需要一个具体日期，请指定要核对哪一天。' };
-    if (dates.some((p) => p.end > ctx.today)) return { reply: '指定日期在未来，余额无法核实。' };
+    if (dates.some((p) => p.end > ctx.today))
+      return { reply: '指定日期在未来，余额无法核实。', retain: { ...query, periods: [] } };
     query.periods = dates;
     return {
       query,
@@ -565,7 +632,8 @@ export async function bindDialogue(
   if (c.source === 'teachers') {
     query.against = c.against;
     query.metric = c.metric ?? prior?.metric ?? 'attendance';
-    query.allStaff = c.allStaff ?? prior?.allStaff ?? false;
+    const scope = rankScopeFor(question);
+    query.allStaff = scope === 'all' || (scope !== 'teachers' && (prior?.allStaff ?? false));
   }
   const names = c.names?.length ? c.names : prior?.names;
   if (names?.length) query.names = names;
@@ -948,9 +1016,11 @@ export function renderDialogue(q: DialogueQuery, cards: Evidence[]): string {
         ? '金额持平'
         : (delta > 0 ? '增加 ' : '减少 ') + format(Math.abs(delta)) + ' 元') +
       '。' +
-      (a.amount === 0
-        ? '基期为零，无法计算增长率。'
-        : '变化率 ' + format((delta / a.amount) * 100) + '%。') +
+      (q.op !== 'growth'
+        ? ''
+        : a.amount === 0
+          ? '基期为零，无法计算增长率。'
+          : '变化率 ' + format((delta / a.amount) * 100) + '%。') +
       '成单笔数从 ' +
       a.count +
       ' 笔到 ' +

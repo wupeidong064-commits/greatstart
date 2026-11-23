@@ -1231,6 +1231,7 @@ aiRoutes.post('/chat', chatLimiter, async (req: AuthRequest, res, next) => {
           pendingClarification,
           ...(queryPlanAudit ? { queryPlan: queryPlanAudit } : {}),
           operatingAnswer: {version:operatingSnapshot.version,calendar,
+            ...(dialogue && 'retain' in dialogue && dialogue.retain ? {dialogue:dialogue.retain} : {}),
             ...(dialogue && 'query' in dialogue && !intent.reply && evidences.length && evidences.every(e=>!e.error) ? {dialogue:dialogue.query} : {}),adviceText,topic:adviceText ? topic || previousAnswer?.topic : undefined,
             factIds:operatingSnapshot.facts.map(f=>f.id),purpose:intent.purpose,subject:intent.subject,actions:intent.actionIds,
             crossSum: cross?.completed && !intent.reply && evidences.length === 2 && evidences.every(c => !c.error)
