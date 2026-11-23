@@ -153,6 +153,14 @@ export function dialogueHistory(messages: PriorMessage[]): DialogueQuery[] {
 export function scopeOnlyEdit(question: string, history: DialogueQuery[]): string | undefined {
   const last = history[history.length - 1];
   if (
+    last?.source === 'orders' &&
+    /汇总|总数|总额/.test(question) &&
+    /不列|不要列|别列|不带|隐藏|匿名/.test(question) &&
+    /姓名|电话|个人|明细/.test(question) &&
+    !/其他|别家|另外|换班|改成|分班|按班|老师/.test(question)
+  )
+    return JSON.stringify({ source: 'orders', op: last.op, inherit: true });
+  if (
     (last?.source === 'attendance' || (/班/.test(question) && /出勤|到课/.test(question))) &&
     /并列.{0,4}(?:第一|最高)/.test(question) &&
     !/(?:这个班|该班|也在|是否在|其中的|老师|学员|顾问)/.test(question)

@@ -75,6 +75,8 @@ export function explanationIntent(q: string, lastAnswer?: string): AiIntent | un
     return {parsedOk:true,purpose:'explanation',reply:'仅凭这些经营数字无法推算老师工资。还需要个人有效授课、业绩归属和本机构约定的薪酬规则。'};
   if (/能确定|能证明|证实|需要核实|还得.*核实/.test(q) && /缺勤|出勤|实到/.test(lastAnswer||'') && /原因|教学|核实/.test(q))
     return {parsedOk:true,purpose:'explanation',reply:'出勤记录能证实实到和应到的人次差异。教学质量、请假、调课或漏签都需要核对课次记录并回访，单凭出勤变化无法判定原因。'};
+  if (/成交|成单/.test(q) && /实收|到账/.test(q) && /课消/.test(q) && /意思|含义|区别|定义|什么是/.test(q))
+    return {parsedOk:true,purpose:'explanation',reply:'成交额按已确认订单统计，实收按实际到账日期统计，课消金额按已经上掉的课时和对应购课批次的价格统计。比如本月签单并付清、下月开始上课，本月有成交和实收，下月上课扣课后才产生课消。'};
   if (!isExplanationRequest(q)) return undefined;
   const refersBack = /这|那|上面|刚才|前面/.test(q);
   const source = refersBack && !/净成单|课消|确认收入|利润/.test(q) ? q + (lastAnswer || '') : q;
